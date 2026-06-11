@@ -20,10 +20,10 @@ common:
     replace: "·"
     comment: "统一中点符号"
 
-  - pattern: '\.{3,}'
+  - pattern: '\.{3}'
     replace: '…'
     regex: true
-    comment: "三个以上点号合并为省略号"
+    comment: "每三个点号合并为一个省略号（六点→……）"
 
   - pattern: '\s{2,}'
     replace: ' '
@@ -235,17 +235,15 @@ vertical:
   - pattern: "﹏"
     replace: "﹏"
     comment: "保持不变"
-  - pattern: "……"
-    replace: "⋮"
-    comment: "六点变三点省略号"
   - pattern: "…"
-    replace: "⋮"
+    replace: "︙"
+    comment: "每个…对应一个︙，六点保持六点（︙U+FE19，⋮U+22EE 内置字体无字形会变问号/空白）"
   - pattern: "⋯"
     replace: "︙"
   - pattern: "⋰"
-    replace: "⋮"
+    replace: "︙"
   - pattern: "⋱"
-    replace: "⋮"
+    replace: "︙"
   - pattern: "″"
     replace: "﹂"
   - pattern: "‴"

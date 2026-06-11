@@ -175,9 +175,9 @@ def normalize_vertical_ellipsis_text(text: str) -> str:
     # 直排省略號統一轉 ︙(U+FE19，垂直省略號的中日呈現形)。
     # 注意：不要轉 ⋮(U+22EE)——Noto Sans Mono CJK 沒有該字形，會 fallback 成問號（直排「…」變「?」的元兇）。
     text = text or ''
-    text = text.replace('……', '︙')
     text = text.replace('…', '︙')
     text = text.replace('⋯', '︙')
+    text = text.replace('⋮', '︙')
     return text
 
 
