@@ -5,9 +5,8 @@
 A little tool that translates manga pages **in one click** — into Chinese, English, or other languages.
 It detects the dialogue, erases the original text, and typesets the translation back into the bubbles. Comes with a web UI: just drag an image in.
 
-> Hi, I'm **DragonMeow (龍龍喵)**. I'm not a professional engineer — I built this by iterating with AI over and over, fixing one pothole at a time until it became what it is now.
-> It **stands on the shoulders of several open-source projects** (mainly [zyddnys/manga-image-translator](https://github.com/zyddnys/manga-image-translator), plus ideas for bubble detection and typesetting), wired up to AI translation.
-> Honestly the results are just **passable** — it occasionally misreads characters or lays things out oddly — but it's good enough for everyday reading. I made it for my own convenience and decided to share it.
+> Hi, I'm **DragonMeow (龍龍喵)**. I polished this together with AI bit by bit — it brings together several great open-source projects (mainly [zyddnys/manga-image-translator](https://github.com/zyddnys/manga-image-translator), plus ideas for bubble detection and typesetting), wired up to AI translation.
+> The dialogue translation quality is quite good; for the occasional layout or wording you want to refine, the built-in **Advanced Edit** lets you fine-tune it to your liking. I built it for my own convenience and decided to share it.
 >
 > This is a **completely free** open-source project. Any paid version is piracy.
 
@@ -131,7 +130,7 @@ This tool is completely free. If it helps you:
 
 ## Credits & License
 
-I just glued great existing things together — the real credit goes to:
+This tool builds on and thanks these excellent open-source projects:
 [zyddnys/manga-image-translator](https://github.com/zyddnys/manga-image-translator), [manga-ocr](https://github.com/kha-white/manga-ocr), [LaMa](https://github.com/advimman/lama), [DBNet](https://github.com/MhLiao/DB), [bubble detector](https://huggingface.co/ogkalu/comic-speech-bubble-detector-yolov8m).
 Fonts: [Taipei Sans TC](https://sites.google.com/view/jtfoundry/), [Noto Sans CJK](https://github.com/notofonts/noto-cjk) (both SIL OFL).
 

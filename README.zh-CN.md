@@ -5,9 +5,8 @@
 把漫画图片**一键翻译**成中文（或其他语言）的小工具。
 自动检测对白、抹掉原文、再把译文嵌回气泡里。内置网页界面，拖张图进去就能翻。
 
-> 嗨，我是 **龙龙喵**。我不是专业工程师，这个工具是我靠 AI 一遍一遍试出来的 —— 一边踩坑一边修，慢慢拼凑成现在这样。
-> 它**站在几个前人的开源项目肩膀上**（主要参考了 [zyddnys/manga-image-translator](https://github.com/zyddnys/manga-image-translator)，也借鉴了气泡检测、嵌字排版等做法），再接上 AI 翻译。
-> 老实说效果只能算**差强人意**，偶尔会认错字或排版怪怪的，但日常看图够用了。做出来纯粹是想自己方便、也分享给有需要的人。
+> 嗨，我是 **龙龙喵**。这个工具是我用 AI 一点一点打磨出来的 —— 整合了几个优秀的开源项目（主要参考 [zyddnys/manga-image-translator](https://github.com/zyddnys/manga-image-translator)，并借鉴气泡检测、嵌字排版等做法），再接上 AI 翻译。
+> 对白翻译质量相当不错，少数排版或用字想再讲究，可以用内置的「**高级编辑**」自己微调到满意。做这个是想自己方便，也分享给有需要的人。
 >
 > 这是**完全免费**的开源项目，任何收费版本都是盗版。
 
@@ -131,7 +130,7 @@ DragonMeow-MangaTranslator/
 
 ## 致谢与授权
 
-我只是把现成的好东西兜在一起，真正的功臣是这些项目：
+本工具整合并感谢以下优秀的开源项目：
 [zyddnys/manga-image-translator](https://github.com/zyddnys/manga-image-translator)、[manga-ocr](https://github.com/kha-white/manga-ocr)、[LaMa](https://github.com/advimman/lama)、[DBNet](https://github.com/MhLiao/DB)、[气泡检测](https://huggingface.co/ogkalu/comic-speech-bubble-detector-yolov8m)。
 字体：[台北黑体](https://sites.google.com/view/jtfoundry/)、[Noto Sans CJK](https://github.com/notofonts/noto-cjk)（皆 SIL OFL）。
 

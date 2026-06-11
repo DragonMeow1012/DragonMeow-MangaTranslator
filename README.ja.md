@@ -5,9 +5,8 @@
 漫画の画像を**ワンクリックで翻訳**する小さなツールです（中国語ほか各言語に対応）。
 セリフを自動検出し、原文を消して、訳文を吹き出しに埋め戻します。Web UI 内蔵、画像をドラッグするだけ。
 
-> こんにちは、**龍龍喵（DragonMeow）** です。プロのエンジニアではなく、AI と一緒に何度も試行錯誤しながら、少しずつ作り上げました。
-> このツールは**先人のオープンソースプロジェクトの肩の上に立っています**（主に [zyddnys/manga-image-translator](https://github.com/zyddnys/manga-image-translator) を参考に、吹き出し検出や植字の手法も借用）。そこに AI 翻訳を繋げたものです。
-> 正直、出来は**まずまず**といったところ —— たまに字を読み間違えたりレイアウトが崩れたりしますが、日常的に読む分には十分です。自分用に作って、必要な人にも共有することにしました。
+> こんにちは、**龍龍喵（DragonMeow）** です。AI と一緒に少しずつ磨き上げて作りました —— 優れたオープンソースプロジェクトをいくつか統合し（主に [zyddnys/manga-image-translator](https://github.com/zyddnys/manga-image-translator) を参考に、吹き出し検出や植字の手法も活用）、そこに AI 翻訳を繋げています。
+> セリフの翻訳品質はかなり良好です。レイアウトや言い回しをもう少しこだわりたいときは、内蔵の「**詳細編集**」で納得いくまで微調整できます。自分用に作って、必要な人にも共有することにしました。
 >
 > これは**完全無料**のオープンソースプロジェクトです。有料版はすべて海賊版です。
 
@@ -131,7 +130,7 @@ DragonMeow-MangaTranslator/
 
 ## 謝辞とライセンス
 
-私は既存の素晴らしいものを繋ぎ合わせただけです。本当の功労者はこちら：
+本ツールは以下の優れたオープンソースプロジェクトを統合し、感謝しています：
 [zyddnys/manga-image-translator](https://github.com/zyddnys/manga-image-translator)、[manga-ocr](https://github.com/kha-white/manga-ocr)、[LaMa](https://github.com/advimman/lama)、[DBNet](https://github.com/MhLiao/DB)、[吹き出し検出](https://huggingface.co/ogkalu/comic-speech-bubble-detector-yolov8m)。
 フォント：[Taipei Sans TC](https://sites.google.com/view/jtfoundry/)、[Noto Sans CJK](https://github.com/notofonts/noto-cjk)（いずれも SIL OFL）。
 
