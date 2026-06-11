@@ -57,6 +57,16 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+@app.middleware("http")
+async def _no_cache_results(request, call_next):
+    """result 圖片禁快取：進階編輯會原地覆蓋 final.png，
+    瀏覽器快取會讓圖庫縮圖/點開大圖顯示舊版（no-cache = 每次跟伺服器確認，
+    沒變仍回 304 不重傳，變了才抓新圖）。"""
+    response = await call_next(request)
+    if request.url.path.startswith("/result"):
+        response.headers["Cache-Control"] = "no-cache, must-revalidate"
+    return response
+
 # 添加result文件夹静态文件服务
 if RESULT_ROOT.exists():
     app.mount("/result", StaticFiles(directory=str(RESULT_ROOT)), name="result")

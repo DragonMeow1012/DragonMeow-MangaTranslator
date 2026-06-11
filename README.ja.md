@@ -48,11 +48,7 @@
     <th>翻訳後（中国語）</th>
   </tr>
   <tr>
-    <td><img src="docs/example1-before.png" width="400"></td>
-    <td><img src="docs/example1-after.png" width="400"></td>
-  </tr>
-  <tr>
-    <td><img src="docs/example2-before.png" width="400"></td>
+    <td><img src="docs/example2-before.jpg" width="400"></td>
     <td><img src="docs/example2-after.png" width="400"></td>
   </tr>
 </table>
@@ -72,6 +68,10 @@
 - **「長押しで原画」を押している間**は原画に切り替わり、比較が簡単
 - 「**再レンダリング**」で即結果を確認、納得したら「**保存**」—— ギャラリーには編集後のバージョンが表示されます
 - 編集ファイルの書き出し / 読み込みで続きから編集、「初期状態に戻す」で翻訳直後に戻すことも可能
+
+上の編集画面で調整中の 4 コマは、こんな仕上がりになります：
+
+<img src="docs/example1-after.png" width="400">
 
 ---
 

@@ -48,11 +48,7 @@ Pictures speak louder. Left: original (Japanese). Right: translated (Chinese):
     <th>Translated (Chinese)</th>
   </tr>
   <tr>
-    <td><img src="docs/example1-before.png" width="400"></td>
-    <td><img src="docs/example1-after.png" width="400"></td>
-  </tr>
-  <tr>
-    <td><img src="docs/example2-before.png" width="400"></td>
+    <td><img src="docs/example2-before.jpg" width="400"></td>
     <td><img src="docs/example2-after.png" width="400"></td>
   </tr>
 </table>
@@ -72,6 +68,10 @@ Open “Advanced Edit” after translating — text boxes on the left, live prev
 - **Hold “Hold to see original”** to flip back to the source image for comparison
 - Hit **Re-render** to see the result instantly; press **Save** when happy — the gallery will show the edited version
 - You can also export an edit file to continue later, or **Reset to Original** to go back to the fresh machine translation
+
+The 4-koma being edited above comes out like this:
+
+<img src="docs/example1-after.png" width="400">
 
 ---
 

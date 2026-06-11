@@ -48,11 +48,7 @@
     <th>翻譯後（中文）</th>
   </tr>
   <tr>
-    <td><img src="docs/example1-before.png" width="400"></td>
-    <td><img src="docs/example1-after.png" width="400"></td>
-  </tr>
-  <tr>
-    <td><img src="docs/example2-before.png" width="400"></td>
+    <td><img src="docs/example2-before.jpg" width="400"></td>
     <td><img src="docs/example2-after.png" width="400"></td>
   </tr>
 </table>
@@ -72,6 +68,10 @@
 - **按住「按住看原圖」** 隨時切回原圖比對
 - 改完按「**重新渲染**」即時出圖，滿意按「**儲存**」—— 圖庫看到的就會是編輯後版本
 - 還能「另存編輯檔」下次載回續編、「還原出廠」回到剛翻完的樣子
+
+像上面編輯器裡那篇四格，調完輸出長這樣：
+
+<img src="docs/example1-after.png" width="400">
 
 ---
 

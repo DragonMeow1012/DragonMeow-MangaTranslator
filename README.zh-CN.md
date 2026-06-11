@@ -48,11 +48,7 @@
     <th>翻译后（中文）</th>
   </tr>
   <tr>
-    <td><img src="docs/example1-before.png" width="400"></td>
-    <td><img src="docs/example1-after.png" width="400"></td>
-  </tr>
-  <tr>
-    <td><img src="docs/example2-before.png" width="400"></td>
+    <td><img src="docs/example2-before.jpg" width="400"></td>
     <td><img src="docs/example2-after.png" width="400"></td>
   </tr>
 </table>
@@ -72,6 +68,10 @@
 - **按住「按住看原图」** 随时切回原图比对
 - 改完按「**重新渲染**」即时出图，满意按「**保存**」—— 图库看到的就会是编辑后版本
 - 还能「另存编辑档」下次载回续编、「还原出厂」回到刚翻完的样子
+
+像上面编辑器里那篇四格，调完输出长这样：
+
+<img src="docs/example1-after.png" width="400">
 
 ---
 
