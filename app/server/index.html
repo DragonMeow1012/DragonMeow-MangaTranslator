@@ -553,6 +553,10 @@
                 <i class="iconify inline-block mr-1" :data-icon="zipping ? 'carbon:circle-dash' : 'carbon:download'"
                    :class="{'animate-spin': zipping}"></i>{{ t('downloadZip') }} ({{ selectedGallery.length }})
               </button>
+              <button v-if="selectedGallery.length > 0" @click="deleteSelected"
+                      class="px-3 py-1 text-sm bg-red-600 text-white rounded-md hover:bg-red-700 transition-colors">
+                <i class="iconify inline-block mr-1" data-icon="carbon:trash-can"></i>{{ t('deleteSelected') }} ({{ selectedGallery.length }})
+              </button>
               <button v-if="finishedImages.length > 0" @click="editLatest"
                       class="px-3 py-1 text-sm bg-purple-600 text-white rounded-md hover:bg-purple-700 transition-colors">
                 <i class="iconify inline-block mr-1" data-icon="carbon:edit"></i>{{ t('enterEditor') }}
@@ -644,6 +648,46 @@
           <i class="iconify w-6 h-6" data-icon="simple-icons:buymeacoffee"></i>
           <span class="text-sm">Buy me a coffee</span>
         </a>
+        <button @click="checkUpdate" :disabled="updateChecking"
+                class="flex items-center gap-1 hover:text-gray-800 transition-colors disabled:opacity-50">
+          <i class="iconify w-6 h-6" :data-icon="updateChecking ? 'carbon:circle-dash' : 'carbon:update-now'"
+             :class="{'animate-spin': updateChecking}"></i>
+          <span class="text-sm">{{ t('checkUpdate') }}</span>
+        </button>
+      </div>
+
+      <!-- 更新對話框 -->
+      <div v-if="updateModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4"
+           @click="updateModal = false">
+        <div class="bg-white rounded-lg shadow-2xl max-w-lg w-full p-5" @click.stop>
+          <h3 class="text-lg font-semibold text-gray-800 mb-2">
+            <i class="iconify inline-block mr-1" data-icon="carbon:update-now"></i>{{ t('updateTitle') }}
+          </h3>
+          <div v-if="updateInfo && updateInfo.update_available">
+            <p class="text-sm text-gray-600 mb-2">
+              {{ t('updateAvailable') }}（{{ updateInfo.current }} → {{ updateInfo.latest }}，{{ updateInfo.count }} {{ t('updateCommits') }}）
+            </p>
+            <div class="text-sm text-gray-700 bg-gray-50 rounded p-3 max-h-60 overflow-y-auto mb-3">
+              <div v-for="(line, i) in updateInfo.changelog" :key="i" class="flex gap-1 py-0.5">
+                <span class="text-gray-400">•</span><span class="break-words">{{ line }}</span>
+              </div>
+            </div>
+            <p class="text-xs text-amber-600 mb-3">{{ t('updateWarn') }}</p>
+            <div class="flex justify-end gap-2">
+              <button @click="updateModal = false" class="px-3 py-1 text-sm bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300">{{ t('updateLater') }}</button>
+              <button @click="applyUpdate" :disabled="updateApplying"
+                      class="px-3 py-1 text-sm bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50">
+                <i v-if="updateApplying" class="iconify inline-block mr-1 animate-spin" data-icon="carbon:circle-dash"></i>{{ updateApplying ? t('updateApplying') : t('updateNow') }}
+              </button>
+            </div>
+          </div>
+          <div v-else>
+            <p class="text-sm text-gray-600 mb-3">{{ t('updateUpToDate') }}（{{ updateInfo ? updateInfo.current : '' }}）</p>
+            <div class="flex justify-end">
+              <button @click="updateModal = false" class="px-3 py-1 text-sm bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300">{{ t('close') }}</button>
+            </div>
+          </div>
+        </div>
       </div>
 
       <!-- Image Modal -->
@@ -756,6 +800,13 @@
             </div>
           </div>
           <div class="flex items-center gap-2">
+            <button @mousedown="showOriginal = true" @mouseup="showOriginal = false"
+                    @mouseleave="showOriginal = false"
+                    @touchstart.prevent="showOriginal = true" @touchend="showOriginal = false"
+                    class="px-3 py-1 text-sm bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300 select-none"
+                    :title="t('holdOriginalTooltip')">
+              <i class="iconify inline-block mr-1" data-icon="carbon:compare"></i>{{ t('holdOriginal') }}
+            </button>
             <button @click="rerenderEditor" :disabled="editorRendering"
                     class="px-3 py-1 text-sm bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50">
               <i class="iconify inline-block mr-1" :data-icon="editorRendering ? 'carbon:circle-dash' : 'carbon:render'"
@@ -846,9 +897,13 @@
               </div>
             </div>
           </div>
-          <div class="flex-1 overflow-auto bg-gray-800 flex items-center justify-center p-4">
-            <img v-if="editorPreviewUrl" :src="editorPreviewUrl"
+          <div class="flex-1 overflow-auto bg-gray-800 flex items-center justify-center p-4 relative">
+            <img v-if="editorPreviewUrl" :src="showOriginal ? `${BASE_URI}result/${editorFolder}/source.png` : editorPreviewUrl"
                  class="max-w-full max-h-full object-contain rounded shadow-lg" />
+            <div v-if="showOriginal"
+                 class="absolute top-6 left-1/2 -translate-x-1/2 px-3 py-1 rounded-full bg-black bg-opacity-60 text-white text-sm pointer-events-none">
+              {{ t('viewingOriginal') }}
+            </div>
           </div>
         </div>
       </div>
@@ -952,18 +1007,31 @@
         'zh-TW': {
           title: '漫畫翻譯',
           madeBy: 'made by 龍龍喵',
-          welcomeTitle: '龍龍喵製作 · 完全免費',
-          welcomeBody: '這是龍龍喵製作、完 全 免 費 的開源專案。任何收費版本均為盜版。如果喜歡這個小工具，歡迎到 GitHub 給星星，或打賞買杯咖啡給作者 ☕',
+          welcomeTitle: '龍龍喵製作 · 永久免費',
+          welcomeBody: '嗨～這是我（龍龍喵）做的免費小工具，開源、不收任何費用。網路上凡是要你付錢的版本，都是盜版。覺得好用的話，到 GitHub 點顆星、或請我喝杯咖啡，都是給我很大的鼓勵 ☕',
           welcomeStar: 'GitHub：給星星 / 打賞作者',
           footerGithub: '到 GitHub 給星星',
           footerCoffee: '請作者喝杯咖啡',
+          checkUpdate: '檢查更新',
+          updateTitle: '線上更新',
+          updateAvailable: '有新版本可用',
+          updateUpToDate: '已是最新版本',
+          updateCommits: '項更新',
+          updateWarn: '更新會覆蓋程式碼並自動重啟（你的模型、設定、翻譯結果都會保留）。若相依套件有變動，更新後可能要再跑一次 setup.bat。',
+          updateLater: '稍後',
+          updateNow: '立即更新',
+          updateApplying: '更新中…',
+          updateConfirm: '確定要更新並重啟嗎？',
+          updateDone: '更新完成，正在重新啟動，請稍候幾秒後重新整理頁面。',
+          updateCheckFailed: '檢查更新失敗（可能是沒網路或 GitHub 暫時無法連線）',
+          updateFailed: '更新失敗',
           providerTooltip: '翻譯服務供應商',
           customProvider: '自訂（OpenAI 相容）',
           modelTooltip: '翻譯模型（可直接輸入任何模型名）',
           modelPlaceholder: '模型名稱',
           baseUrlTooltip: 'API base URL（OpenAI 相容端點）',
           apiKeyTooltip: 'API key（多把可用逗號分隔）',
-          apiKeyPlaceholder: '輸入 API key',
+          apiKeyPlaceholder: 'API key（多把用逗號分隔可輪換，避免 429）',
           showKey: '顯示 API key',
           hideKey: '隱藏 API key',
           targetLangTooltip: '翻譯語言',
@@ -987,7 +1055,7 @@
           queueTitle: '翻譯佇列',
           skipCurrent: '跳過目前',
           autoRetry: '自動重試',
-          autoRetryTooltip: '失敗的圖片自動重試，直到佇列全部完成（最多 5 次）',
+          autoRetryTooltip: '失敗的圖片自動重試，一直嘗試到佇列全部完成；取消勾選則失敗就停',
           clearFinished: '清除已完成',
           emptyQueue: '佇列中沒有圖片',
           emptyQueueHint: '上傳圖片並點「開始翻譯」即可開始',
@@ -1005,6 +1073,8 @@
           syncResults: '同步結果',
           selectAll: '全選',
           deselectAll: '取消全選',
+          deleteSelected: '刪除選取',
+          deleteSelectedConfirm: '確定刪除選取的 {n} 張？此動作無法復原。',
           downloadZip: '下載 ZIP',
           zipFailed: 'ZIP 打包失敗',
           zipReadFailed: 'ZIP 讀取失敗',
@@ -1023,6 +1093,9 @@
           advancedMode: '進階編輯',
           advancedTooltip: '開啟後翻譯完可逐框微調譯文、字級、顏色、位置並重新渲染',
           editorTitle: '進階編輯',
+          holdOriginal: '按住看原圖',
+          holdOriginalTooltip: '按住不放顯示原圖，放開回到譯文，方便比對',
+          viewingOriginal: '原圖（放開回譯文）',
           backHome: '返回主頁面',
           undo: '上一步（復原）',
           redo: '下一步（重做）',
@@ -1078,18 +1151,31 @@
         'zh-CN': {
           title: '漫画翻译',
           madeBy: 'made by 龙龙喵',
-          welcomeTitle: '龙龙喵制作 · 完全免费',
-          welcomeBody: '这是龙龙喵制作、完 全 免 费 的开源项目。任何收费版本均为盗版。如果喜欢这个小工具，欢迎到 GitHub 给星星，或打赏买杯咖啡给作者 ☕',
+          welcomeTitle: '龙龙喵制作 · 永久免费',
+          welcomeBody: '嗨～这是我（龙龙喵）做的免费小工具，开源、不收任何费用。网上凡是要你付钱的版本，都是盗版。觉得好用的话，到 GitHub 点颗星、或请我喝杯咖啡，都是给我很大的鼓励 ☕',
           welcomeStar: 'GitHub：给星星 / 打赏作者',
           footerGithub: '到 GitHub 给星星',
           footerCoffee: '请作者喝杯咖啡',
+          checkUpdate: '检查更新',
+          updateTitle: '在线更新',
+          updateAvailable: '有新版本可用',
+          updateUpToDate: '已是最新版本',
+          updateCommits: '项更新',
+          updateWarn: '更新会覆盖程序代码并自动重启（你的模型、设置、翻译结果都会保留）。若依赖包有变动，更新后可能要再跑一次 setup.bat。',
+          updateLater: '稍后',
+          updateNow: '立即更新',
+          updateApplying: '更新中…',
+          updateConfirm: '确定要更新并重启吗？',
+          updateDone: '更新完成，正在重新启动，请稍候几秒后刷新页面。',
+          updateCheckFailed: '检查更新失败（可能是没网络或 GitHub 暂时无法连接）',
+          updateFailed: '更新失败',
           providerTooltip: '翻译服务提供商',
           customProvider: '自定义（OpenAI 兼容）',
           modelTooltip: '翻译模型（可直接输入任何模型名）',
           modelPlaceholder: '模型名称',
           baseUrlTooltip: 'API base URL（OpenAI 兼容端点）',
           apiKeyTooltip: 'API key（多个可用逗号分隔）',
-          apiKeyPlaceholder: '输入 API key',
+          apiKeyPlaceholder: 'API key（多把用逗号分隔可轮换，避免 429）',
           showKey: '显示 API key',
           hideKey: '隐藏 API key',
           targetLangTooltip: '翻译语言',
@@ -1113,7 +1199,7 @@
           queueTitle: '翻译队列',
           skipCurrent: '跳过当前',
           autoRetry: '自动重试',
-          autoRetryTooltip: '失败的图片自动重试，直到队列全部完成（最多 5 次）',
+          autoRetryTooltip: '失败的图片自动重试，一直尝试到队列全部完成；取消勾选则失败就停',
           clearFinished: '清除已完成',
           emptyQueue: '队列中没有图片',
           emptyQueueHint: '上传图片并点击「开始翻译」即可开始',
@@ -1131,6 +1217,8 @@
           syncResults: '同步结果',
           selectAll: '全选',
           deselectAll: '取消全选',
+          deleteSelected: '删除选取',
+          deleteSelectedConfirm: '确定删除选取的 {n} 张？此操作无法撤销。',
           downloadZip: '下载 ZIP',
           zipFailed: 'ZIP 打包失败',
           zipReadFailed: 'ZIP 读取失败',
@@ -1149,6 +1237,9 @@
           advancedMode: '高级编辑',
           advancedTooltip: '开启后翻译完可逐框微调译文、字号、颜色、位置并重新渲染',
           editorTitle: '高级编辑',
+          holdOriginal: '按住看原图',
+          holdOriginalTooltip: '按住不放显示原图，松开回到译文，方便比对',
+          viewingOriginal: '原图（松开回译文）',
           backHome: '返回主页面',
           undo: '上一步（撤销）',
           redo: '下一步（重做）',
@@ -1204,18 +1295,31 @@
         'en': {
           title: 'Manga Translator',
           madeBy: 'made by 龍龍喵 (DragonMeow)',
-          welcomeTitle: 'Made by DragonMeow · 100% Free',
-          welcomeBody: 'This is a completely FREE open-source project by DragonMeow (龍龍喵). Any paid version is piracy. If you like this little tool, please star it on GitHub or buy the author a coffee ☕',
+          welcomeTitle: 'Made by DragonMeow · Always Free',
+          welcomeBody: 'Hi! This is a free little tool I (DragonMeow) made — open-source and free, always. Any version that asks you to pay is pirated. If you find it useful, a GitHub star or a coffee really makes my day ☕',
           welcomeStar: 'GitHub: Star / Buy a coffee',
           footerGithub: 'Star on GitHub',
           footerCoffee: 'Buy the author a coffee',
+          checkUpdate: 'Check for updates',
+          updateTitle: 'Online Update',
+          updateAvailable: 'A new version is available',
+          updateUpToDate: 'You are on the latest version',
+          updateCommits: 'changes',
+          updateWarn: 'Updating overwrites the code and restarts automatically (your models, settings and results are kept). If dependencies changed, you may need to run setup.bat again.',
+          updateLater: 'Later',
+          updateNow: 'Update now',
+          updateApplying: 'Updating…',
+          updateConfirm: 'Update and restart now?',
+          updateDone: 'Update done, restarting. Please refresh the page in a few seconds.',
+          updateCheckFailed: 'Update check failed (no internet or GitHub unreachable)',
+          updateFailed: 'Update failed',
           providerTooltip: 'LLM provider',
           customProvider: 'Custom (OpenAI-compatible)',
           modelTooltip: 'Translation model (any model name accepted)',
           modelPlaceholder: 'Model name',
           baseUrlTooltip: 'API base URL (OpenAI-compatible endpoint)',
           apiKeyTooltip: 'API key (comma-separate multiple keys)',
-          apiKeyPlaceholder: 'Enter API key',
+          apiKeyPlaceholder: 'API key (comma-separate several to rotate & avoid 429)',
           showKey: 'Show API key',
           hideKey: 'Hide API key',
           targetLangTooltip: 'Target language',
@@ -1239,7 +1343,7 @@
           queueTitle: 'Translation Queue',
           skipCurrent: 'Skip Current',
           autoRetry: 'Auto-retry',
-          autoRetryTooltip: 'Automatically retry failed images until the queue is done (max 5 times)',
+          autoRetryTooltip: 'Keep retrying failed images until the whole queue is done; uncheck to stop on failure',
           clearFinished: 'Clear Finished',
           emptyQueue: 'No images in queue',
           emptyQueueHint: 'Upload an image and click "Start Translating" to begin',
@@ -1257,6 +1361,8 @@
           syncResults: 'Sync with Results',
           selectAll: 'Select All',
           deselectAll: 'Deselect All',
+          deleteSelected: 'Delete Selected',
+          deleteSelectedConfirm: 'Delete the {n} selected image(s)? This cannot be undone.',
           downloadZip: 'Download ZIP',
           zipFailed: 'ZIP packaging failed',
           zipReadFailed: 'Failed to read ZIP',
@@ -1275,6 +1381,9 @@
           advancedMode: 'Advanced Edit',
           advancedTooltip: 'When on, after translating you can tweak each text box (translation, size, color, position) and re-render',
           editorTitle: 'Advanced Edit',
+          holdOriginal: 'Hold to see original',
+          holdOriginalTooltip: 'Press and hold to show the original image, release to go back to the translation',
+          viewingOriginal: 'Original (release to go back)',
           backHome: 'Back to Home',
           undo: 'Undo',
           redo: 'Redo',
@@ -1330,18 +1439,31 @@
         'ja': {
           title: '漫画翻訳',
           madeBy: 'made by 龍龍喵',
-          welcomeTitle: '龍龍喵制作 · 完全無料',
-          welcomeBody: 'これは龍龍喵が制作した完 全 無 料 のオープンソースプロジェクトです。有料版はすべて海賊版です。気に入ったら GitHub でスターを付けるか、作者にコーヒーを奢ってください ☕',
+          welcomeTitle: '龍龍喵制作 · ずっと無料',
+          welcomeBody: 'こんにちは！これは私（龍龍喵）が作った無料の小さなツールです。オープンソースで、ずっと無料。お金を取る版はすべて海賊版です。気に入ったら GitHub でスター、またはコーヒーを一杯おごってくれると嬉しいです ☕',
           welcomeStar: 'GitHub：スター / 作者を支援',
           footerGithub: 'GitHub でスター',
           footerCoffee: '作者にコーヒーを奢る',
+          checkUpdate: '更新を確認',
+          updateTitle: 'オンライン更新',
+          updateAvailable: '新しいバージョンがあります',
+          updateUpToDate: '最新バージョンです',
+          updateCommits: '件の更新',
+          updateWarn: '更新するとコードが上書きされ自動再起動します（モデル・設定・翻訳結果は保持）。依存関係が変わった場合は setup.bat の再実行が必要なことがあります。',
+          updateLater: '後で',
+          updateNow: '今すぐ更新',
+          updateApplying: '更新中…',
+          updateConfirm: '更新して再起動しますか？',
+          updateDone: '更新完了、再起動中です。数秒後にページを更新してください。',
+          updateCheckFailed: '更新確認に失敗（ネット未接続または GitHub に接続できません）',
+          updateFailed: '更新に失敗しました',
           providerTooltip: '翻訳プロバイダ',
           customProvider: 'カスタム（OpenAI 互換）',
           modelTooltip: '翻訳モデル（任意のモデル名を入力可）',
           modelPlaceholder: 'モデル名',
           baseUrlTooltip: 'API base URL（OpenAI 互換エンドポイント）',
           apiKeyTooltip: 'API key（複数はカンマ区切り）',
-          apiKeyPlaceholder: 'API key を入力',
+          apiKeyPlaceholder: 'API key（複数はカンマ区切りで自動ローテ・429回避）',
           showKey: 'API key を表示',
           hideKey: 'API key を非表示',
           targetLangTooltip: '翻訳先の言語',
@@ -1365,7 +1487,7 @@
           queueTitle: '翻訳キュー',
           skipCurrent: '現在をスキップ',
           autoRetry: '自動再試行',
-          autoRetryTooltip: '失敗した画像をキューが完了するまで自動再試行（最大5回）',
+          autoRetryTooltip: 'キューが完了するまで失敗画像を再試行し続ける；オフにすると失敗で停止',
           clearFinished: '完了分をクリア',
           emptyQueue: 'キューに画像がありません',
           emptyQueueHint: '画像をアップロードして「翻訳開始」を押してください',
@@ -1383,6 +1505,8 @@
           syncResults: '結果と同期',
           selectAll: 'すべて選択',
           deselectAll: '選択解除',
+          deleteSelected: '選択を削除',
+          deleteSelectedConfirm: '選択した {n} 枚を削除しますか？元に戻せません。',
           downloadZip: 'ZIP ダウンロード',
           zipFailed: 'ZIP 作成に失敗',
           zipReadFailed: 'ZIP の読み込みに失敗',
@@ -1401,6 +1525,9 @@
           advancedMode: '詳細編集',
           advancedTooltip: 'オンにすると翻訳後に各テキスト枠（訳文・サイズ・色・位置）を調整して再レンダリングできます',
           editorTitle: '詳細編集',
+          holdOriginal: '長押しで原画',
+          holdOriginalTooltip: '長押しで原画を表示、離すと訳文に戻る（比較用）',
+          viewingOriginal: '原画（離すと訳文）',
           backHome: 'ホームに戻る',
           undo: '元に戻す',
           redo: 'やり直す',
@@ -1563,6 +1690,11 @@
 
         // 第一次開啟提醒
         showWelcome: false,
+        // 線上更新
+        updateModal: false,
+        updateInfo: null,
+        updateChecking: false,
+        updateApplying: false,
         // 佇列自動重試失敗項
         autoRetryFailed: false,
         // 圖庫選取 + zip 打包
@@ -1575,6 +1707,7 @@
         editorFolder: null,
         editorRegions: [],
         editorPreviewUrl: '',
+        showOriginal: false,
         editorRendering: false,
         editorBlob: null,
         selectedRegionId: null,
@@ -2372,12 +2505,12 @@
 
       let nextItemIndex = this.queuedImages.findIndex(item => item.status === 'queued');
 
-      // 自動重試：沒有待處理項時，把未超上限的錯誤項重排回佇列（直到都重試過 / 成功 / 達上限）
+      // 自動重試：勾選後不限次數，把錯誤項一直重排回佇列直到全部完成。
+      // 取消勾選即停（失敗就維持 error，不再自動重排）。
       if (nextItemIndex === -1 && this.autoRetryFailed) {
-        const MAX_RETRY = 5;
         let requeued = false;
         this.queuedImages.forEach((item, idx) => {
-          if (item.status === 'error' && (item.retryCount || 0) < MAX_RETRY) {
+          if (item.status === 'error') {
             this.queuedImages[idx] = {
               ...item, status: 'queued', error: null, progress: null,
               queuePos: null, retryCount: (item.retryCount || 0) + 1,
@@ -2691,6 +2824,50 @@
       try { localStorage.setItem('manga-welcome-seen', '1'); } catch (e) {}
     },
 
+    // ---- 線上更新 ----
+    async checkUpdate() {
+      if (this.updateChecking) return;
+      this.updateChecking = true;
+      try {
+        const resp = await fetch(`${BASE_URI}update/check`);
+        if (!resp.ok) {
+          const err = await resp.json().catch(() => ({}));
+          alert(this.t('updateCheckFailed') + (err.detail ? `: ${err.detail}` : ''));
+          return;
+        }
+        this.updateInfo = await resp.json();
+        this.updateModal = true;
+      } catch (e) {
+        console.warn('check update failed:', e);
+        alert(this.t('updateCheckFailed'));
+      } finally {
+        this.updateChecking = false;
+      }
+    },
+    async applyUpdate() {
+      if (this.updateApplying) return;
+      if (!confirm(this.t('updateConfirm'))) return;
+      this.updateApplying = true;
+      try {
+        const resp = await fetch(`${BASE_URI}update/apply`, { method: 'POST' });
+        if (!resp.ok) {
+          const err = await resp.json().catch(() => ({}));
+          alert(this.t('updateFailed') + (err.detail ? `: ${err.detail}` : ''));
+          this.updateApplying = false;
+          return;
+        }
+        // 成功：後端會殺掉自己並重啟，這裡提示使用者稍候
+        this.updateModal = false;
+        alert(this.t('updateDone'));
+      } catch (e) {
+        // 重啟過程中連線會中斷，屬正常
+        this.updateModal = false;
+        alert(this.t('updateDone'));
+      } finally {
+        this.updateApplying = false;
+      }
+    },
+
     // ---- 圖庫選取 + ZIP 下載 ----
     get allSelected() {
       return this.finishedImages.length > 0 && this.selectedGallery.length === this.finishedImages.length;
@@ -2710,15 +2887,23 @@
       try {
         const zip = new JSZip();
         const picked = this.finishedImages.filter(im => this.selectedGallery.includes(im.id));
+        const used = {};
         let n = 1;
         for (const im of picked) {
           try {
             const resp = await fetch(im.result);
             if (!resp.ok) continue;
             const blob = await resp.blob();
-            const pad = String(n).padStart(3, '0');
-            const base = (im.originalName || `page_${pad}`).replace(/\.[^.]+$/, '');
-            zip.file(`${pad}_${base}.png`, blob);
+            // 維持原檔名；只在重名時補後綴避免覆蓋
+            let name = im.originalName || `page_${String(n).padStart(3, '0')}.png`;
+            if (used[name]) {
+              const dot = name.lastIndexOf('.');
+              const stem = dot > 0 ? name.slice(0, dot) : name;
+              const ext = dot > 0 ? name.slice(dot) : '';
+              name = `${stem}_${used[name] + 1}${ext}`;
+            }
+            used[im.originalName || name] = (used[im.originalName || name] || 0) + 1;
+            zip.file(name, blob);
             n++;
           } catch (e) { console.warn('zip add failed:', e); }
         }
@@ -2936,6 +3121,10 @@
     },
 
     _editBaseName() {
+      // 維持原檔名（去副檔名）；找不到才用資料夾名
+      const im = this.finishedImages.find(i => this.folderFromUrl(i.result) === this.editorFolder);
+      const orig = im && im.originalName;
+      if (orig) return orig.replace(/\.[^.]+$/, '');
       return (this.editorFolder || 'edited').replace(/[^a-zA-Z0-9_-]/g, '_');
     },
 
@@ -2944,10 +3133,10 @@
       const base = this._editBaseName();
       if (this.editorBlob) {
         const u = URL.createObjectURL(this.editorBlob);
-        this._dl(u, `${base}_edited.png`);
+        this._dl(u, `${base}.png`);
         setTimeout(() => URL.revokeObjectURL(u), 4000);
       } else {
-        this._dl(`${BASE_URI}result/${this.editorFolder}/final.png`, `${base}_edited.png`);
+        this._dl(`${BASE_URI}result/${this.editorFolder}/final.png`, `${base}.png`);
       }
     },
 
@@ -3090,6 +3279,17 @@
       if (confirm(`Are you sure you want to delete "${image.originalName}"? This action cannot be undone.`)) {
         this.deleteImageFromServer(image);
       }
+    },
+
+    // 刪除選取的多張
+    async deleteSelected() {
+      if (!this.selectedGallery.length) return;
+      if (!confirm(this.t('deleteSelectedConfirm').replace('{n}', this.selectedGallery.length))) return;
+      const picked = this.finishedImages.filter(im => this.selectedGallery.includes(im.id));
+      for (const im of picked) {
+        try { await this.deleteImageFromServer(im); } catch (e) { console.warn('delete failed:', e); }
+      }
+      this.selectedGallery = [];
     },
 
     async deleteImageFromServer(image) {

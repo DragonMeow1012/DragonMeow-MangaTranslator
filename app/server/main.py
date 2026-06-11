@@ -438,6 +438,31 @@ async def list_results():
     except Exception as e:
         raise HTTPException(500, detail=f"Error listing results: {str(e)}")
 
+@app.get("/update/check", tags=["api"])
+async def update_check():
+    """檢查 GitHub 是否有新版，回傳更新內容清單。"""
+    from server.update import check_update
+    try:
+        return await check_update()
+    except Exception as e:
+        raise HTTPException(500, detail=f"Update check failed: {e}")
+
+@app.post("/update/apply", tags=["api"])
+async def update_apply():
+    """下載並套用最新版，然後排程重啟。"""
+    from server.update import apply_update, schedule_restart
+    try:
+        result = await apply_update()
+    except Exception as e:
+        raise HTTPException(500, detail=f"Update failed: {e}")
+    try:
+        schedule_restart()
+        result["restart_scheduled"] = True
+    except Exception as e:
+        result["restart_scheduled"] = False
+        result["restart_error"] = str(e)
+    return result
+
 @app.get("/edit/state/{folder_name}", tags=["api"])
 async def edit_state(folder_name: str):
     """進階編輯：回該翻譯結果的可編輯文字框資料 + 背景尺寸。"""

@@ -430,17 +430,17 @@ class MangaTranslator:
         self._setup_log_file()
 
     def _setup_log_file(self):
-        """设置日志文件，在result文件夹下创建带时间戳的log文件"""
+        """设置日志文件：统一放到 logs/ 资料夹（不要丢进 result/ 跟翻译结果混在一起）"""
         try:
-            # 创建result目录
-            result_dir = os.path.join(BASE_PATH, 'result')
-            os.makedirs(result_dir, exist_ok=True)
-            
+            # 日志统一放 logs/
+            logs_dir = os.path.join(BASE_PATH, 'logs')
+            os.makedirs(logs_dir, exist_ok=True)
+
             # 生成带时间戳的日志文件名
             from datetime import datetime
             timestamp = datetime.now().strftime('%Y%m%d%H%M%S')
             log_filename = f"log_{timestamp}.txt"
-            log_path = os.path.join(result_dir, log_filename)
+            log_path = os.path.join(logs_dir, log_filename)
             
             # 配置文件日志处理器
             file_handler = logging.FileHandler(log_path, encoding='utf-8')
@@ -1081,6 +1081,11 @@ class MangaTranslator:
         bg = dump_image(ctx.input, ctx.img_inpainted, getattr(ctx, 'img_alpha', None))
         orig_size = getattr(config, '_orig_size', None)
         bg.convert('RGB').save(self._result_path('background.png'))
+        # 原圖（含原文）：給編輯器「按住看原圖」比對用
+        try:
+            ctx.input.convert('RGB').save(self._result_path('source.png'))
+        except Exception:
+            pass
 
         state = {
             'img_inpainted': ctx.img_inpainted,

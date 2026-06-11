@@ -1,0 +1,13 @@
+把示範圖片另存到這個 docs/ 資料夾，檔名要跟下面完全一樣，README 才會顯示。
+
+需要這 5 張（就是你貼給我的那幾張）：
+
+  example1-before.png   ← 四格漫畫「苦手なものと苦手なもの」原圖（日文那張）
+  example1-after.png    ← 同一篇翻成中文後的成品（乾淨輸出，不要編輯器畫面）
+  example2-before.png   ← 「雨の日の妹ちゃん」原圖（日文那張）
+  example2-after.png    ← 同一篇翻成中文後的成品（中文那張）
+  editor.png            ← 進階編輯器的截圖（左邊卡片、右邊預覽那張）
+
+存好之後：
+  - 直接 git add docs/*.png && git commit && git push 就會更新 README 圖片
+  - 或跟 Claude 說「圖放好了」，我幫你 commit

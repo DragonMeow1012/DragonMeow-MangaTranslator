@@ -387,12 +387,14 @@ class Gemini2StageTranslator(CommonTranslator):
         """
         provider = (getattr(args, 'llm_provider', None) or '').strip().lower()
         web_key = (getattr(args, 'llm_api_key', None) or '').strip()
+        # 多把 key 輪換：逗號 / 換行 / 空白都可分隔（撞 429 自動換下一把，大本漫畫不卡）
+        web_keys = [k for k in re.split(r'[,\s]+', web_key) if k] if web_key else []
 
         if provider:
             # 網頁端明確指定 provider：key 一律以這次送來的為準。
             self._provider = provider
-            if web_key:
-                self._api_keys = [k.strip() for k in web_key.split(',') if k.strip()]
+            if web_keys:
+                self._api_keys = web_keys
             elif provider == 'gemini':
                 # 沒填 → gemini 退回 .env 的 GEMINI_API_KEY*（讓只用 .env 的人也能跑）
                 self._api_keys = self._collect_api_keys()
@@ -400,9 +402,9 @@ class Gemini2StageTranslator(CommonTranslator):
                 # 非 gemini 又沒填 key → 清空，呼叫時報「請填 API key」而非沿用錯 key
                 self._api_keys = []
             self._call_idx = 0
-        elif web_key:
+        elif web_keys:
             # 沒帶 provider（理論上不會發生）但有 key → 沿用既有 provider，換 key
-            self._api_keys = [k.strip() for k in web_key.split(',') if k.strip()]
+            self._api_keys = web_keys
             self._call_idx = 0
 
         self._base_url = (getattr(args, 'llm_base_url', None) or '').strip() or None
