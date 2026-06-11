@@ -23,6 +23,7 @@ from server.instance import ExecutorInstance, executor_instances
 from server.myqueue import task_queue
 from server.request_extraction import get_ctx, while_streaming, TranslateRequest, BatchTranslateRequest, get_batch_ctx
 from server.to_json import to_translation, TranslationResponse
+from server.edit import RerenderRequest
 
 app = FastAPI()
 nonce = None
@@ -217,12 +218,14 @@ async def stream_image_form(req: Request, image: UploadFile = File(...), config:
     return await while_streaming(req, make_transform_to_image(fmt), conf, img)
 
 @app.post("/translate/with-form/image/stream/web", response_class=StreamingResponse, tags=["api", "form"], response_description="Web frontend optimized streaming endpoint - uses placeholder optimization for faster response.")
-async def stream_image_form_web(req: Request, image: UploadFile = File(...), config: str = Form("{}")) -> StreamingResponse:
+async def stream_image_form_web(req: Request, image: UploadFile = File(...), config: str = Form("{}"), advanced: str = Form("0")) -> StreamingResponse:
     """Web前端专用端点：使用占位符优化，提供极速体验。輸出格式 = 輸入格式。"""
     img = await image.read()
     conf = Config.parse_raw(config)
     # 标记为Web前端优化模式，使用占位符优化
     conf._web_frontend_optimized = True
+    # 進階編輯模式才存編輯狀態（pkl 較大，避免一般使用者浪費磁碟）
+    conf._save_edit = advanced == "1"
     fmt = _detect_image_format(img)
     return await while_streaming(req, make_transform_to_image(fmt), conf, img)
 
@@ -434,6 +437,30 @@ async def list_results():
         return {"directories": directories}
     except Exception as e:
         raise HTTPException(500, detail=f"Error listing results: {str(e)}")
+
+@app.get("/edit/state/{folder_name}", tags=["api"])
+async def edit_state(folder_name: str):
+    """進階編輯：回該翻譯結果的可編輯文字框資料 + 背景尺寸。"""
+    from server.edit import state_to_json
+    data = state_to_json(RESULT_ROOT, folder_name)
+    if data is None:
+        raise HTTPException(404, detail="Edit state not found. Translate with advanced mode on.")
+    return data
+
+@app.post("/edit/rerender", tags=["api"])
+async def edit_rerender(req: RerenderRequest):
+    """進階編輯：套用編輯、只重跑 render，回 PNG。"""
+    from server.edit import rerender
+    try:
+        img = await rerender(RESULT_ROOT, req.folder, req.edits)
+    except FileNotFoundError as e:
+        raise HTTPException(404, detail=str(e))
+    except Exception as e:
+        raise HTTPException(500, detail=f"Rerender failed: {e}")
+    buf = io.BytesIO()
+    img.convert("RGB").save(buf, format="PNG")
+    buf.seek(0)
+    return StreamingResponse(buf, media_type="image/png")
 
 @app.get("/fonts/list", tags=["api"])
 async def list_fonts():

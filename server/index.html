@@ -38,6 +38,16 @@
           <h1 class="text-2xl font-bold text-gray-800">
             {{ t('title') }}
           </h1>
+          <div class="flex items-center gap-3">
+            <!-- 進階編輯模式開關 -->
+            <label class="flex items-center gap-1 cursor-pointer select-none" :title="t('advancedTooltip')">
+              <span class="text-sm text-gray-600">{{ t('advancedMode') }}</span>
+              <span class="relative inline-block w-9 h-5">
+                <input type="checkbox" class="sr-only peer" v-model="advancedMode" @change="onSettingChange">
+                <span class="absolute inset-0 rounded-full bg-gray-300 peer-checked:bg-blue-500 transition-colors"></span>
+                <span class="absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white transition-transform peer-checked:translate-x-4"></span>
+              </span>
+            </label>
           <div class="flex items-center gap-1" :title="t('uiLangTooltip')">
             <i class="iconify text-gray-600" data-icon="carbon:earth"></i>
             <div class="relative">
@@ -56,6 +66,7 @@
                 data-icon="carbon:chevron-down"
               ></i>
             </div>
+          </div>
           </div>
         </div>
 
@@ -526,6 +537,10 @@
               {{ t('resultsTitle') }} ({{ finishedImages.length }})
             </h3>
             <div class="flex space-x-2">
+              <button v-if="finishedImages.length > 0" @click="editLatest"
+                      class="px-3 py-1 text-sm bg-purple-600 text-white rounded-md hover:bg-purple-700 transition-colors">
+                <i class="iconify inline-block mr-1" data-icon="carbon:edit"></i>{{ t('enterEditor') }}
+              </button>
               <button @click="openResultsFolder"
                       class="px-3 py-1 text-sm bg-gray-600 text-white rounded-md hover:bg-gray-700 transition-colors">
                 <i class="iconify inline-block mr-1" data-icon="carbon:folder"></i>{{ t('openFolder') }}
@@ -571,8 +586,13 @@
                 <div class="text-xs text-gray-400">
                   {{ new Date(image.finishedAt).toLocaleDateString() }}
                 </div>
-                <!-- Delete button -->
-                <button @click.stop="deleteImage(image)" 
+                <!-- Edit + Delete buttons -->
+                <button @click.stop="openEditor(folderFromUrl(image.result))"
+                        class="mt-1 p-1 text-blue-500 hover:text-blue-700 hover:bg-blue-50 rounded transition-colors"
+                        :title="t('editThis')">
+                  <i class="iconify w-3 h-3" data-icon="carbon:edit"></i>
+                </button>
+                <button @click.stop="deleteImage(image)"
                         class="mt-1 p-1 text-red-500 hover:text-red-700 hover:bg-red-50 rounded transition-colors"
                         :title="t('deleteThis')">
                   <i class="iconify w-3 h-3" data-icon="carbon:trash-can"></i>
@@ -643,6 +663,136 @@
             <div class="text-xs text-gray-300">
               {{ new Date(selectedImage.finishedAt).toLocaleString() }}
             </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 進階編輯器 -->
+      <div v-if="editorOpen" class="fixed inset-0 bg-gray-900 bg-opacity-95 z-50 flex flex-col">
+        <!-- 工具列 -->
+        <div class="flex items-center justify-between px-4 py-2 bg-white shadow">
+          <div class="flex items-center gap-3">
+            <button @click="closeEditor"
+                    class="flex items-center gap-1 px-3 py-1 text-sm bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200 border border-gray-300">
+              <i class="iconify" data-icon="carbon:arrow-left"></i>{{ t('backHome') }}
+            </button>
+            <h3 class="text-lg font-semibold text-gray-800">
+              <i class="iconify inline-block mr-1" data-icon="carbon:edit"></i>{{ t('editorTitle') }}
+            </h3>
+            <div class="flex items-center gap-1 ml-2">
+              <button @click="undoEdit" :disabled="!canUndo" :title="t('undo')"
+                      class="p-1.5 text-gray-700 rounded-md hover:bg-gray-200 disabled:opacity-30 disabled:hover:bg-transparent">
+                <i class="iconify" data-icon="carbon:undo"></i>
+              </button>
+              <button @click="redoEdit" :disabled="!canRedo" :title="t('redo')"
+                      class="p-1.5 text-gray-700 rounded-md hover:bg-gray-200 disabled:opacity-30 disabled:hover:bg-transparent">
+                <i class="iconify" data-icon="carbon:redo"></i>
+              </button>
+            </div>
+            <div class="flex items-center gap-1 ml-2 text-sm text-gray-600" :title="t('globalDirTooltip')">
+              <span>{{ t('globalDir') }}</span>
+              <button @click="setAllDirection('h')"
+                      class="px-2 py-1 rounded-md border border-gray-300 hover:bg-gray-100">{{ t('dirH') }}</button>
+              <button @click="setAllDirection('v')"
+                      class="px-2 py-1 rounded-md border border-gray-300 hover:bg-gray-100">{{ t('dirV') }}</button>
+              <button @click="setAllDirection('auto')"
+                      class="px-2 py-1 rounded-md border border-gray-300 hover:bg-gray-100">{{ t('dirAuto') }}</button>
+            </div>
+          </div>
+          <div class="flex items-center gap-2">
+            <button @click="rerenderEditor" :disabled="editorRendering"
+                    class="px-3 py-1 text-sm bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50">
+              <i class="iconify inline-block mr-1" :data-icon="editorRendering ? 'carbon:circle-dash' : 'carbon:render'"
+                 :class="{'animate-spin': editorRendering}"></i>{{ t('rerender') }}
+            </button>
+            <button @click="downloadImage"
+                    class="px-3 py-1 text-sm bg-green-600 text-white rounded-md hover:bg-green-700">
+              <i class="iconify inline-block mr-1" data-icon="carbon:image"></i>{{ t('saveImage') }}
+            </button>
+            <button @click="downloadEditDoc"
+                    class="px-3 py-1 text-sm bg-green-700 text-white rounded-md hover:bg-green-800">
+              <i class="iconify inline-block mr-1" data-icon="carbon:save"></i>{{ t('saveEditDoc') }}
+            </button>
+            <button @click="$refs.editsInput.click()"
+                    class="px-3 py-1 text-sm bg-gray-600 text-white rounded-md hover:bg-gray-700">
+              <i class="iconify inline-block mr-1" data-icon="carbon:document-import"></i>{{ t('loadEdits') }}
+            </button>
+            <input ref="editsInput" type="file" accept=".json" class="hidden" @change="loadEditsFile" />
+            <button @click="resetFactory"
+                    class="px-3 py-1 text-sm bg-orange-600 text-white rounded-md hover:bg-orange-700">
+              <i class="iconify inline-block mr-1" data-icon="carbon:reset"></i>{{ t('resetFactory') }}
+            </button>
+          </div>
+        </div>
+        <!-- 主體：左卡片清單 / 右預覽 -->
+        <div class="flex flex-1 overflow-hidden">
+          <div class="w-96 flex-shrink-0 overflow-y-auto bg-gray-50 p-3 space-y-2">
+            <div v-if="!editorRegions.length" class="text-center text-gray-400 py-8 text-sm">
+              {{ t('noRegions') }}
+            </div>
+            <div v-for="r in editorRegions" :key="r.id"
+                 class="border rounded-md p-2 bg-white cursor-pointer"
+                 :class="{'ring-2 ring-blue-500': selectedRegionId === r.id}"
+                 @click="selectedRegionId = r.id">
+              <div class="flex items-start justify-between">
+                <div class="text-xs text-gray-400 flex items-center gap-1">
+                  #{{ r.id + 1 }}
+                  <span v-if="r.was_skipped" class="px-1 rounded bg-amber-100 text-amber-700">{{ t('sfxBadge') }}</span>
+                  <span v-else>· {{ t('original') }}</span>
+                </div>
+                <label class="text-xs text-gray-600 flex items-center gap-1" @click.stop>
+                  <input type="checkbox" v-model="r.skip" @change="recordHistory"> {{ t('keepOriginal') }}
+                </label>
+              </div>
+              <div class="text-sm text-gray-700 mb-1 break-words">{{ r.original }}</div>
+              <textarea v-model="r.translation" :disabled="r.skip" rows="2" @click.stop @change="recordHistory"
+                        class="w-full text-sm border border-gray-300 rounded px-2 py-1 outline-none focus:border-blue-500 disabled:bg-gray-100"
+                        :placeholder="t('translation')"></textarea>
+              <div class="flex items-center gap-3 mt-1 text-xs text-gray-600" @click.stop>
+                <label class="flex items-center gap-1">{{ t('fontSize') }}
+                  <input type="number" v-model.number="r.font_size" min="6" max="200" @change="recordHistory"
+                         class="w-14 border border-gray-300 rounded px-1 py-0.5"></label>
+                <label class="flex items-center gap-1">{{ t('color') }}
+                  <input type="color" v-model="r.color" @change="recordHistory" class="w-7 h-6 p-0 border-0"></label>
+                <label class="flex items-center gap-1">
+                  <input type="checkbox" v-model="r.bold" @change="recordHistory"> {{ t('bold') }}</label>
+              </div>
+              <div class="flex items-center gap-3 mt-1 text-xs text-gray-600" @click.stop>
+                <label class="flex items-center gap-1">{{ t('direction') }}
+                  <select v-model="r.direction" @change="recordHistory"
+                          class="border border-gray-300 rounded px-1 py-0.5">
+                    <option value="auto">{{ t('dirAuto') }}</option>
+                    <option value="h">{{ t('dirH') }}</option>
+                    <option value="v">{{ t('dirV') }}</option>
+                  </select></label>
+                <label class="flex items-center gap-1">{{ t('fontTooltip') }}
+                  <select v-model="r.font" @change="recordHistory"
+                          class="border border-gray-300 rounded px-1 py-0.5 max-w-[8rem]">
+                    <option value="">{{ t('fontDefault') }}</option>
+                    <option v-for="f in nonBlankFonts" :value="f.value" :key="f.value">{{ f.label }}</option>
+                  </select></label>
+              </div>
+              <div class="flex items-center gap-3 mt-1 text-xs text-gray-600" @click.stop>
+                <label class="flex items-center gap-1">{{ t('letterSpacing') }}
+                  <input type="number" v-model.number="r.letter_spacing" min="0.5" max="3" step="0.05" @change="recordHistory"
+                         class="w-16 border border-gray-300 rounded px-1 py-0.5"></label>
+                <label class="flex items-center gap-1">{{ t('spaceWidth') }}
+                  <input type="number" v-model.number="r.space_scale" min="0.1" max="1.5" step="0.05" @change="recordHistory"
+                         class="w-16 border border-gray-300 rounded px-1 py-0.5"></label>
+              </div>
+              <div class="flex items-center gap-3 mt-1 text-xs text-gray-600" @click.stop>
+                <label class="flex items-center gap-1">X
+                  <input type="number" v-model.number="r.dx" step="2" @change="recordHistory"
+                         class="w-14 border border-gray-300 rounded px-1 py-0.5"></label>
+                <label class="flex items-center gap-1">Y
+                  <input type="number" v-model.number="r.dy" step="2" @change="recordHistory"
+                         class="w-14 border border-gray-300 rounded px-1 py-0.5"></label>
+              </div>
+            </div>
+          </div>
+          <div class="flex-1 overflow-auto bg-gray-800 flex items-center justify-center p-4">
+            <img v-if="editorPreviewUrl" :src="editorPreviewUrl"
+                 class="max-w-full max-h-full object-contain rounded shadow-lg" />
           </div>
         </div>
       </div>
@@ -801,6 +951,43 @@
           retryAll: '重試全部',
           stErrTimeout: '翻譯逾時或連線中斷，請重試',
           openFolder: '開啟資料夾',
+          advancedMode: '進階編輯',
+          advancedTooltip: '開啟後翻譯完可逐框微調譯文、字級、顏色、位置並重新渲染',
+          editorTitle: '進階編輯',
+          backHome: '返回主頁面',
+          undo: '上一步（復原）',
+          redo: '下一步（重做）',
+          resetFactory: '還原出廠',
+          resetConfirm: '確定還原成剛機翻完的樣子？目前所有編輯會清除。',
+          enterEditor: '進階編輯',
+          noResultToEdit: '沒有可編輯的翻譯結果。請先開啟「進階編輯」開關再翻譯一張。',
+          rerender: '重新渲染',
+          saveImage: '另存圖片',
+          saveEditDoc: '另存編輯檔',
+          loadEdits: '載入編輯檔',
+          close: '關閉',
+          noRegions: '沒有可編輯的文字框',
+          original: '原文',
+          keepOriginal: '維持原文跳過',
+          translation: '譯文',
+          fontSize: '字級',
+          color: '顏色',
+          bold: '粗體',
+          letterSpacing: '字間距',
+          spaceWidth: '空格寬',
+          direction: '方向',
+          dirAuto: '自動',
+          dirH: '橫書',
+          dirV: '直書',
+          globalDir: '全域方向：',
+          globalDirTooltip: '一次把所有文字框切成橫書或直書',
+          fontDefault: '依預設',
+          sfxBadge: 'SFX/符號',
+          doTranslate: '翻譯這個',
+          editThis: '進階編輯這張',
+          editorLoadFailed: '載入編輯資料失敗',
+          rerenderFailed: '重新渲染失敗',
+          loadEditsFailed: '編輯檔格式錯誤',
           stUploading: '上傳中',
           stProcessing: '處理中',
           stQueuing: '排隊中，你的位置是',
@@ -877,6 +1064,43 @@
           retryAll: '重试全部',
           stErrTimeout: '翻译超时或连接中断，请重试',
           openFolder: '打开文件夹',
+          advancedMode: '高级编辑',
+          advancedTooltip: '开启后翻译完可逐框微调译文、字号、颜色、位置并重新渲染',
+          editorTitle: '高级编辑',
+          backHome: '返回主页面',
+          undo: '上一步（撤销）',
+          redo: '下一步（重做）',
+          resetFactory: '还原出厂',
+          resetConfirm: '确定还原成刚机翻完的样子？目前所有编辑会清除。',
+          enterEditor: '高级编辑',
+          noResultToEdit: '没有可编辑的翻译结果。请先开启「高级编辑」开关再翻译一张。',
+          rerender: '重新渲染',
+          saveImage: '另存图片',
+          saveEditDoc: '另存编辑档',
+          loadEdits: '载入编辑档',
+          close: '关闭',
+          noRegions: '没有可编辑的文字框',
+          original: '原文',
+          keepOriginal: '保留原文跳过',
+          translation: '译文',
+          fontSize: '字号',
+          color: '颜色',
+          bold: '粗体',
+          letterSpacing: '字间距',
+          spaceWidth: '空格宽',
+          direction: '方向',
+          dirAuto: '自动',
+          dirH: '横排',
+          dirV: '竖排',
+          globalDir: '全局方向：',
+          globalDirTooltip: '一次把所有文字框切成横排或竖排',
+          fontDefault: '按默认',
+          sfxBadge: 'SFX/符号',
+          doTranslate: '翻译这个',
+          editThis: '高级编辑这张',
+          editorLoadFailed: '载入编辑数据失败',
+          rerenderFailed: '重新渲染失败',
+          loadEditsFailed: '编辑档格式错误',
           stUploading: '上传中',
           stProcessing: '处理中',
           stQueuing: '排队中，你的位置是',
@@ -953,6 +1177,43 @@
           retryAll: 'Retry All',
           stErrTimeout: 'Translation timed out or connection lost, please retry',
           openFolder: 'Open Folder',
+          advancedMode: 'Advanced Edit',
+          advancedTooltip: 'When on, after translating you can tweak each text box (translation, size, color, position) and re-render',
+          editorTitle: 'Advanced Edit',
+          backHome: 'Back to Home',
+          undo: 'Undo',
+          redo: 'Redo',
+          resetFactory: 'Reset to Original',
+          resetConfirm: 'Reset to the original machine translation? All current edits will be cleared.',
+          enterEditor: 'Advanced Edit',
+          noResultToEdit: 'No editable result. Turn on "Advanced Edit" and translate an image first.',
+          rerender: 'Re-render',
+          saveImage: 'Save Image',
+          saveEditDoc: 'Save Edit File',
+          loadEdits: 'Load Edits',
+          close: 'Close',
+          noRegions: 'No editable text boxes',
+          original: 'Original',
+          keepOriginal: 'Keep original (skip)',
+          translation: 'Translation',
+          fontSize: 'Size',
+          color: 'Color',
+          bold: 'Bold',
+          letterSpacing: 'Spacing',
+          spaceWidth: 'Space',
+          direction: 'Dir',
+          dirAuto: 'Auto',
+          dirH: 'Horiz',
+          dirV: 'Vert',
+          globalDir: 'All:',
+          globalDirTooltip: 'Switch all text boxes to horizontal or vertical at once',
+          fontDefault: 'Default',
+          sfxBadge: 'SFX/Symbol',
+          doTranslate: 'Translate this',
+          editThis: 'Advanced edit this',
+          editorLoadFailed: 'Failed to load edit data',
+          rerenderFailed: 'Re-render failed',
+          loadEditsFailed: 'Invalid edit file',
           stUploading: 'Uploading',
           stProcessing: 'Processing',
           stQueuing: 'Queuing, your position is',
@@ -1029,6 +1290,43 @@
           retryAll: 'すべて再試行',
           stErrTimeout: '翻訳がタイムアウトまたは接続が切断されました。再試行してください',
           openFolder: 'フォルダを開く',
+          advancedMode: '詳細編集',
+          advancedTooltip: 'オンにすると翻訳後に各テキスト枠（訳文・サイズ・色・位置）を調整して再レンダリングできます',
+          editorTitle: '詳細編集',
+          backHome: 'ホームに戻る',
+          undo: '元に戻す',
+          redo: 'やり直す',
+          resetFactory: '初期状態に戻す',
+          resetConfirm: '翻訳直後の状態に戻しますか？現在の編集はすべて消去されます。',
+          enterEditor: '詳細編集',
+          noResultToEdit: '編集できる結果がありません。「詳細編集」をオンにして翻訳してください。',
+          rerender: '再レンダリング',
+          saveImage: '画像を保存',
+          saveEditDoc: '編集ファイルを保存',
+          loadEdits: '編集ファイルを読込',
+          close: '閉じる',
+          noRegions: '編集できるテキスト枠がありません',
+          original: '原文',
+          keepOriginal: '原文のまま（スキップ）',
+          translation: '訳文',
+          fontSize: 'サイズ',
+          color: '色',
+          bold: '太字',
+          letterSpacing: '字間隔',
+          spaceWidth: '空白幅',
+          direction: '方向',
+          dirAuto: '自動',
+          dirH: '横書き',
+          dirV: '縦書き',
+          globalDir: '全体方向：',
+          globalDirTooltip: '全テキスト枠を横書き／縦書きに一括切替',
+          fontDefault: '既定',
+          sfxBadge: 'SFX/記号',
+          doTranslate: 'これを翻訳',
+          editThis: 'この画像を詳細編集',
+          editorLoadFailed: '編集データの読み込みに失敗しました',
+          rerenderFailed: '再レンダリングに失敗しました',
+          loadEditsFailed: '編集ファイルの形式が不正です',
           stUploading: 'アップロード中',
           stProcessing: '処理中',
           stQueuing: '待機中、あなたの順番は',
@@ -1150,11 +1448,25 @@
         showApiKey: false,
         fontPath: '',                 // '' = 自動依語言
         fontOptions: [{ value: '', label: '自動（依語言）' }],
+
+        // 進階編輯模式
+        advancedMode: false,
+        editorOpen: false,
+        editorFolder: null,
+        editorRegions: [],
+        editorPreviewUrl: '',
+        editorRendering: false,
+        editorBlob: null,
+        selectedRegionId: null,
+        editorHistory: [],
+        editorHistoryIdx: -1,
+        editorFreshRegions: null,
         get currentModel() { return this.models[this.llmProvider] || ''; },
         set currentModel(v) { this.models[this.llmProvider] = v; },
         get currentApiKey() { return this.apiKeys[this.llmProvider] || ''; },
         set currentApiKey(v) { this.apiKeys[this.llmProvider] = v; },
         get modelSuggestions() { return MODEL_SUGGESTIONS[this.llmProvider] || []; },
+        get nonBlankFonts() { return (this.fontOptions || []).filter(f => f.value); },
         targetLanguage: 'CHT',
 
         // 固定的 pipeline 參數（bot 生產環境實測值；原圖進、原圖出，不開 upscale）
@@ -1189,6 +1501,7 @@
               if (settings.customBaseUrl) this.customBaseUrl = settings.customBaseUrl;
               if (settings.targetLanguage) this.targetLanguage = settings.targetLanguage;
               if (settings.fontPath) this.fontPath = settings.fontPath;
+              if (typeof settings.advancedMode === 'boolean') this.advancedMode = settings.advancedMode;
             }
           } catch (error) {
             console.warn('Failed to load settings:', error);
@@ -1205,6 +1518,7 @@
               customBaseUrl: this.customBaseUrl,
               targetLanguage: this.targetLanguage,
               fontPath: this.fontPath,
+              advancedMode: this.advancedMode,
             };
             localStorage.setItem('manga-translator-settings', JSON.stringify(settings));
           } catch (error) {
@@ -1599,6 +1913,7 @@
           });
 
           formData.append("config", config);
+          formData.append("advanced", this.advancedMode ? "1" : "0");
 
           const processChunk = (value) => {
             const newBuffer = new Uint8Array(buffer.length + value.length);
@@ -1900,7 +2215,13 @@
               name: processingItem.file.name,
               result: `${BASE_URI}result/${this.currentFolder}/final.png`
             });
-            
+
+            // 進階模式 + 佇列沒有其他待處理 → 自動打開編輯器（單張流程）
+            if (this.advancedMode && !this.queuedImages.some(it => it.status === 'queued') && !this.editorOpen) {
+              const f = this.currentFolder;
+              setTimeout(() => this.openEditor(f), 600);
+            }
+
             // Auto-process next item in queue FIRST
             setTimeout(() => {
               console.log("Auto-processing next item in queue");
@@ -2101,8 +2422,9 @@
 
     // Keyboard navigation for modal
     handleKeydown(event) {
+      if (this.editorOpen) return;   // 編輯器開啟時不攔截快捷鍵
       if (!this.showImageModal) return;
-      
+
       switch (event.key) {
         case 'Escape':
           this.closeImageModal();
@@ -2230,6 +2552,255 @@
         console.warn('upload font failed:', e);
         alert(this.t('uploadFontFailed'));
       }
+    },
+
+    // ---- 進階編輯器 ----
+    folderFromUrl(url) {
+      const m = (url || '').match(/result\/([^/?#]+)\//);
+      return m ? m[1] : null;
+    },
+
+    // 從主頁面進入編輯器：開啟最近一張完成的翻譯
+    editLatest() {
+      if (!this.finishedImages.length) {
+        alert(this.t('noResultToEdit'));
+        return;
+      }
+      const folder = this.folderFromUrl(this.finishedImages[0].result);
+      if (!folder) {
+        alert(this.t('noResultToEdit'));
+        return;
+      }
+      this.openEditor(folder);
+    },
+
+    // 把一批編輯（依 id）套到目前 editorRegions
+    _applyEditsToRegions(edits) {
+      const byId = {};
+      (edits || []).forEach(ed => { byId[ed.id] = ed; });
+      this.editorRegions = this.editorRegions.map(r => {
+        const ed = byId[r.id];
+        if (!ed) return r;
+        return {
+          ...r,
+          translation: ed.translation != null ? ed.translation : r.translation,
+          font_size: ed.font_size || r.font_size,
+          color: ed.color || r.color,
+          bold: !!ed.bold,
+          letter_spacing: ed.letter_spacing || r.letter_spacing,
+          space_scale: ed.space_scale || r.space_scale,
+          direction: ed.direction || r.direction || 'auto',
+          font: ed.font_path || r.font || '',
+          skip: !!ed.skip,
+          dx: ed.dx || 0,
+          dy: ed.dy || 0,
+        };
+      });
+    },
+
+    // 每張圖的編輯草稿存 localStorage（返回主頁再進同一張時還原）
+    _editsKey(folder) { return `manga-edits-${folder}`; },
+    saveEditsLocal() {
+      if (!this.editorFolder) return;
+      try {
+        localStorage.setItem(this._editsKey(this.editorFolder), JSON.stringify(this._collectEdits()));
+      } catch (e) { /* 配額滿等忽略 */ }
+    },
+    loadEditsLocal(folder) {
+      try {
+        const s = localStorage.getItem(this._editsKey(folder));
+        return s ? JSON.parse(s) : null;
+      } catch (e) { return null; }
+    },
+    clearEditsLocal(folder) {
+      try { localStorage.removeItem(this._editsKey(folder)); } catch (e) {}
+    },
+
+    async openEditor(folder) {
+      if (!folder) return;
+      try {
+        const resp = await fetch(`${BASE_URI}edit/state/${folder}`);
+        if (!resp.ok) {
+          const err = await resp.json().catch(() => ({}));
+          alert(this.t('editorLoadFailed') + (err.detail ? `: ${err.detail}` : ''));
+          return;
+        }
+        const data = await resp.json();
+        this.editorFolder = folder;
+        // 出廠（剛機翻完）狀態：留一份供「還原成翻譯出廠設置」用
+        this.editorFreshRegions = (data.regions || []).map(r => ({ ...r, dx: 0, dy: 0 }));
+        this.editorRegions = JSON.parse(JSON.stringify(this.editorFreshRegions));
+        this.selectedRegionId = this.editorRegions.length ? this.editorRegions[0].id : null;
+        this.editorBlob = null;
+        this.editorPreviewUrl = `${BASE_URI}result/${folder}/final.png?ts=${Date.now()}`;
+        this.editorOpen = true;
+
+        // 有上次編輯草稿 → 還原並重新渲染（出廠則維持 final.png 預覽）
+        const saved = this.loadEditsLocal(folder);
+        if (saved && saved.length) {
+          this._applyEditsToRegions(saved);
+          this.resetHistory();
+          this.rerenderEditor();
+        } else {
+          this.resetHistory();
+        }
+      } catch (e) {
+        console.warn('open editor failed:', e);
+        alert(this.t('editorLoadFailed'));
+      }
+    },
+
+    // 全域切換書寫方向（套到所有框）
+    setAllDirection(dir) {
+      this.editorRegions.forEach(r => { r.direction = dir; });
+      this.recordHistory();
+      this.rerenderEditor();
+    },
+
+    // 還原成翻譯出廠設置（回到剛機翻完的樣子）
+    resetFactory() {
+      if (!this.editorFreshRegions) return;
+      if (!confirm(this.t('resetConfirm'))) return;
+      this.editorRegions = JSON.parse(JSON.stringify(this.editorFreshRegions));
+      this.selectedRegionId = this.editorRegions.length ? this.editorRegions[0].id : null;
+      this.clearEditsLocal(this.editorFolder);
+      if (this.editorBlob) { URL.revokeObjectURL(this.editorPreviewUrl); this.editorBlob = null; }
+      this.editorPreviewUrl = `${BASE_URI}result/${this.editorFolder}/final.png?ts=${Date.now()}`;
+      this.resetHistory();
+    },
+
+    // ---- 復原 / 重做 ----
+    _cloneRegions() {
+      return JSON.parse(JSON.stringify(this.editorRegions));
+    },
+    resetHistory() {
+      this.editorHistory = [this._cloneRegions()];
+      this.editorHistoryIdx = 0;
+    },
+    recordHistory() {
+      // 截掉重做尾巴，推入目前狀態
+      if (this.editorHistoryIdx < this.editorHistory.length - 1) {
+        this.editorHistory = this.editorHistory.slice(0, this.editorHistoryIdx + 1);
+      }
+      this.editorHistory.push(this._cloneRegions());
+      // 上限 50 步
+      if (this.editorHistory.length > 50) this.editorHistory.shift();
+      this.editorHistoryIdx = this.editorHistory.length - 1;
+      this.saveEditsLocal();   // 同步存草稿（返回再進可還原）
+    },
+    get canUndo() { return this.editorHistoryIdx > 0; },
+    get canRedo() { return this.editorHistoryIdx < this.editorHistory.length - 1; },
+    undoEdit() {
+      if (!this.canUndo) return;
+      this.editorHistoryIdx--;
+      this.editorRegions = JSON.parse(JSON.stringify(this.editorHistory[this.editorHistoryIdx]));
+      this.saveEditsLocal();
+      this.rerenderEditor();
+    },
+    redoEdit() {
+      if (!this.canRedo) return;
+      this.editorHistoryIdx++;
+      this.editorRegions = JSON.parse(JSON.stringify(this.editorHistory[this.editorHistoryIdx]));
+      this.saveEditsLocal();
+      this.rerenderEditor();
+    },
+
+    _collectEdits() {
+      return this.editorRegions.map(r => ({
+        id: r.id,
+        translation: r.translation,
+        font_size: r.font_size || null,
+        color: r.color || null,
+        bold: !!r.bold,
+        letter_spacing: r.letter_spacing || null,
+        space_scale: r.space_scale || null,
+        direction: r.direction || null,
+        font_path: r.font || null,
+        skip: !!r.skip,
+        dx: r.dx || 0,
+        dy: r.dy || 0,
+      }));
+    },
+
+    async rerenderEditor() {
+      if (!this.editorFolder || this.editorRendering) return;
+      this.editorRendering = true;
+      try {
+        const resp = await fetch(`${BASE_URI}edit/rerender`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ folder: this.editorFolder, edits: this._collectEdits() }),
+        });
+        if (!resp.ok) {
+          const err = await resp.json().catch(() => ({}));
+          alert(this.t('rerenderFailed') + (err.detail ? `: ${err.detail}` : ''));
+          return;
+        }
+        const blob = await resp.blob();
+        if (this.editorBlob) URL.revokeObjectURL(this.editorPreviewUrl);
+        this.editorBlob = blob;
+        this.editorPreviewUrl = URL.createObjectURL(blob);
+      } catch (e) {
+        console.warn('rerender failed:', e);
+        alert(this.t('rerenderFailed'));
+      } finally {
+        this.editorRendering = false;
+      }
+    },
+
+    _dl(url, name) {
+      const a = document.createElement('a');
+      a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove();
+    },
+
+    _editBaseName() {
+      return (this.editorFolder || 'edited').replace(/[^a-zA-Z0-9_-]/g, '_');
+    },
+
+    // 另存圖片：優先用重新渲染後的 blob，否則抓目前 final.png
+    downloadImage() {
+      const base = this._editBaseName();
+      if (this.editorBlob) {
+        const u = URL.createObjectURL(this.editorBlob);
+        this._dl(u, `${base}_edited.png`);
+        setTimeout(() => URL.revokeObjectURL(u), 4000);
+      } else {
+        this._dl(`${BASE_URI}result/${this.editorFolder}/final.png`, `${base}_edited.png`);
+      }
+    },
+
+    // 另存編輯檔：可載回續編
+    downloadEditDoc() {
+      const base = this._editBaseName();
+      const doc = { folder: this.editorFolder, edits: this._collectEdits() };
+      const jblob = new Blob([JSON.stringify(doc, null, 2)], { type: 'application/json' });
+      const ju = URL.createObjectURL(jblob);
+      this._dl(ju, `${base}_edits.json`);
+      setTimeout(() => URL.revokeObjectURL(ju), 4000);
+    },
+
+    async loadEditsFile(e) {
+      const file = e.target.files && e.target.files[0];
+      e.target.value = '';
+      if (!file) return;
+      try {
+        const doc = JSON.parse(await file.text());
+        this._applyEditsToRegions(doc.edits || []);
+        this.recordHistory();
+        this.rerenderEditor();
+      } catch (err) {
+        console.warn('load edits failed:', err);
+        alert(this.t('loadEditsFailed'));
+      }
+    },
+
+    closeEditor() {
+      if (this.editorBlob) URL.revokeObjectURL(this.editorPreviewUrl);
+      this.editorOpen = false;
+      this.editorFolder = null;
+      this.editorRegions = [];
+      this.editorBlob = null;
+      this.editorPreviewUrl = '';
     },
 
     // 在本機檔案管理器開啟結果資料夾

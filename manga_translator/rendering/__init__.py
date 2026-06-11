@@ -178,9 +178,9 @@ def _apply_default_english_line_break_method(
     render_cfg = getattr(config, 'render', None) if config is not None else None
     bubble_layout = bool(getattr(render_cfg, 'bubble_layout_english', False)) if render_cfg is not None else False
     if bubble_layout:
-        # 强制设置为横排
-        region._direction = 'horizontal'
-        region.horizontal = True
+        # 强制横排：direction property 只認 'h'/'v'/'hr'/'vr'，且 horizontal 是唯讀
+        # property（由 _direction 衍生），所以設 _direction='h' 即可，不能設 region.horizontal。
+        region._direction = 'h'
 
     region_font_path = getattr(region, 'font_path', '') or ''
     resolved_font_path = _resolve_font_path(region_font_path)
@@ -2420,6 +2420,11 @@ def render(
     disable_font_border,
     config: Config
 ):
+    # 進階編輯：per-region 空格寬度倍率（畫完還原，避免影響後續 region）
+    try:
+        text_render._state().space_scale = float(getattr(region, 'space_scale', 1.0) or 1.0)
+    except Exception:
+        text_render._state().space_scale = 1.0
     region.translation = _apply_vertical_horizontal_markup(
         region.translation,
         render_horizontally=_resolve_region_render_horizontal(region),

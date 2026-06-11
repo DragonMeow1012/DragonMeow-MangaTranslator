@@ -139,6 +139,9 @@ class FontState:
     strokes: dict = field(default_factory=OrderedDict)
     measures: dict = field(default_factory=dict)
     vertical: dict = field(default_factory=OrderedDict)
+    # 繪製時的空格寬度倍率（render() 依 region 設定，畫完還原 1.0）。
+    # 只影響繪製偏移、不動量測快取，故對既有排版零影響（預設 1.0）。
+    space_scale: float = 1.0
 
 
 # 直書時「旋轉原字 90°」而非替換成直式呈現形的字元。
@@ -169,9 +172,11 @@ def compact_special_symbols(text: str, *, convert_ascii_ellipsis: bool = True) -
 
 
 def normalize_vertical_ellipsis_text(text: str) -> str:
+    # 直排省略號統一轉 ︙(U+FE19，垂直省略號的中日呈現形)。
+    # 注意：不要轉 ⋮(U+22EE)——Noto Sans Mono CJK 沒有該字形，會 fallback 成問號（直排「…」變「?」的元兇）。
     text = text or ''
-    text = text.replace('……', '⋮')
-    text = text.replace('…', '⋮')
+    text = text.replace('……', '︙')
+    text = text.replace('…', '︙')
     text = text.replace('⋯', '︙')
     return text
 
@@ -850,6 +855,28 @@ def _sorted_glyph_positions(layout, reversed_direction: bool):
     return positions
 
 
+def _space_tracking_offsets(text: str, positions: list, space_scale: float) -> list:
+    """把每個空格後的字往左收：累積 (1-scale)*空格advance。回每字 x 偏移（正=往左）。
+
+    只影響繪製偏移，量測仍用原寬度（誤差是「行算寬一點點」，可接受）。
+    """
+    n = len(positions)
+    if space_scale >= 0.999 or n < 2:
+        return [0.0] * n
+    offsets = [0.0] * n
+    acc = 0.0
+    limit = min(len(text), n)
+    for idx in range(limit):
+        offsets[idx] = acc
+        if text[idx] == ' ' and idx + 1 < n:
+            adv = positions[idx + 1].x() - positions[idx].x()
+            if adv > 0:
+                acc += (1.0 - space_scale) * adv
+    for idx in range(limit, n):
+        offsets[idx] = acc
+    return offsets
+
+
 def _horizontal_ellipsis_tracking_offsets(
     text: str,
     font_size: int,
@@ -942,6 +969,11 @@ def _line_surface(
         all_positions,
         reversed_direction,
     )
+    # 疊加空格寬度縮放（render() 依 region 設 state.space_scale）
+    _sp_scale = _state().space_scale
+    if _sp_scale < 0.999 and not reversed_direction:
+        _sp_offsets = _space_tracking_offsets(normalized, all_positions, _sp_scale)
+        position_offsets = [position_offsets[i] + _sp_offsets[i] for i in range(len(all_positions))]
     for idx, char in enumerate(normalized):
         if idx >= len(all_positions):
             break

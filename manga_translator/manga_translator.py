@@ -3,6 +3,7 @@ import cv2
 import json
 import langcodes
 import os
+import pickle
 import regex as re
 import time
 import torch
@@ -1044,6 +1045,14 @@ class MangaTranslator:
                 final_img = cv2.cvtColor(final_img, cv2.COLOR_RGB2BGR)
             cv2.imwrite(self._result_path('final.png'), final_img)
 
+            # 進階編輯模式：存編輯狀態（抹字背景 + 文字框 + config），供之後只重跑 render。
+            # 只在前端開啟進階模式時存（pkl 較大）；任何失敗都不擋主流程。
+            if getattr(config, '_save_edit', False):
+                try:
+                    self._save_edit_state(config, ctx)
+                except Exception as e:
+                    logger.warning(f"Failed to save edit state: {e}")
+
             # 通知前端文件已就绪
             if hasattr(self, '_progress_hooks') and self._current_image_context:
                 folder_name = self._current_image_context['subfolder']
@@ -1056,6 +1065,34 @@ class MangaTranslator:
             return ctx
 
         return ctx
+
+    def _save_edit_state(self, config: Config, ctx: Context):
+        """存進階編輯所需狀態到 result/<folder>/：
+        - background.png：抹字後背景（編輯器預覽底圖）
+        - edit_state.pkl：{img_inpainted, img_rgb, text_regions, skipped_regions, config, ...}
+          供 server 端只重跑 render（不重偵測/OCR/翻譯/抹字）。
+        skipped_regions = 翻譯時被過濾不渲染的框（SFX/符號/小字），讓編輯器列出供使用者選翻。
+        """
+        skipped = getattr(ctx, '_skipped_regions', None) or []
+        if getattr(ctx, 'img_inpainted', None) is None or (not ctx.text_regions and not skipped):
+            return
+        # 抹字背景預覽存「處理解析度」（與 text_regions 座標對齊，編輯器免換算）；
+        # 最終下載時才由 rerender 縮回 orig_size。
+        bg = dump_image(ctx.input, ctx.img_inpainted, getattr(ctx, 'img_alpha', None))
+        orig_size = getattr(config, '_orig_size', None)
+        bg.convert('RGB').save(self._result_path('background.png'))
+
+        state = {
+            'img_inpainted': ctx.img_inpainted,
+            'img_rgb': getattr(ctx, 'img_rgb', None),
+            'text_regions': ctx.text_regions,
+            'skipped_regions': skipped,
+            'config': config,
+            'input_size': ctx.input.size,
+            'orig_size': orig_size,
+        }
+        with open(self._result_path('edit_state.pkl'), 'wb') as f:
+            pickle.dump(state, f, protocol=pickle.HIGHEST_PROTOCOL)
 
     # 固定的 single-thread executor，所有 GPU op 都在這個 thread 跑。
     # 不能用 default executor / asyncio.to_thread：PyTorch CUDA context 跟 thread 綁，
@@ -1788,6 +1825,9 @@ class MangaTranslator:
                 logger.warning("Some translation regions failed post-translation check.")
 
         # 过滤逻辑（简化版本，保留主要过滤条件）
+        # 進階編輯：被過濾掉（不渲染）的框（SFX/符號/小字）另存到 ctx._skipped_regions，
+        # 讓編輯器能列出、讓使用者自行決定要不要翻。
+        ctx._skipped_regions = []
         new_text_regions = []
         for region in ctx.text_regions:
             should_filter = False
@@ -1836,6 +1876,7 @@ class MangaTranslator:
                 # 保留進 render 至少能讓 user 看到原文，比空白好。
 
             if should_filter:
+                ctx._skipped_regions.append(region)
                 if region.translation.strip():
                     logger.info(f'Filtered out: {region.translation}')
                     logger.info(f'Reason: {filter_reason}')
@@ -1923,9 +1964,11 @@ class MangaTranslator:
             layout_mode = config.render.layout_mode
             if layout_mode == 'fit':
                 config.render.layout_mode = 'balloon_fill'
+            # 傳 copy：render() 會原地把譯文畫進傳入的陣列。ctx.img_inpainted 語意是
+            # 「抹字後無字背景」，必須保持乾淨（進階編輯重渲染、to_json 背景都依賴它）。
             output = await self._run_async_in_thread(
                 dispatch_rendering,
-                ctx.img_inpainted,
+                ctx.img_inpainted.copy() if ctx.img_inpainted is not None else ctx.img_inpainted,
                 ctx.text_regions,
                 config,
                 getattr(ctx, 'img_rgb', None),
