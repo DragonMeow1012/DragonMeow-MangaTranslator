@@ -474,7 +474,7 @@ async def edit_state(folder_name: str):
 
 @app.post("/edit/rerender", tags=["api"])
 async def edit_rerender(req: RerenderRequest):
-    """進階編輯：套用編輯、只重跑 render，回 PNG。"""
+    """進階編輯：套用編輯、只重跑 render，回 PNG，並把成品存回 final.png（圖庫顯示編輯後版本）。"""
     from server.edit import rerender
     try:
         img = await rerender(RESULT_ROOT, req.folder, req.edits)
@@ -482,8 +482,17 @@ async def edit_rerender(req: RerenderRequest):
         raise HTTPException(404, detail=str(e))
     except Exception as e:
         raise HTTPException(500, detail=f"Rerender failed: {e}")
+    rgb = img.convert("RGB")
+    # 覆蓋 final.png：之後圖庫 / 點圖看到的就是編輯後的版本（「還原出廠」會用原始 edits 重渲染還原）
+    try:
+        safe = os.path.basename(req.folder)
+        final_path = RESULT_ROOT / safe / "final.png"
+        if final_path.parent.exists():
+            rgb.save(str(final_path))
+    except Exception:
+        pass
     buf = io.BytesIO()
-    img.convert("RGB").save(buf, format="PNG")
+    rgb.save(buf, format="PNG")
     buf.seek(0)
     return StreamingResponse(buf, media_type="image/png")
 

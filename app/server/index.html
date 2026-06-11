@@ -812,9 +812,9 @@
               <i class="iconify inline-block mr-1" :data-icon="editorRendering ? 'carbon:circle-dash' : 'carbon:render'"
                  :class="{'animate-spin': editorRendering}"></i>{{ t('rerender') }}
             </button>
-            <button @click="downloadImage"
-                    class="px-3 py-1 text-sm bg-green-600 text-white rounded-md hover:bg-green-700">
-              <i class="iconify inline-block mr-1" data-icon="carbon:image"></i>{{ t('saveImage') }}
+            <button @click="saveToServer" :disabled="editorRendering"
+                    class="px-3 py-1 text-sm bg-green-600 text-white rounded-md hover:bg-green-700 disabled:opacity-50">
+              <i class="iconify inline-block mr-1" data-icon="carbon:save"></i>{{ t('saveImage') }}
             </button>
             <button @click="downloadEditDoc"
                     class="px-3 py-1 text-sm bg-green-700 text-white rounded-md hover:bg-green-800">
@@ -1104,7 +1104,8 @@
           enterEditor: '進階編輯',
           noResultToEdit: '沒有可編輯的翻譯結果。請先開啟「進階編輯」開關再翻譯一張。',
           rerender: '重新渲染',
-          saveImage: '另存圖片',
+          saveImage: '儲存',
+          savedToServer: '已儲存！圖庫將顯示這個編輯後版本。',
           saveEditDoc: '另存編輯檔',
           loadEdits: '載入編輯檔',
           close: '關閉',
@@ -1248,7 +1249,8 @@
           enterEditor: '高级编辑',
           noResultToEdit: '没有可编辑的翻译结果。请先开启「高级编辑」开关再翻译一张。',
           rerender: '重新渲染',
-          saveImage: '另存图片',
+          saveImage: '保存',
+          savedToServer: '已保存！图库将显示这个编辑后版本。',
           saveEditDoc: '另存编辑档',
           loadEdits: '载入编辑档',
           close: '关闭',
@@ -1392,7 +1394,8 @@
           enterEditor: 'Advanced Edit',
           noResultToEdit: 'No editable result. Turn on "Advanced Edit" and translate an image first.',
           rerender: 'Re-render',
-          saveImage: 'Save Image',
+          saveImage: 'Save',
+          savedToServer: 'Saved! The gallery will show this edited version.',
           saveEditDoc: 'Save Edit File',
           loadEdits: 'Load Edits',
           close: 'Close',
@@ -1536,7 +1539,8 @@
           enterEditor: '詳細編集',
           noResultToEdit: '編集できる結果がありません。「詳細編集」をオンにして翻訳してください。',
           rerender: '再レンダリング',
-          saveImage: '画像を保存',
+          saveImage: '保存',
+          savedToServer: '保存しました！ギャラリーには編集後のバージョンが表示されます。',
           saveEditDoc: '編集ファイルを保存',
           loadEdits: '編集ファイルを読込',
           close: '閉じる',
@@ -3025,15 +3029,15 @@
     },
 
     // 還原成翻譯出廠設置（回到剛機翻完的樣子）
-    resetFactory() {
+    async resetFactory() {
       if (!this.editorFreshRegions) return;
       if (!confirm(this.t('resetConfirm'))) return;
       this.editorRegions = JSON.parse(JSON.stringify(this.editorFreshRegions));
       this.selectedRegionId = this.editorRegions.length ? this.editorRegions[0].id : null;
       this.clearEditsLocal(this.editorFolder);
-      if (this.editorBlob) { URL.revokeObjectURL(this.editorPreviewUrl); this.editorBlob = null; }
-      this.editorPreviewUrl = `${BASE_URI}result/${this.editorFolder}/final.png?ts=${Date.now()}`;
       this.resetHistory();
+      // 用原始狀態重渲染一次：把 final.png 蓋回原版（圖庫也跟著還原）
+      await this.rerenderEditor();
     },
 
     // ---- 復原 / 重做 ----
@@ -3107,12 +3111,25 @@
         if (this.editorBlob) URL.revokeObjectURL(this.editorPreviewUrl);
         this.editorBlob = blob;
         this.editorPreviewUrl = URL.createObjectURL(blob);
+        // 後端已把 final.png 覆蓋成編輯後版本 → 更新圖庫縮圖（加 ts 破快取）
+        this._refreshGalleryThumb(this.editorFolder);
       } catch (e) {
         console.warn('rerender failed:', e);
         alert(this.t('rerenderFailed'));
       } finally {
         this.editorRendering = false;
       }
+    },
+
+    // 編輯後 final.png 已更新，刷新圖庫該張的縮圖 URL（破瀏覽器快取）
+    _refreshGalleryThumb(folder) {
+      const ts = Date.now();
+      this.finishedImages = this.finishedImages.map(im => {
+        if (this.folderFromUrl(im.result) !== folder) return im;
+        const clean = im.result.split('?')[0];
+        return { ...im, result: `${clean}?ts=${ts}` };
+      });
+      try { localStorage.setItem('manga-translator-finished-images', JSON.stringify(this.finishedImages)); } catch (e) {}
     },
 
     _dl(url, name) {
@@ -3129,6 +3146,12 @@
     },
 
     // 另存圖片：優先用重新渲染後的 blob，否則抓目前 final.png
+    // 儲存：重渲染並把成品存回伺服器（覆蓋 final.png，圖庫顯示編輯後版本）
+    async saveToServer() {
+      await this.rerenderEditor();
+      alert(this.t('savedToServer'));
+    },
+
     downloadImage() {
       const base = this._editBaseName();
       if (this.editorBlob) {
