@@ -1,0 +1,68 @@
+result
+*.ckpt
+*.pt
+.vscode
+*.onnx
+__pycache__
+ocrs
+Manga
+Manga-translated
+/models
+.env
+*.local
+*.local.*
+test/testdata
+.idea
+pyvenv.cfg
+Scripts
+Lib
+include
+share
+.DS_Store
+dev/
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+.history
+/venv
+.venv/
+
+# Input and Output
+/input/
+/input-translated/
+
+# SSL Used for running server locally
+cert.pem
+key.pem
+
+# Local backup files
+*.bak
+*.bak.*
+
+# Server logs
+/logs/
+
+# User-uploaded fonts (runtime)
+/fonts/user/
+
+# Test data / scratch outputs
+/_crops/
+/_test*
+/_testcfg.json

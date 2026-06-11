@@ -1,0 +1,29 @@
+[project]
+name = "dragonmeow-manga-translator"
+version = "1.0.0"
+description = "Manga image translation with Gemini API: detection, OCR, inpainting, typesetting, and a localhost web UI"
+authors = [{ name = "DragonMeow" }]
+readme = "README.md"
+requires-python = ">=3.10, <3.12"
+license = "GPL-3.0-only"
+
+[tool.isort]
+profile = 'black'
+multi_line_output = 3
+line_length = 100
+py_version = 310
+
+
+[tool.pylint]
+disable = """
+C,R,W,
+c-extension-no-member
+"""
+additional-builtins = "display"
+output-format = "colorized"
+generated-members = ["torch.*", "cv2.*"]
+
+[tool.pytest.ini_options]
+addopts = "-ra -v -p no:faulthandler"
+minversion = "6.0"
+testpaths = ["test"]
