@@ -15,6 +15,8 @@
     <script src="https://cdn.jsdelivr.net/npm/@unocss/runtime@0.30.5/uno.global.js"></script>
     <!-- Iconify -->
     <script src="https://cdn.jsdelivr.net/npm/@iconify/iconify@2.2.0/dist/iconify.min.js"></script>
+    <!-- JSZip（zip 上傳/下載整本漫畫） -->
+    <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
 
     <style>
       [v-cloak],
@@ -37,6 +39,7 @@
         <div class="flex items-start justify-between">
           <h1 class="text-2xl font-bold text-gray-800">
             {{ t('title') }}
+            <span class="text-sm font-normal text-gray-400 ml-1">{{ t('madeBy') }}</span>
           </h1>
           <div class="flex items-center gap-3">
             <!-- 進階編輯模式開關 -->
@@ -393,7 +396,7 @@
             <input
               id="file"
               type="file"
-              accept="image/png,image/jpeg,image/bmp,image/webp"
+              accept="image/png,image/jpeg,image/bmp,image/webp,.zip,.cbz"
               class="hidden"
               @change="onfilechange"
               multiple
@@ -407,7 +410,11 @@
             <h3 class="text-lg font-semibold text-gray-800">
               {{ t('queueTitle') }} ({{ queuedImages.length }})
             </h3>
-            <div class="flex space-x-2">
+            <div class="flex items-center space-x-2">
+              <label class="flex items-center gap-1 text-sm text-gray-600 cursor-pointer select-none mr-1" :title="t('autoRetryTooltip')">
+                <input type="checkbox" v-model="autoRetryFailed" @change="onSettingChange">
+                {{ t('autoRetry') }}
+              </label>
               <button @click="retryAllErrors"
                       class="px-3 py-1 text-sm bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors">
                 {{ t('retryAll') }}
@@ -537,6 +544,15 @@
               {{ t('resultsTitle') }} ({{ finishedImages.length }})
             </h3>
             <div class="flex space-x-2">
+              <button v-if="finishedImages.length > 0" @click="toggleSelectAll"
+                      class="px-3 py-1 text-sm bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300 transition-colors">
+                {{ allSelected ? t('deselectAll') : t('selectAll') }}
+              </button>
+              <button v-if="selectedGallery.length > 0" @click="downloadGalleryZip" :disabled="zipping"
+                      class="px-3 py-1 text-sm bg-indigo-600 text-white rounded-md hover:bg-indigo-700 disabled:opacity-50 transition-colors">
+                <i class="iconify inline-block mr-1" :data-icon="zipping ? 'carbon:circle-dash' : 'carbon:download'"
+                   :class="{'animate-spin': zipping}"></i>{{ t('downloadZip') }} ({{ selectedGallery.length }})
+              </button>
               <button v-if="finishedImages.length > 0" @click="editLatest"
                       class="px-3 py-1 text-sm bg-purple-600 text-white rounded-md hover:bg-purple-700 transition-colors">
                 <i class="iconify inline-block mr-1" data-icon="carbon:edit"></i>{{ t('enterEditor') }}
@@ -569,8 +585,12 @@
                class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
             <div v-for="image in finishedImages" :key="image.id"
                  class="group cursor-pointer bg-white rounded-lg border hover:border-blue-400 hover:shadow-md transition-all duration-200"
+                 :class="{'ring-2 ring-indigo-500': selectedGallery.includes(image.id)}"
                  @click="openImageModal(image)">
               <div class="relative aspect-square overflow-hidden rounded-t-lg">
+                <input type="checkbox" class="absolute top-1 left-1 z-10 w-4 h-4"
+                       :checked="selectedGallery.includes(image.id)"
+                       @click.stop="toggleGallerySelect(image.id)">
                 <img :src="image.result" 
                      :alt="'Translated: ' + image.originalName"
                      class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200">
@@ -609,9 +629,25 @@
           </div>
         </div>
       </div>
-      
+
+      <!-- 頁尾：GitHub + Buy Me a Coffee -->
+      <div class="flex items-center justify-center gap-5 mt-6 text-gray-500">
+        <a href="https://github.com/DragonMeow1012/DragonMeow-MangaTranslator" target="_blank"
+           rel="noopener noreferrer" :title="t('footerGithub')"
+           class="flex items-center gap-1 hover:text-gray-800 transition-colors">
+          <i class="iconify w-6 h-6" data-icon="carbon:logo-github"></i>
+          <span class="text-sm">GitHub</span>
+        </a>
+        <a href="https://buymeacoffee.com/dragonmeow1012" target="_blank"
+           rel="noopener noreferrer" :title="t('footerCoffee')"
+           class="flex items-center gap-1 text-amber-600 hover:text-amber-700 transition-colors">
+          <i class="iconify w-6 h-6" data-icon="simple-icons:buymeacoffee"></i>
+          <span class="text-sm">Buy me a coffee</span>
+        </a>
+      </div>
+
       <!-- Image Modal -->
-      <div v-if="showImageModal" 
+      <div v-if="showImageModal"
            class="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50"
            @click="closeImageModal">
         <div class="relative max-w-4xl max-h-full p-4" @click.stop>
@@ -664,6 +700,26 @@
               {{ new Date(selectedImage.finishedAt).toLocaleString() }}
             </div>
           </div>
+        </div>
+      </div>
+
+      <!-- 第一次開啟的提醒懸浮欄 -->
+      <div v-if="showWelcome"
+           class="fixed bottom-4 right-4 z-50 max-w-sm bg-white rounded-lg shadow-2xl border border-amber-200 p-4">
+        <div class="flex items-start gap-2">
+          <i class="iconify w-6 h-6 text-amber-500 flex-shrink-0" data-icon="carbon:warning-alt"></i>
+          <div class="flex-1">
+            <div class="font-semibold text-gray-800 mb-1">{{ t('welcomeTitle') }}</div>
+            <p class="text-sm text-gray-600 leading-relaxed">{{ t('welcomeBody') }}</p>
+            <a href="https://github.com/DragonMeow1012/DragonMeow-MangaTranslator" target="_blank"
+               rel="noopener noreferrer"
+               class="inline-flex items-center gap-1 mt-2 text-sm text-blue-600 hover:text-blue-800 break-all">
+              <i class="iconify" data-icon="carbon:logo-github"></i>{{ t('welcomeStar') }}
+            </a>
+          </div>
+          <button @click="dismissWelcome" class="p-1 text-gray-400 hover:text-gray-700 flex-shrink-0">
+            <i class="iconify" data-icon="carbon:close"></i>
+          </button>
         </div>
       </div>
 
@@ -895,6 +951,12 @@
       const I18N = {
         'zh-TW': {
           title: '漫畫翻譯',
+          madeBy: 'made by 龍龍喵',
+          welcomeTitle: '龍龍喵製作 · 完全免費',
+          welcomeBody: '這是龍龍喵製作、完 全 免 費 的開源專案。任何收費版本均為盜版。如果喜歡這個小工具，歡迎到 GitHub 給星星，或打賞買杯咖啡給作者 ☕',
+          welcomeStar: 'GitHub：給星星 / 打賞作者',
+          footerGithub: '到 GitHub 給星星',
+          footerCoffee: '請作者喝杯咖啡',
           providerTooltip: '翻譯服務供應商',
           customProvider: '自訂（OpenAI 相容）',
           modelTooltip: '翻譯模型（可直接輸入任何模型名）',
@@ -924,6 +986,8 @@
           folder: '選擇資料夾',
           queueTitle: '翻譯佇列',
           skipCurrent: '跳過目前',
+          autoRetry: '自動重試',
+          autoRetryTooltip: '失敗的圖片自動重試，直到佇列全部完成（最多 5 次）',
           clearFinished: '清除已完成',
           emptyQueue: '佇列中沒有圖片',
           emptyQueueHint: '上傳圖片並點「開始翻譯」即可開始',
@@ -939,6 +1003,11 @@
           showGallery: '顯示圖庫',
           hideGallery: '隱藏圖庫',
           syncResults: '同步結果',
+          selectAll: '全選',
+          deselectAll: '取消全選',
+          downloadZip: '下載 ZIP',
+          zipFailed: 'ZIP 打包失敗',
+          zipReadFailed: 'ZIP 讀取失敗',
           refresh: '重新整理',
           deleteAll: '全部刪除',
           noFinished: '還沒有完成的翻譯',
@@ -1008,6 +1077,12 @@
         },
         'zh-CN': {
           title: '漫画翻译',
+          madeBy: 'made by 龙龙喵',
+          welcomeTitle: '龙龙喵制作 · 完全免费',
+          welcomeBody: '这是龙龙喵制作、完 全 免 费 的开源项目。任何收费版本均为盗版。如果喜欢这个小工具，欢迎到 GitHub 给星星，或打赏买杯咖啡给作者 ☕',
+          welcomeStar: 'GitHub：给星星 / 打赏作者',
+          footerGithub: '到 GitHub 给星星',
+          footerCoffee: '请作者喝杯咖啡',
           providerTooltip: '翻译服务提供商',
           customProvider: '自定义（OpenAI 兼容）',
           modelTooltip: '翻译模型（可直接输入任何模型名）',
@@ -1037,6 +1112,8 @@
           folder: '选择文件夹',
           queueTitle: '翻译队列',
           skipCurrent: '跳过当前',
+          autoRetry: '自动重试',
+          autoRetryTooltip: '失败的图片自动重试，直到队列全部完成（最多 5 次）',
           clearFinished: '清除已完成',
           emptyQueue: '队列中没有图片',
           emptyQueueHint: '上传图片并点击「开始翻译」即可开始',
@@ -1052,6 +1129,11 @@
           showGallery: '显示图库',
           hideGallery: '隐藏图库',
           syncResults: '同步结果',
+          selectAll: '全选',
+          deselectAll: '取消全选',
+          downloadZip: '下载 ZIP',
+          zipFailed: 'ZIP 打包失败',
+          zipReadFailed: 'ZIP 读取失败',
           refresh: '刷新',
           deleteAll: '全部删除',
           noFinished: '还没有完成的翻译',
@@ -1121,6 +1203,12 @@
         },
         'en': {
           title: 'Manga Translator',
+          madeBy: 'made by 龍龍喵 (DragonMeow)',
+          welcomeTitle: 'Made by DragonMeow · 100% Free',
+          welcomeBody: 'This is a completely FREE open-source project by DragonMeow (龍龍喵). Any paid version is piracy. If you like this little tool, please star it on GitHub or buy the author a coffee ☕',
+          welcomeStar: 'GitHub: Star / Buy a coffee',
+          footerGithub: 'Star on GitHub',
+          footerCoffee: 'Buy the author a coffee',
           providerTooltip: 'LLM provider',
           customProvider: 'Custom (OpenAI-compatible)',
           modelTooltip: 'Translation model (any model name accepted)',
@@ -1150,6 +1238,8 @@
           folder: 'Folder',
           queueTitle: 'Translation Queue',
           skipCurrent: 'Skip Current',
+          autoRetry: 'Auto-retry',
+          autoRetryTooltip: 'Automatically retry failed images until the queue is done (max 5 times)',
           clearFinished: 'Clear Finished',
           emptyQueue: 'No images in queue',
           emptyQueueHint: 'Upload an image and click "Start Translating" to begin',
@@ -1165,6 +1255,11 @@
           showGallery: 'Show Gallery',
           hideGallery: 'Hide Gallery',
           syncResults: 'Sync with Results',
+          selectAll: 'Select All',
+          deselectAll: 'Deselect All',
+          downloadZip: 'Download ZIP',
+          zipFailed: 'ZIP packaging failed',
+          zipReadFailed: 'Failed to read ZIP',
           refresh: 'Refresh',
           deleteAll: 'Delete All',
           noFinished: 'No finished translations yet',
@@ -1234,6 +1329,12 @@
         },
         'ja': {
           title: '漫画翻訳',
+          madeBy: 'made by 龍龍喵',
+          welcomeTitle: '龍龍喵制作 · 完全無料',
+          welcomeBody: 'これは龍龍喵が制作した完 全 無 料 のオープンソースプロジェクトです。有料版はすべて海賊版です。気に入ったら GitHub でスターを付けるか、作者にコーヒーを奢ってください ☕',
+          welcomeStar: 'GitHub：スター / 作者を支援',
+          footerGithub: 'GitHub でスター',
+          footerCoffee: '作者にコーヒーを奢る',
           providerTooltip: '翻訳プロバイダ',
           customProvider: 'カスタム（OpenAI 互換）',
           modelTooltip: '翻訳モデル（任意のモデル名を入力可）',
@@ -1263,6 +1364,8 @@
           folder: 'フォルダ',
           queueTitle: '翻訳キュー',
           skipCurrent: '現在をスキップ',
+          autoRetry: '自動再試行',
+          autoRetryTooltip: '失敗した画像をキューが完了するまで自動再試行（最大5回）',
           clearFinished: '完了分をクリア',
           emptyQueue: 'キューに画像がありません',
           emptyQueueHint: '画像をアップロードして「翻訳開始」を押してください',
@@ -1278,6 +1381,11 @@
           showGallery: 'ギャラリーを表示',
           hideGallery: 'ギャラリーを隠す',
           syncResults: '結果と同期',
+          selectAll: 'すべて選択',
+          deselectAll: '選択解除',
+          downloadZip: 'ZIP ダウンロード',
+          zipFailed: 'ZIP 作成に失敗',
+          zipReadFailed: 'ZIP の読み込みに失敗',
           refresh: '更新',
           deleteAll: 'すべて削除',
           noFinished: '完了した翻訳はまだありません',
@@ -1353,6 +1461,10 @@
           this.loadSettings();
           this.loadFonts();
           this.loadFinishedImages();
+          // 第一次開啟顯示提醒（看過就不再跳）
+          try {
+            if (!localStorage.getItem('manga-welcome-seen')) this.showWelcome = true;
+          } catch (e) {}
           // Sync gallery with results folder on page load
           setTimeout(() => {
             this.syncGalleryWithResults();
@@ -1449,6 +1561,14 @@
         fontPath: '',                 // '' = 自動依語言
         fontOptions: [{ value: '', label: '自動（依語言）' }],
 
+        // 第一次開啟提醒
+        showWelcome: false,
+        // 佇列自動重試失敗項
+        autoRetryFailed: false,
+        // 圖庫選取 + zip 打包
+        selectedGallery: [],
+        zipping: false,
+
         // 進階編輯模式
         advancedMode: false,
         editorOpen: false,
@@ -1502,6 +1622,7 @@
               if (settings.targetLanguage) this.targetLanguage = settings.targetLanguage;
               if (settings.fontPath) this.fontPath = settings.fontPath;
               if (typeof settings.advancedMode === 'boolean') this.advancedMode = settings.advancedMode;
+              if (typeof settings.autoRetryFailed === 'boolean') this.autoRetryFailed = settings.autoRetryFailed;
             }
           } catch (error) {
             console.warn('Failed to load settings:', error);
@@ -1519,6 +1640,7 @@
               targetLanguage: this.targetLanguage,
               fontPath: this.fontPath,
               advancedMode: this.advancedMode,
+              autoRetryFailed: this.autoRetryFailed,
             };
             localStorage.setItem('manga-translator-settings', JSON.stringify(settings));
           } catch (error) {
@@ -1526,58 +1648,74 @@
           }
         },
 
-        ondrop(e) {
-          const files = Array.from(e.dataTransfer?.files || []);
-          const validFiles = files.filter(file => acceptTypes.includes(file.type));
-          
-          if (validFiles.length === 1 && !this.file && this.selectedFiles.length === 0) {
-            // Single file and no current file or selected files - maintain existing behavior
-            this.file = validFiles[0];
-            this.selectedFiles = []; // Clear any selected files
-          } else if (validFiles.length > 0) {
-            // Multiple files or single file when already have files - store for preview
-            this.selectedFiles = validFiles;
-            this.file = null; // Clear single file
+        _isZip(file) {
+          const n = (file.name || '').toLowerCase();
+          return n.endsWith('.zip') || n.endsWith('.cbz') ||
+                 ['application/zip', 'application/x-zip-compressed', 'application/x-cbz'].includes(file.type);
+        },
+        // 把 zip/cbz 展開成裡面的圖片（依檔名自然排序＝頁序）；一般圖片原樣保留
+        async _expandZips(rawFiles) {
+          const out = [];
+          for (const f of rawFiles) {
+            if (this._isZip(f)) {
+              try {
+                const zip = await JSZip.loadAsync(f);
+                const entries = [];
+                zip.forEach((path, entry) => {
+                  if (entry.dir) return;
+                  const ext = path.split('.').pop().toLowerCase();
+                  if (['png', 'jpg', 'jpeg', 'webp', 'bmp', 'gif'].includes(ext) &&
+                      !path.split('/').pop().startsWith('.')) {
+                    entries.push({ path, entry });
+                  }
+                });
+                entries.sort((a, b) => a.path.localeCompare(b.path, undefined, { numeric: true }));
+                for (const { path, entry } of entries) {
+                  const blob = await entry.async('blob');
+                  const ext = path.split('.').pop().toLowerCase();
+                  const mime = ext === 'png' ? 'image/png' : ext === 'webp' ? 'image/webp'
+                    : ext === 'bmp' ? 'image/bmp' : ext === 'gif' ? 'image/gif' : 'image/jpeg';
+                  out.push(new File([blob], path.split('/').pop(), { type: mime }));
+                }
+              } catch (err) {
+                console.warn('unzip failed:', err);
+                alert(this.t('zipReadFailed') + ': ' + (f.name || ''));
+              }
+            } else if (acceptTypes.includes(f.type)) {
+              out.push(f);
+            }
+          }
+          return out;
+        },
+        // 統一入口：展開 zip → 依數量設單張預覽 / 多張清單
+        async _ingestFiles(rawFiles) {
+          const files = await this._expandZips(rawFiles);
+          if (files.length === 1 && !this.file && this.selectedFiles.length === 0) {
+            this.file = files[0];
+            this.selectedFiles = [];
+          } else if (files.length > 0) {
+            this.selectedFiles = files;
+            this.file = null;
           }
         },
-        onfilechange(e) {
-          const files = Array.from(e.target.files || []);
-          const validFiles = files.filter(file => acceptTypes.includes(file.type));
-          
-          if (validFiles.length === 1) {
-            // Single file - maintain existing behavior
-            this.file = validFiles[0];
-            this.selectedFiles = []; // Clear any selected files
-          } else if (validFiles.length > 1) {
-            // Multiple files - store them for preview, don't add to queue yet
-            this.selectedFiles = validFiles;
-            this.file = null; // Clear single file
-            // Clear the file input
-            e.target.value = '';
-          }
+        async ondrop(e) {
+          await this._ingestFiles(Array.from(e.dataTransfer?.files || []));
         },
-        onpaste(e) {
+        async onfilechange(e) {
+          const raw = Array.from(e.target.files || []);
+          e.target.value = '';
+          await this._ingestFiles(raw);
+        },
+        async onpaste(e) {
           const items = (e.clipboardData || e.originalEvent.clipboardData).items;
-          const pastedFiles = [];
-          
+          const pasted = [];
           for (const item of items) {
             if (item.kind === "file") {
               const file = item.getAsFile();
-              if (file && acceptTypes.includes(file.type)) {
-                pastedFiles.push(file);
-              }
+              if (file) pasted.push(file);
             }
           }
-          
-          if (pastedFiles.length === 1 && !this.file && this.selectedFiles.length === 0) {
-            // Single file and no current file or selected files - maintain existing behavior
-            this.file = pastedFiles[0];
-            this.selectedFiles = []; // Clear any selected files
-          } else if (pastedFiles.length > 0) {
-            // Multiple files or single file when already have files - store for preview
-            this.selectedFiles = pastedFiles;
-            this.file = null; // Clear single file
-          }
+          await this._ingestFiles(pasted);
         },
 
         // Queue management
@@ -1633,43 +1771,24 @@
 
         // Batch upload functions
         selectMultipleFiles() {
-          // Create a temporary file input for multiple file selection
           const input = document.createElement('input');
           input.type = 'file';
-          input.accept = 'image/png,image/jpeg,image/bmp,image/webp';
+          input.accept = 'image/png,image/jpeg,image/bmp,image/webp,.zip,.cbz';
           input.multiple = true;
-          
-          input.onchange = (e) => {
-            const files = Array.from(e.target.files || []);
-            const validFiles = files.filter(file => acceptTypes.includes(file.type));
-            
-            if (validFiles.length > 0) {
-              this.selectedFiles = validFiles;
-              this.file = null; // Clear single file
-            }
+          input.onchange = async (e) => {
+            await this._ingestFiles(Array.from(e.target.files || []));
           };
-          
           input.click();
         },
 
         selectFolder() {
-          // Create a temporary file input for folder selection
           const input = document.createElement('input');
           input.type = 'file';
-          input.accept = 'image/png,image/jpeg,image/bmp,image/webp';
           input.webkitdirectory = true;
           input.multiple = true;
-          
-          input.onchange = (e) => {
-            const files = Array.from(e.target.files || []);
-            const validFiles = files.filter(file => acceptTypes.includes(file.type));
-            
-            if (validFiles.length > 0) {
-              this.selectedFiles = validFiles;
-              this.file = null; // Clear single file
-            }
+          input.onchange = async (e) => {
+            await this._ingestFiles(Array.from(e.target.files || []));
           };
-          
           input.click();
         },
 
@@ -2251,20 +2370,33 @@
         return;
       }
 
-      const nextItemIndex = this.queuedImages.findIndex(item => item.status === 'queued');
-      console.log("Next queued item index:", nextItemIndex);
-      
+      let nextItemIndex = this.queuedImages.findIndex(item => item.status === 'queued');
+
+      // 自動重試：沒有待處理項時，把未超上限的錯誤項重排回佇列（直到都重試過 / 成功 / 達上限）
+      if (nextItemIndex === -1 && this.autoRetryFailed) {
+        const MAX_RETRY = 5;
+        let requeued = false;
+        this.queuedImages.forEach((item, idx) => {
+          if (item.status === 'error' && (item.retryCount || 0) < MAX_RETRY) {
+            this.queuedImages[idx] = {
+              ...item, status: 'queued', error: null, progress: null,
+              queuePos: null, retryCount: (item.retryCount || 0) + 1,
+            };
+            requeued = true;
+          }
+        });
+        if (requeued) {
+          console.log("Auto-retry: re-queued failed items");
+          nextItemIndex = this.queuedImages.findIndex(item => item.status === 'queued');
+        }
+      }
+
       if (nextItemIndex !== -1) {
         const nextItem = this.queuedImages[nextItemIndex];
-        console.log("Found next item:", nextItem);
-        
-        // Update the item using Vue reactivity
         this.queuedImages[nextItemIndex] = {
           ...nextItem,
           status: 'processing'
         };
-        
-        console.log("Starting translation for next item:", this.queuedImages[nextItemIndex]);
         this.processTranslation(this.queuedImages[nextItemIndex]);
       } else {
         console.log("No queued items to process");
@@ -2551,6 +2683,56 @@
       } catch (e) {
         console.warn('upload font failed:', e);
         alert(this.t('uploadFontFailed'));
+      }
+    },
+
+    dismissWelcome() {
+      this.showWelcome = false;
+      try { localStorage.setItem('manga-welcome-seen', '1'); } catch (e) {}
+    },
+
+    // ---- 圖庫選取 + ZIP 下載 ----
+    get allSelected() {
+      return this.finishedImages.length > 0 && this.selectedGallery.length === this.finishedImages.length;
+    },
+    toggleGallerySelect(id) {
+      const i = this.selectedGallery.indexOf(id);
+      if (i === -1) this.selectedGallery.push(id);
+      else this.selectedGallery.splice(i, 1);
+    },
+    toggleSelectAll() {
+      if (this.allSelected) this.selectedGallery = [];
+      else this.selectedGallery = this.finishedImages.map(im => im.id);
+    },
+    async downloadGalleryZip() {
+      if (!this.selectedGallery.length || this.zipping) return;
+      this.zipping = true;
+      try {
+        const zip = new JSZip();
+        const picked = this.finishedImages.filter(im => this.selectedGallery.includes(im.id));
+        let n = 1;
+        for (const im of picked) {
+          try {
+            const resp = await fetch(im.result);
+            if (!resp.ok) continue;
+            const blob = await resp.blob();
+            const pad = String(n).padStart(3, '0');
+            const base = (im.originalName || `page_${pad}`).replace(/\.[^.]+$/, '');
+            zip.file(`${pad}_${base}.png`, blob);
+            n++;
+          } catch (e) { console.warn('zip add failed:', e); }
+        }
+        const content = await zip.generateAsync({ type: 'blob' });
+        const url = URL.createObjectURL(content);
+        const a = document.createElement('a');
+        a.href = url; a.download = 'manga_translated.zip';
+        document.body.appendChild(a); a.click(); a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 5000);
+      } catch (e) {
+        console.warn('zip failed:', e);
+        alert(this.t('zipFailed'));
+      } finally {
+        this.zipping = false;
       }
     },
 

@@ -1,6 +1,7 @@
 @echo off
 setlocal
-cd /d "%~dp0"
+rem all code lives in the app\ subfolder
+cd /d "%~dp0app"
 
 echo ============================================
 echo  DragonMeow-MangaTranslator setup

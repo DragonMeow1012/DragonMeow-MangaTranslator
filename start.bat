@@ -1,6 +1,7 @@
 @echo off
 setlocal
-cd /d "%~dp0"
+rem all code lives in the app\ subfolder
+cd /d "%~dp0app"
 
 if not exist .venv\Scripts\python.exe (
     echo [ERROR] Environment not installed. Run setup.bat first.
@@ -38,7 +39,7 @@ echo  ============================================
 
 start "" /min powershell -NoProfile -WindowStyle Hidden -Command "for($i=0;$i -lt 180;$i++){try{$c=New-Object Net.Sockets.TcpClient;$c.Connect('127.0.0.1',8501);$c.Close();break}catch{Start-Sleep 1}};Start-Process 'http://127.0.0.1:8501'"
 
-.venv\Scripts\python.exe server\main.py --use-gpu --start-instance --host 127.0.0.1 --port 8501 --nonce None > logs\server.log 2>&1
+.venv\Scripts\python.exe server\main.py %GPU_FLAG% --start-instance --host 127.0.0.1 --port 8501 --nonce None > logs\server.log 2>&1
 
 echo.
 echo Server stopped. If this was unexpected, check logs\server.log

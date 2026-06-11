@@ -1,23 +1,40 @@
-result
+# 程式本體在 app/；模型、venv、執行產物等都在 app/ 底下，這裡一併忽略
+
+# 模型權重 / 大檔（zip release 才附）
+/app/models
 *.ckpt
 *.pt
-.vscode
 *.onnx
-__pycache__
-ocrs
-Manga
-Manga-translated
-/models
-.env
-*.local
-*.local.*
-test/testdata
-.idea
+
+# 虛擬環境
+.venv/
+/venv
 pyvenv.cfg
 Scripts
 Lib
 include
 share
+
+# 環境變數（含 API key）
+.env
+*.local
+*.local.*
+
+# 執行產物
+result
+/app/logs/
+/app/fonts/user/
+/app/input/
+/app/input-translated/
+ocrs
+Manga
+Manga-translated
+
+# 快取 / 雜項
+__pycache__
+.vscode
+.idea
+.history
 .DS_Store
 dev/
 
@@ -40,29 +57,14 @@ share/python-wheels/
 .installed.cfg
 *.egg
 MANIFEST
-.history
-/venv
-.venv/
 
-# Input and Output
-/input/
-/input-translated/
-
-# SSL Used for running server locally
+# SSL（本機 server）
 cert.pem
 key.pem
 
-# Local backup files
+# 備份 / 暫存
 *.bak
 *.bak.*
-
-# Server logs
-/logs/
-
-# User-uploaded fonts (runtime)
-/fonts/user/
-
-# Test data / scratch outputs
 /_crops/
 /_test*
 /_testcfg.json

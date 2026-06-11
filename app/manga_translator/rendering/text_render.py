@@ -1268,7 +1268,12 @@ def _build_vertical_layout(
                 'kind': kind, 'translated': char_t, 'rot_degree': value['rot_degree'], 'bitmap': value['bitmap'],
                 'cursor_y': cursor, 'x': int(round(x)), 'y': int(value['y']),
             })
-            cursor += int(value['advance_y'])
+            # 直書空格寬度縮放：空白字的縱向 advance 乘 space_scale（render() 依 region 設）
+            adv = value['advance_y']
+            _sp = _state().space_scale
+            if _sp < 0.999 and char_t and char_t.isspace():
+                adv = max(1, int(round(adv * _sp)))
+            cursor += int(adv)
     return {'width': int(line_width), 'height': max(0, int(cursor)), 'items': laid}
 
 
