@@ -39,6 +39,7 @@ class RegionEdit(BaseModel):
     direction: str | None = None  # 書寫方向：'auto'(自動) / 'h'(橫書) / 'v'(直書)
     font_path: str | None = None  # 該框字形（fonts/ 內檔名或 user/<name>）；空=用自動字形
     skip: bool = False            # 維持原文、不渲染譯文
+    hidden: bool = False          # 暫時隱藏：不渲染譯文也不貼回原文（露出抹字後底圖）
     dx: int = 0                   # 位置微調（處理解析度像素）
     dy: int = 0
 
@@ -326,6 +327,9 @@ async def rerender(result_root, folder: str, edits: list[RegionEdit],
     for i, region in enumerate(regions):
         e = edit_map.get(i)
         was_skipped = i >= n_rendered
+        # 暫時隱藏：什麼都不畫、也不貼回原文 → 露出抹字後的底圖（搭配筆刷清理用）
+        if e is not None and e.hidden:
+            continue
         skip = was_skipped if e is None else bool(e.skip)
         if skip:
             # 維持原文：把原圖該框（含擦除暈邊）貼回背景

@@ -955,15 +955,15 @@
                   <span v-if="!r.custom && r.was_skipped" class="px-1 rounded bg-amber-100 text-amber-700">{{ t('sfxBadge') }}</span>
                   <span v-else-if="!r.custom">· {{ t('original') }}</span>
                 </div>
-                <label v-if="!r.custom" class="text-xs text-gray-600 flex items-center gap-1" @click.stop>
-                  <input type="checkbox" v-model="r.skip" @change="recordHistory"> {{ t('keepOriginal') }}
-                </label>
-                <span v-else class="flex items-center gap-2" @click.stop>
-                  <!-- 暫時隱藏：方便用筆刷把文本底下擦乾淨再顯示回來 -->
-                  <label class="text-xs text-gray-600 flex items-center gap-1" :title="t('hideBoxTip')">
-                    <input type="checkbox" v-model="r.skip" @change="recordHistory(); rerenderEditor()"> {{ t('hideBox') }}
+                <span class="flex items-center gap-2" @click.stop>
+                  <label v-if="!r.custom" class="text-xs text-gray-600 flex items-center gap-1">
+                    <input type="checkbox" v-model="r.skip" @change="recordHistory"> {{ t('keepOriginal') }}
                   </label>
-                  <button @click="removeCustomRegion(r.id)"
+                  <!-- 暫時隱藏（所有文本都有）：露出底圖方便用筆刷擦乾淨，再取消隱藏 -->
+                  <label class="text-xs text-gray-600 flex items-center gap-1" :title="t('hideBoxTip')">
+                    <input type="checkbox" v-model="r.hidden" @change="recordHistory(); rerenderEditor()"> {{ t('hideBox') }}
+                  </label>
+                  <button v-if="r.custom" @click="removeCustomRegion(r.id)"
                           class="text-xs text-red-500 hover:text-red-700 flex items-center gap-0.5">
                     <i class="iconify" data-icon="carbon:trash-can"></i>{{ t('deleteBox') }}
                   </button>
@@ -2200,7 +2200,7 @@
             original: '', translation: '',
             font_size: Math.max(12, Math.round((y2 - y1) / 3)),
             color: '#000000', bold: false, direction: 'auto', font: '',
-            letter_spacing: 1, space_scale: 1, skip: false, dx: 0, dy: 0,
+            letter_spacing: 1, space_scale: 1, skip: false, hidden: false, dx: 0, dy: 0,
           });
           this.selectedRegionId = id;
           this.recordHistory();
@@ -3539,6 +3539,7 @@
           direction: ed.direction || r.direction || 'auto',
           font: ed.font_path || r.font || '',
           skip: !!ed.skip,
+          hidden: !!ed.hidden,
           dx: ed.dx || 0,
           dy: ed.dy || 0,
         };
@@ -3673,9 +3674,9 @@
       this.rerenderEditor();
     },
 
-    // 手動新增的文字框（送後端渲染；dx/dy 直接折進 bbox；skip = 暫時隱藏不渲染）
+    // 手動新增的文字框（送後端渲染；dx/dy 直接折進 bbox；hidden = 暫時隱藏不渲染）
     _collectCustoms() {
-      return this.editorRegions.filter(r => r.custom && !r.skip).map(r => ({
+      return this.editorRegions.filter(r => r.custom && !r.hidden).map(r => ({
         text: r.translation || '',
         bbox: [
           (r.bbox[0] || 0) + (r.dx || 0), (r.bbox[1] || 0) - (r.dy || 0),
@@ -3703,6 +3704,7 @@
         direction: r.direction || null,
         font_path: r.font || null,
         skip: !!r.skip,
+        hidden: !!r.hidden,
         dx: r.dx || 0,
         dy: r.dy || 0,
       }));
