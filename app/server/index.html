@@ -1012,6 +1012,10 @@
                 <label class="flex items-center gap-1">Y
                   <input type="number" v-model.number="r.dy" step="2" @change="recordHistory"
                          class="w-14 border border-gray-300 rounded px-1 py-0.5"></label>
+                <label class="flex items-center gap-1" :title="t('rotation')">
+                  <i class="iconify" data-icon="carbon:rotate"></i>
+                  <input type="number" v-model.number="r.angle" min="-180" max="180" step="5" @change="recordHistory"
+                         class="w-14 border border-gray-300 rounded px-1 py-0.5">°</label>
               </div>
             </div>
             <!-- 手動新增文本：點了之後到預覽上拖曳框選位置 -->
@@ -1236,6 +1240,7 @@
           deleteBox: '刪除',
           hideBox: '隱藏',
           hideBoxTip: '暫時不渲染這個文本（方便用筆刷把底下擦乾淨，再取消隱藏）',
+          rotation: '旋轉角度（度，正值順時針）',
           zoomReset: '還原縮放',
           showKey: '顯示 API key',
           hideKey: '隱藏 API key',
@@ -1413,6 +1418,7 @@
           deleteBox: '删除',
           hideBox: '隐藏',
           hideBoxTip: '暂时不渲染这个文本（方便用笔刷把底下擦干净，再取消隐藏）',
+          rotation: '旋转角度（度，正值顺时针）',
           zoomReset: '还原缩放',
           showKey: '显示 API key',
           hideKey: '隐藏 API key',
@@ -1590,6 +1596,7 @@
           deleteBox: 'Delete',
           hideBox: 'Hide',
           hideBoxTip: 'Temporarily hide this text (handy for cleaning underneath with the brush, then un-hide)',
+          rotation: 'Rotation (degrees, clockwise positive)',
           zoomReset: 'Reset zoom',
           showKey: 'Show API key',
           hideKey: 'Hide API key',
@@ -1767,6 +1774,7 @@
           deleteBox: '削除',
           hideBox: '非表示',
           hideBoxTip: 'このテキストを一時的に非表示（下地をブラシで消してから再表示すると便利）',
+          rotation: '回転角度（度・時計回りが正）',
           zoomReset: 'ズームをリセット',
           showKey: 'API key を表示',
           hideKey: 'API key を非表示',
@@ -2200,7 +2208,7 @@
             original: '', translation: '',
             font_size: Math.max(12, Math.round((y2 - y1) / 3)),
             color: '#000000', bold: false, direction: 'auto', font: '',
-            letter_spacing: 1, space_scale: 1, skip: false, hidden: false, dx: 0, dy: 0,
+            letter_spacing: 1, space_scale: 1, skip: false, hidden: false, dx: 0, dy: 0, angle: 0,
           });
           this.selectedRegionId = id;
           this.recordHistory();
@@ -3550,6 +3558,7 @@
           hidden: !!ed.hidden,
           dx: ed.dx || 0,
           dy: ed.dy || 0,
+          angle: (typeof ed.angle === 'number') ? ed.angle : r.angle,
         };
       });
     },
@@ -3697,6 +3706,7 @@
         font_path: r.font || null,
         letter_spacing: r.letter_spacing || null,
         space_scale: r.space_scale || null,
+        angle: r.angle || 0,
       }));
     },
 
@@ -3715,6 +3725,7 @@
         hidden: !!r.hidden,
         dx: r.dx || 0,
         dy: r.dy || 0,
+        angle: (typeof r.angle === 'number') ? r.angle : null,
       }));
     },
 

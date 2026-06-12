@@ -42,6 +42,7 @@ class RegionEdit(BaseModel):
     hidden: bool = False          # 暫時隱藏：不渲染譯文也不貼回原文（露出抹字後底圖）
     dx: int = 0                   # 位置微調（處理解析度像素）
     dy: int = 0
+    angle: float | None = None    # 旋轉角度覆寫（度，正值順時針；None = 維持偵測角度）
 
 
 class PatchStroke(BaseModel):
@@ -69,6 +70,7 @@ class CustomRegion(BaseModel):
     font_path: str | None = None
     letter_spacing: float | None = None
     space_scale: float | None = None
+    angle: float = 0              # 旋轉角度（度，正值順時針）
 
 
 class RerenderRequest(BaseModel):
@@ -171,6 +173,11 @@ def _apply_edit(region, e: RegionEdit):
     if e.font_path:
         # 空值不動，沿用 pickle 載入的自動字形；選了才覆蓋（_resolve_font_path 認 fonts/ 與 user/）
         region.font_path = e.font_path
+    if e.angle is not None and float(e.angle) != float(getattr(region, 'angle', 0) or 0):
+        region.angle = float(e.angle)
+        # unrotated_* 等幾何快取依賴 angle → 清掉重算
+        for k in _GEOM_CACHE_KEYS:
+            region.__dict__.pop(k, None)
     if e.dx or e.dy:
         # Y 翻轉：UI 正值 = 往上（直覺），影像座標 Y 向下為正，故減 dy
         region.lines = (np.array(region.lines, dtype=np.int32)
@@ -267,6 +274,7 @@ def _build_custom_region(c: 'CustomRegion', sx: float, sy: float, target_lang: s
         bg_color=(255, 255, 255),
         bold=bool(c.bold),
         direction=c.direction if c.direction in ('h', 'v', 'hr', 'vr') else 'auto',
+        angle=float(c.angle or 0),
         target_lang=target_lang,
     )
     region.adjust_bg_color = False
