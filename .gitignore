@@ -68,3 +68,7 @@ key.pem
 /_crops/
 /_test*
 /_testcfg.json
+
+# Release 打包產物（手動打包，勿入庫）
+/DragonMeow-MangaTranslator-*.zip
+/_tmp_pack*.py
