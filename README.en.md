@@ -72,6 +72,8 @@ Pictures speak louder. Left: original (Japanese). Right: translated (Chinese):
 
 > Dialogue translates smoothly almost every time; sound effects (SFX) are kept as-is by default. **If you're not happy with the output, use “Advanced Edit” below to adjust it.**
 
+<sub>Sample artwork by [ツユハ🐈 (@tuyu_ha28)](https://x.com/tuyu_ha28/status/2058480714937663927), used here only to demonstrate translation results. All rights belong to the original artist.</sub>
+
 ---
 
 ## Not satisfied? Fix it with Advanced Edit
