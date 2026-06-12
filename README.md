@@ -80,10 +80,7 @@
 - **建議有 NVIDIA 顯卡**（沒有也能跑，但偵測/抹字會很慢）
 - 一組 AI API key（Gemini 有免費額度）
 
-裝顯卡加速版（強烈建議，setup 完跑一次）：
-```
-app\.venv\Scripts\pip install torch==2.6.0 torchvision==0.21.0 --force-reinstall --index-url https://download.pytorch.org/whl/cu124
-```
+裝顯卡加速版（強烈建議）：setup 完**雙擊 `setup_gpu.bat`** 即可，會自動安裝 CUDA 版 PyTorch 並驗證顯卡可用。
 
 ---
 
@@ -107,6 +104,7 @@ app\.venv\Scripts\python -c "from huggingface_hub import snapshot_download; snap
 ```
 DragonMeow-MangaTranslator/
 ├── setup.bat        ← 安裝（雙擊一次）
+├── setup_gpu.bat    ← 顯卡加速（有 NVIDIA 顯卡再點，雙擊一次）
 ├── start.bat        ← 啟動（每次用都點這個）
 ├── README.md
 └── app/             ← 程式本體、模型、字型、設定都在這

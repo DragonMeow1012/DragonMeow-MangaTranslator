@@ -80,10 +80,7 @@ The 4-koma being edited above comes out like this:
 - An **NVIDIA GPU is recommended** (works without one, but detection/inpainting will be slow)
 - An AI API key (Gemini has a free tier)
 
-Install the CUDA build for GPU acceleration (strongly recommended, run once after setup):
-```
-app\.venv\Scripts\pip install torch==2.6.0 torchvision==0.21.0 --force-reinstall --index-url https://download.pytorch.org/whl/cu124
-```
+GPU acceleration (strongly recommended): after setup, just **double-click `setup_gpu.bat`** — it installs the CUDA build of PyTorch and verifies your GPU is detected.
 
 ---
 
@@ -107,6 +104,7 @@ The root keeps just two buttons; everything else lives in `app/`:
 ```
 DragonMeow-MangaTranslator/
 ├── setup.bat        ← install (double-click once)
+├── setup_gpu.bat    ← GPU acceleration (NVIDIA only, double-click once)
 ├── start.bat        ← launch (click this every time)
 ├── README.md
 └── app/             ← code, models, fonts, settings

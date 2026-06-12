@@ -80,10 +80,7 @@
 - **NVIDIA GPU 推奨**（なくても動きますが、検出・修復がかなり遅くなります）
 - AI の API key（Gemini は無料枠あり）
 
-GPU 加速版のインストール（強く推奨、setup 後に一度実行）：
-```
-app\.venv\Scripts\pip install torch==2.6.0 torchvision==0.21.0 --force-reinstall --index-url https://download.pytorch.org/whl/cu124
-```
+GPU 加速版のインストール（強く推奨）：setup 後に **`setup_gpu.bat` をダブルクリック**するだけ。CUDA 版 PyTorch を自動インストールし、GPU の認識まで確認します。
 
 ---
 
@@ -107,6 +104,7 @@ app\.venv\Scripts\python -c "from huggingface_hub import snapshot_download; snap
 ```
 DragonMeow-MangaTranslator/
 ├── setup.bat        ← インストール（最初に 1 回）
+├── setup_gpu.bat    ← GPU 加速（NVIDIA GPU がある場合のみ、1 回）
 ├── start.bat        ← 起動（毎回これ）
 ├── README.md
 └── app/             ← 本体・モデル・フォント・設定

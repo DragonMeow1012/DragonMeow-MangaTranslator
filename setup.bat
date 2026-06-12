@@ -31,8 +31,8 @@ if errorlevel 1 (
     exit /b 1
 )
 
-echo [3/3] (Recommended) Install CUDA PyTorch for GPU acceleration:
-echo        .venv\Scripts\pip install torch==2.6.0 torchvision==0.21.0 --force-reinstall --index-url https://download.pytorch.org/whl/cu124
+echo [3/3] (Recommended) Have an NVIDIA GPU? Double-click setup_gpu.bat
+echo        after this finishes to install GPU acceleration.
 echo.
 
 if not exist .env (
