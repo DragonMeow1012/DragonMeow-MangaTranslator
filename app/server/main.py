@@ -17,6 +17,7 @@ from fastapi.responses import StreamingResponse, HTMLResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from pathlib import Path
 from PIL import Image
+from pydantic import BaseModel as PydanticBaseModel
 
 from manga_translator import Config
 from server.instance import ExecutorInstance, executor_instances
@@ -242,6 +243,72 @@ async def stream_image_form_web(req: Request, image: UploadFile = File(...), con
 @app.post("/queue-size", response_model=int, tags=["api", "json"])
 async def queue_size() -> int:
     return len(task_queue.queue)
+
+
+class LLMTestRequest(PydanticBaseModel):
+    provider: str = 'gemini'
+    api_key: str = ''
+    model: str = ''
+    base_url: str = ''
+
+
+@app.post("/test-llm", tags=["api", "json"], response_description="test LLM connectivity with current settings")
+async def test_llm(data: LLMTestRequest):
+    """用目前設定發一個極小的 LLM 請求，驗證 key / base URL / 模型名是否可用。"""
+    import re as _re
+    import time
+
+    provider = (data.provider or 'gemini').strip().lower()
+    # 多把 key 只測第一把（輪換邏輯在翻譯時才用得到）
+    keys = [k for k in _re.split(r'[,\s]+', (data.api_key or '').strip()) if k]
+    key = keys[0] if keys else ''
+    model = (data.model or '').strip()
+    t0 = time.perf_counter()
+
+    try:
+        if provider == 'gemini':
+            if not key:
+                return {"ok": False, "message": "API key is empty"}
+            from google import genai
+            client = genai.Client(api_key=key)
+
+            def _ping():
+                return client.models.generate_content(
+                    model=model or 'gemini-3.1-flash-lite', contents='Reply with OK',
+                )
+            resp = await asyncio.to_thread(_ping)
+            _ = resp.text  # 確認真的有拿到內容（被擋會 raise）
+        else:
+            import httpx
+            # 共用翻譯器的 base URL 對照表與 /v1 自動補齊，確保測試打的端點跟翻譯時一致
+            from manga_translator.translators.gemini_2stage import Gemini2StageTranslator
+            base = data.base_url if provider == 'custom' else \
+                Gemini2StageTranslator._OPENAI_COMPAT_BASE_URLS.get(provider, '')
+            base = Gemini2StageTranslator._normalize_base_url(base)
+            if not base:
+                return {"ok": False, "message": f"Unknown provider: {provider}"}
+            if not model:
+                return {"ok": False, "message": "Model name is empty"}
+            headers = {'Authorization': f'Bearer {key}'} if key else {}
+            async with httpx.AsyncClient(timeout=httpx.Timeout(30.0, connect=10.0)) as client:
+                resp = await client.post(
+                    f'{base}/chat/completions',
+                    headers=headers,
+                    json={
+                        'model': model,
+                        'messages': [{'role': 'user', 'content': 'Reply with OK'}],
+                        'max_tokens': 16,
+                    },
+                )
+            if resp.status_code != 200:
+                return {"ok": False, "message": f"HTTP {resp.status_code}: {resp.text[:300]}"}
+            j = resp.json()
+            if not (j.get('choices') or [{}])[0].get('message'):
+                return {"ok": False, "message": f"Unexpected response: {str(j)[:200]}"}
+        ms = int((time.perf_counter() - t0) * 1000)
+        return {"ok": True, "message": f"{ms} ms"}
+    except Exception as e:
+        return {"ok": False, "message": f"{type(e).__name__}: {str(e)[:300]}"}
 
 
 

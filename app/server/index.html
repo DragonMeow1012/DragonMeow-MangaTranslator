@@ -161,6 +161,28 @@
             </button>
           </div>
 
+          <!-- 測試連接 -->
+          <div class="flex items-center gap-2">
+            <button
+              type="button"
+              class="px-2 py-1 text-sm border border-gray-300 rounded hover:border-blue-500 hover:text-blue-600 disabled:opacity-50 whitespace-nowrap"
+              :disabled="llmTestState === 'testing'"
+              @click="testLlmConnection"
+            >
+              <i class="iconify inline-block align-text-bottom" data-icon="carbon:plug"></i>
+              {{ llmTestState === 'testing' ? t('testingConnection') : t('testConnection') }}
+            </button>
+            <span
+              v-if="llmTestState === 'ok'"
+              class="text-sm text-green-600 whitespace-nowrap"
+            >✓ {{ t('testOk') }}（{{ llmTestMessage }}）</span>
+            <span
+              v-else-if="llmTestState === 'fail'"
+              class="text-sm text-red-600 max-w-[20rem] truncate inline-block align-bottom"
+              :title="llmTestMessage"
+            >✗ {{ t('testFail') }}：{{ llmTestMessage }}</span>
+          </div>
+
           <!-- Target Language -->
           <div class="flex items-center gap-1" :title="t('targetLangTooltip')">
             <i class="iconify text-gray-600" data-icon="carbon:language"></i>
@@ -1032,6 +1054,10 @@
           baseUrlTooltip: 'API base URL（OpenAI 相容端點）',
           apiKeyTooltip: 'API key（多把可用逗號分隔）',
           apiKeyPlaceholder: 'API key（多把用逗號分隔可輪換，避免 429）',
+          testConnection: '測試連接',
+          testingConnection: '測試中…',
+          testOk: '連接成功',
+          testFail: '連接失敗',
           showKey: '顯示 API key',
           hideKey: '隱藏 API key',
           targetLangTooltip: '翻譯語言',
@@ -1177,6 +1203,10 @@
           baseUrlTooltip: 'API base URL（OpenAI 兼容端点）',
           apiKeyTooltip: 'API key（多个可用逗号分隔）',
           apiKeyPlaceholder: 'API key（多把用逗号分隔可轮换，避免 429）',
+          testConnection: '测试连接',
+          testingConnection: '测试中…',
+          testOk: '连接成功',
+          testFail: '连接失败',
           showKey: '显示 API key',
           hideKey: '隐藏 API key',
           targetLangTooltip: '翻译语言',
@@ -1322,6 +1352,10 @@
           baseUrlTooltip: 'API base URL (OpenAI-compatible endpoint)',
           apiKeyTooltip: 'API key (comma-separate multiple keys)',
           apiKeyPlaceholder: 'API key (comma-separate several to rotate & avoid 429)',
+          testConnection: 'Test connection',
+          testingConnection: 'Testing…',
+          testOk: 'Connected',
+          testFail: 'Failed',
           showKey: 'Show API key',
           hideKey: 'Hide API key',
           targetLangTooltip: 'Target language',
@@ -1467,6 +1501,10 @@
           baseUrlTooltip: 'API base URL（OpenAI 互換エンドポイント）',
           apiKeyTooltip: 'API key（複数はカンマ区切り）',
           apiKeyPlaceholder: 'API key（複数はカンマ区切りで自動ローテ・429回避）',
+          testConnection: '接続テスト',
+          testingConnection: 'テスト中…',
+          testOk: '接続成功',
+          testFail: '接続失敗',
           showKey: 'API key を表示',
           hideKey: 'API key を非表示',
           targetLangTooltip: '翻訳先の言語',
@@ -1689,6 +1727,9 @@
         },
         customBaseUrl: '',
         showApiKey: false,
+        // 測試連接狀態：idle / testing / ok / fail
+        llmTestState: 'idle',
+        llmTestMessage: '',
         fontPath: '',                 // '' = 自動依語言
         fontOptions: [{ value: '', label: '自動（依語言）' }],
 
@@ -1742,7 +1783,34 @@
 
         // Settings change handlers for auto-saving
         onSettingChange() {
+          // 設定變了 → 上次測試結果不再可信
+          this.llmTestState = 'idle';
+          this.llmTestMessage = '';
           this.saveSettings();
+        },
+
+        // 測試 LLM 連接：用目前設定發極小請求驗證 key / base URL / 模型名
+        async testLlmConnection() {
+          this.llmTestState = 'testing';
+          this.llmTestMessage = '';
+          try {
+            const res = await fetch('/test-llm', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                provider: this.llmProvider,
+                api_key: this.currentApiKey || '',
+                model: this.currentModel || '',
+                base_url: this.llmProvider === 'custom' ? (this.customBaseUrl || '') : '',
+              }),
+            });
+            const data = await res.json();
+            this.llmTestState = data.ok ? 'ok' : 'fail';
+            this.llmTestMessage = data.message || '';
+          } catch (e) {
+            this.llmTestState = 'fail';
+            this.llmTestMessage = String(e);
+          }
         },
 
         // Settings persistence

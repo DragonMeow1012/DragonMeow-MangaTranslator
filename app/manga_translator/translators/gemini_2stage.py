@@ -398,6 +398,10 @@ class Gemini2StageTranslator(CommonTranslator):
             elif provider == 'gemini':
                 # 沒填 → gemini 退回 .env 的 GEMINI_API_KEY*（讓只用 .env 的人也能跑）
                 self._api_keys = self._collect_api_keys()
+            elif provider == 'custom':
+                # 自訂端點（LM Studio / Ollama / vLLM 等本地服務）通常不驗 key
+                # → 給佔位 key 讓請求發得出去；遠端若真的要 key 會回 401 提示
+                self._api_keys = ['no-key']
             else:
                 # 非 gemini 又沒填 key → 清空，呼叫時報「請填 API key」而非沿用錯 key
                 self._api_keys = []
@@ -657,6 +661,18 @@ class Gemini2StageTranslator(CommonTranslator):
     # 此 pipeline 的 OCR 仲裁仰賴看圖，建議一律選有視覺的模型。
     _NO_VISION_PROVIDERS = {'deepseek'}
 
+    @staticmethod
+    def _normalize_base_url(url: str) -> str:
+        """自訂端點常只填 http://host:port（LM Studio / Ollama / vLLM 都掛在 /v1 下）
+        → 沒帶路徑時自動補 /v1，免得打到 /chat/completions 404。"""
+        url = (url or '').strip().rstrip('/')
+        if not url:
+            return url
+        from urllib.parse import urlparse
+        if urlparse(url).path in ('', '/'):
+            url += '/v1'
+        return url
+
     async def _call_openai_compat(
         self, key, model, system_instruction: str, user_text: str,
         image_data, temperature: float, schema,
@@ -672,7 +688,9 @@ class Gemini2StageTranslator(CommonTranslator):
         import base64
         import httpx
 
-        base_url = (self._base_url or self._OPENAI_COMPAT_BASE_URLS.get(self._provider, '')).rstrip('/')
+        base_url = self._normalize_base_url(
+            self._base_url or self._OPENAI_COMPAT_BASE_URLS.get(self._provider, '')
+        )
         if not base_url:
             raise ValueError(f'No base URL for provider {self._provider!r}')
 
@@ -697,12 +715,25 @@ class Gemini2StageTranslator(CommonTranslator):
             'response_format': {'type': 'json_object'},
         }
 
+        url = f'{base_url}/chat/completions'
+        headers = {'Authorization': f'Bearer {key}'} if key else {}
         async with httpx.AsyncClient(timeout=httpx.Timeout(150.0, connect=15.0)) as client:
-            resp = await client.post(
-                f'{base_url}/chat/completions',
-                headers={'Authorization': f'Bearer {key}'},
-                json=payload,
-            )
+            resp = await client.post(url, headers=headers, json=payload)
+            if resp.status_code == 400:
+                # 本地端點（llama.cpp / 舊版 LM Studio / Ollama）常見兩種 400：
+                # 1) 不支援 response_format → 砍掉重試（prompt 內已有 JSON 格式說明）
+                # 2) 純文字模型不吃 image_url → 去圖重試（靠 prompt 內 mocr anchor 文字翻譯）
+                err_text = resp.text
+                retry = False
+                if 'response_format' in err_text and 'response_format' in payload:
+                    payload.pop('response_format')
+                    retry = True
+                if len(content) > 1 and re.search(r'image|vision|multi.?modal', err_text, re.I):
+                    payload['messages'][1]['content'] = user_text
+                    retry = True
+                if retry:
+                    self.logger.warning(f'OpenAI 相容端點回 400，降級 payload 重試: {err_text[:150]}')
+                    resp = await client.post(url, headers=headers, json=payload)
         if resp.status_code != 200:
             # 帶 status code 讓外層的 429/503 換 key 邏輯吃得到
             raise ValueError(f'{resp.status_code} {resp.text[:300]}')
