@@ -23,70 +23,116 @@
       [un-cloak] {
         display: none;
       }
+      /* ── 龍龍喵工作室風格 ─────────────────────────────
+         漫畫「網點」底紋 + 粗墨線卡片 + 琥珀主色，
+         與一般置中白卡片式翻譯網站做出區隔。 */
+      .screentone {
+        background-color: #fafaf9;
+        background-image: radial-gradient(#e0ddd8 1.2px, transparent 1.2px);
+        background-size: 10px 10px;
+      }
+      .ink-card {
+        background: #fff;
+        border: 2px solid #1c1917;
+        border-radius: 14px;
+        box-shadow: 5px 5px 0 #1c1917;
+      }
+      .ink-btn {
+        display: inline-flex; align-items: center; gap: 4px;
+        border: 2px solid #1c1917; border-radius: 9999px;
+        padding: 4px 14px; font-size: 13px; font-weight: 600;
+        background: #fff; color: #1c1917;
+        box-shadow: 2px 2px 0 #1c1917;
+        transition: transform .08s, box-shadow .08s;
+        white-space: nowrap;
+      }
+      .ink-btn:hover { transform: translate(1px, 1px); box-shadow: 1px 1px 0 #1c1917; }
+      .ink-btn:active { transform: translate(2px, 2px); box-shadow: 0 0 0 #1c1917; }
+      .ink-btn:disabled { opacity: .45; pointer-events: none; }
+      .ink-btn-amber { background: #f59e0b; color: #1c1917; }
+      .ink-btn-dark { background: #1c1917; color: #fff; }
+      .ink-btn-red { background: #fee2e2; color: #b91c1c; }
+      .ink-tab {
+        border: 2px solid #1c1917; border-bottom: none;
+        border-radius: 12px 12px 0 0;
+        padding: 7px 18px; font-weight: 700; font-size: 14px;
+        background: #e7e5e4; color: #57534e; cursor: pointer;
+      }
+      .ink-tab.on { background: #fff; color: #1c1917; position: relative; top: 2px; }
+      /* 深色側欄表單元件 */
+      .side-label { display: block; font-size: 11px; letter-spacing: .05em; color: #a8a29e; margin-bottom: 4px; }
+      .side-field {
+        width: 100%; background: #292524; border: 1px solid #44403c;
+        border-radius: 8px; padding: 7px 10px; font-size: 13px; color: #fafaf9;
+        outline: none;
+      }
+      .side-field:focus { border-color: #f59e0b; }
+      .side-group { border-top: 1px solid #292524; padding-top: 14px; margin-top: 14px; }
+      .side-title {
+        display: flex; align-items: center; gap: 6px;
+        font-size: 12px; font-weight: 700; color: #f59e0b; margin-bottom: 10px;
+        letter-spacing: .08em;
+      }
+      .side-step {
+        display: inline-flex; align-items: center; justify-content: center;
+        width: 18px; height: 18px; border-radius: 9999px;
+        background: #f59e0b; color: #1c1917; font-size: 11px; font-weight: 800;
+      }
+      aside::-webkit-scrollbar { width: 6px; }
+      aside::-webkit-scrollbar-thumb { background: #44403c; border-radius: 3px; }
+      .ink-card.ink-panel { border-top-left-radius: 0; }
+      /* ── 深夜模式（root div 加 .dark）────────────── */
+      .dark .screentone { background-color: #1c1917; background-image: radial-gradient(#292524 1.2px, transparent 1.2px); }
+      .dark .ink-card { background: #292524; border-color: #a8a29e; box-shadow: 5px 5px 0 #0c0a09; }
+      .dark .ink-btn { background: #44403c; color: #fafaf9; border-color: #a8a29e; box-shadow: 2px 2px 0 #0c0a09; }
+      .dark .ink-btn:hover { box-shadow: 1px 1px 0 #0c0a09; }
+      .dark .ink-btn:active { box-shadow: 0 0 0 #0c0a09; }
+      .dark .ink-btn-amber { background: #f59e0b; color: #1c1917; }
+      .dark .ink-btn-dark { background: #fafaf9; color: #1c1917; }
+      .dark .ink-btn-red { background: #7f1d1d; color: #fecaca; }
+      .dark .ink-tab { background: #0c0a09; color: #a8a29e; border-color: #a8a29e; }
+      .dark .ink-tab.on { background: #292524; color: #fafaf9; }
+      /* 主區既有灰階 utility 在深夜模式下的對應色 */
+      .dark main .text-stone-900, .dark main .text-gray-900 { color: #f5f5f4; }
+      .dark main .text-stone-700, .dark main .text-gray-700, .dark main .text-gray-600, .dark main .text-stone-600 { color: #d6d3d1; }
+      .dark main .text-stone-500, .dark main .text-gray-500 { color: #a8a29e; }
+      .dark main .text-stone-400, .dark main .text-gray-400 { color: #8d877f; }
+      .dark main .text-stone-300, .dark main .text-gray-300 { color: #57534e; }
+      .dark main .bg-gray-50, .dark main .bg-stone-100 { background-color: #1c1917; }
+      .dark main .bg-white { background-color: #292524; }
+      .dark main .bg-gray-200, .dark main .bg-stone-200 { background-color: #44403c; }
+      .dark main .border { border-color: #57534e; }
+      .dark main .hover\:bg-amber-50:hover { background-color: #292524; }
     </style>
   </head>
-  <body class="bg-gray-100">
+  <body class="bg-stone-100">
     <div
-      class="flex flex-col min-h-screen items-center justify-center py-8 px-4"
+      class="min-h-screen flex flex-col lg:flex-row"
+      :class="{ dark: darkMode }"
       @vue:mounted="onmounted"
       v-scope
       v-cloak
       un-cloak
     >
-      <!-- カード風のコンテナ -->
-      <div class="bg-white shadow-md rounded-lg p-6 w-full max-w-4xl space-y-6">
-        <!-- タイトル + UI 言語（右上） -->
-        <div class="flex items-start justify-between">
-          <h1 class="text-2xl font-bold text-gray-800">
-            {{ t('title') }}
-            <span class="text-sm font-normal text-gray-400 ml-1">{{ t('madeBy') }}</span>
-          </h1>
-          <div class="flex items-center gap-3">
-            <!-- 進階編輯模式開關 -->
-            <label class="flex items-center gap-1 cursor-pointer select-none" :title="t('advancedTooltip')">
-              <span class="text-sm text-gray-600">{{ t('advancedMode') }}</span>
-              <span class="relative inline-block w-9 h-5">
-                <input type="checkbox" class="sr-only peer" v-model="advancedMode" @change="onSettingChange">
-                <span class="absolute inset-0 rounded-full bg-gray-300 peer-checked:bg-blue-500 transition-colors"></span>
-                <span class="absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white transition-transform peer-checked:translate-x-4"></span>
-              </span>
-            </label>
-          <div class="flex items-center gap-1" :title="t('uiLangTooltip')">
-            <i class="iconify text-gray-600" data-icon="carbon:earth"></i>
-            <div class="relative">
-              <select
-                class="appearance-none bg-transparent border-b border-gray-300 pl-4 pr-7 py-1 outline-none focus:border-blue-500"
-                v-model="uiLang"
-                @change="onSettingChange"
-              >
-                <option value="zh-TW">繁體中文</option>
-                <option value="zh-CN">简体中文</option>
-                <option value="en">English</option>
-                <option value="ja">日本語</option>
-              </select>
-              <i
-                class="iconify absolute top-1 right-1 text-gray-500 pointer-events-none"
-                data-icon="carbon:chevron-down"
-              ></i>
-            </div>
-          </div>
+      <!-- ◀ 左側欄：品牌 + 所有設定（步驟式分組） -->
+      <aside class="w-full lg:w-80 lg:h-screen lg:sticky lg:top-0 flex-shrink-0 bg-stone-900 text-stone-100 px-5 py-6 overflow-y-auto">
+        <!-- 品牌 -->
+        <div class="flex items-center gap-3">
+          <img src="https://avatars.githubusercontent.com/u/17797982?s=96&v=4"
+               class="w-11 h-11 rounded-full border-2 border-amber-500" alt="DragonMeow">
+          <div>
+            <div class="text-lg font-extrabold tracking-wide">{{ t('title') }}</div>
+            <div class="text-xs text-stone-400">{{ t('madeBy') }}</div>
           </div>
         </div>
 
-        <!-- 設定（プロバイダ / モデル / API key / 翻訳言語） -->
-        <div class="flex flex-wrap items-end gap-4">
-          <!-- Provider -->
-          <div class="flex items-center gap-1" :title="t('providerTooltip')">
-            <i
-              class="iconify text-gray-600"
-              data-icon="carbon:ai-status"
-            ></i>
-            <div class="relative">
-              <select
-                class="appearance-none bg-transparent border-b border-gray-300 pl-4 pr-7 py-1 outline-none focus:border-blue-500"
-                v-model="llmProvider"
-                @change="onSettingChange"
-              >
+        <!-- ① 翻譯 AI -->
+        <div class="side-group">
+          <div class="side-title"><span class="side-step">1</span>{{ t('sideAi') }}</div>
+          <div class="space-y-3">
+            <div :title="t('providerTooltip')">
+              <label class="side-label">{{ t('labelProvider') }}</label>
+              <select class="side-field" v-model="llmProvider" @change="onSettingChange">
                 <option value="gemini">Gemini</option>
                 <option value="openai">ChatGPT (OpenAI)</option>
                 <option value="claude">Claude (Anthropic)</option>
@@ -100,105 +146,96 @@
                 <option value="openrouter">OpenRouter</option>
                 <option value="custom">{{ t('customProvider') }}</option>
               </select>
-              <i
-                class="iconify absolute top-1 right-1 text-gray-500 pointer-events-none"
-                data-icon="carbon:chevron-down"
-              ></i>
+            </div>
+            <div :title="t('modelTooltip')">
+              <label class="side-label">{{ t('labelModel') }}</label>
+              <input
+                type="text"
+                list="model-suggestions"
+                autocomplete="off"
+                class="side-field"
+                v-model="currentModel"
+                :placeholder="t('modelPlaceholder')"
+                @change="onSettingChange"
+              />
+              <datalist id="model-suggestions">
+                <option v-for="m in modelSuggestions" :value="m" :key="m"></option>
+              </datalist>
+            </div>
+            <div v-if="llmProvider === 'custom'" :title="t('baseUrlTooltip')">
+              <label class="side-label">Base URL</label>
+              <input
+                type="text"
+                autocomplete="off"
+                class="side-field"
+                v-model="customBaseUrl"
+                placeholder="https://.../v1"
+                @change="onSettingChange"
+              />
+            </div>
+            <div :title="t('apiKeyTooltip')">
+              <label class="side-label">API key</label>
+              <div class="relative">
+                <input
+                  :type="showApiKey ? 'text' : 'password'"
+                  autocomplete="off"
+                  class="side-field pr-9"
+                  v-model="currentApiKey"
+                  :placeholder="t('apiKeyPlaceholder')"
+                  @change="onSettingChange"
+                />
+                <button
+                  type="button"
+                  class="absolute right-2 top-1/2 -translate-y-1/2 text-stone-400 hover:text-stone-200"
+                  :title="showApiKey ? t('hideKey') : t('showKey')"
+                  @click="showApiKey = !showApiKey"
+                >
+                  <i class="iconify" :data-icon="showApiKey ? 'carbon:view-off' : 'carbon:view'"></i>
+                </button>
+              </div>
+            </div>
+            <!-- 是否傳圖給 LLM 校對（提高準確度，需視覺模型） -->
+            <label class="flex items-center justify-between cursor-pointer select-none" :title="t('sendImageTooltip')">
+              <span class="text-sm text-stone-300 flex items-center gap-1.5">
+                <i class="iconify text-amber-500" data-icon="carbon:image-search"></i>{{ t('sendImageLabel') }}
+              </span>
+              <span class="relative inline-block w-9 h-5">
+                <input type="checkbox" class="sr-only peer" v-model="llmSendImage" @change="onSettingChange">
+                <span class="absolute inset-0 rounded-full bg-stone-600 peer-checked:bg-amber-500 transition-colors"></span>
+                <span class="absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white transition-transform peer-checked:translate-x-4"></span>
+              </span>
+            </label>
+            <!-- 測試連接 -->
+            <div class="flex items-center gap-2 flex-wrap">
+              <button
+                type="button"
+                class="ink-btn ink-btn-amber"
+                :disabled="llmTestState === 'testing'"
+                @click="testLlmConnection"
+              >
+                <i class="iconify" data-icon="carbon:plug"></i>
+                {{ llmTestState === 'testing' ? t('testingConnection') : t('testConnection') }}
+              </button>
+              <span
+                v-if="llmTestState === 'ok'"
+                class="text-xs text-green-400 whitespace-nowrap"
+              >✓ {{ t('testOk') }}（{{ llmTestMessage }}）</span>
+              <span
+                v-else-if="llmTestState === 'fail'"
+                class="text-xs text-red-400 max-w-full truncate inline-block"
+                :title="llmTestMessage"
+              >✗ {{ t('testFail') }}：{{ llmTestMessage }}</span>
             </div>
           </div>
+        </div>
 
-          <!-- Model（可自由輸入，datalist 提供建議） -->
-          <div class="flex items-center gap-1" :title="t('modelTooltip')">
-            <i
-              class="iconify text-gray-600"
-              data-icon="carbon:machine-learning-model"
-            ></i>
-            <input
-              type="text"
-              list="model-suggestions"
-              autocomplete="off"
-              class="appearance-none bg-transparent border-b border-gray-300 pl-2 pr-2 py-1 outline-none focus:border-blue-500 w-52"
-              v-model="currentModel"
-              :placeholder="t('modelPlaceholder')"
-              @change="onSettingChange"
-            />
-            <datalist id="model-suggestions">
-              <option v-for="m in modelSuggestions" :value="m" :key="m"></option>
-            </datalist>
-          </div>
-
-          <!-- 是否傳圖給 LLM 校對（提高準確度，需視覺模型） -->
-          <label class="flex items-center gap-1 cursor-pointer whitespace-nowrap" :title="t('sendImageTooltip')">
-            <input type="checkbox" v-model="llmSendImage" @change="onSettingChange">
-            <span>{{ t('sendImageLabel') }}</span>
-            <i class="iconify text-gray-400" data-icon="carbon:image-search"></i>
-          </label>
-
-          <!-- Custom base URL（自訂供應商時顯示） -->
-          <div v-if="llmProvider === 'custom'" class="flex items-center gap-1 min-w-[14rem]" :title="t('baseUrlTooltip')">
-            <i class="iconify text-gray-600" data-icon="carbon:link"></i>
-            <input
-              type="text"
-              autocomplete="off"
-              class="appearance-none bg-transparent border-b border-gray-300 pl-2 pr-2 py-1 outline-none focus:border-blue-500 w-full"
-              v-model="customBaseUrl"
-              placeholder="https://.../v1"
-              @change="onSettingChange"
-            />
-          </div>
-
-          <!-- API key（預設隱藏，眼睛切換顯示） -->
-          <div class="flex items-center gap-1 flex-1 min-w-[14rem]" :title="t('apiKeyTooltip')">
-            <i class="iconify text-gray-600" data-icon="carbon:password"></i>
-            <input
-              :type="showApiKey ? 'text' : 'password'"
-              autocomplete="off"
-              class="appearance-none bg-transparent border-b border-gray-300 pl-2 pr-2 py-1 outline-none focus:border-blue-500 w-full"
-              v-model="currentApiKey"
-              :placeholder="t('apiKeyPlaceholder')"
-              @change="onSettingChange"
-            />
-            <button
-              type="button"
-              class="p-1 text-gray-500 hover:text-gray-700"
-              :title="showApiKey ? t('hideKey') : t('showKey')"
-              @click="showApiKey = !showApiKey"
-            >
-              <i class="iconify" :data-icon="showApiKey ? 'carbon:view-off' : 'carbon:view'"></i>
-            </button>
-          </div>
-
-          <!-- 測試連接 -->
-          <div class="flex items-center gap-2">
-            <button
-              type="button"
-              class="px-2 py-1 text-sm border border-gray-300 rounded hover:border-blue-500 hover:text-blue-600 disabled:opacity-50 whitespace-nowrap"
-              :disabled="llmTestState === 'testing'"
-              @click="testLlmConnection"
-            >
-              <i class="iconify inline-block align-text-bottom" data-icon="carbon:plug"></i>
-              {{ llmTestState === 'testing' ? t('testingConnection') : t('testConnection') }}
-            </button>
-            <span
-              v-if="llmTestState === 'ok'"
-              class="text-sm text-green-600 whitespace-nowrap"
-            >✓ {{ t('testOk') }}（{{ llmTestMessage }}）</span>
-            <span
-              v-else-if="llmTestState === 'fail'"
-              class="text-sm text-red-600 max-w-[20rem] truncate inline-block align-bottom"
-              :title="llmTestMessage"
-            >✗ {{ t('testFail') }}：{{ llmTestMessage }}</span>
-          </div>
-
-          <!-- Target Language -->
-          <div class="flex items-center gap-1" :title="t('targetLangTooltip')">
-            <i class="iconify text-gray-600" data-icon="carbon:language"></i>
-            <div class="relative">
-              <select
-                  class="appearance-none bg-transparent border-b border-gray-300 pl-4 pr-7 py-1 outline-none focus:border-blue-500"
-                  v-model="targetLanguage"
-                  @change="onSettingChange"
-              >
+        <!-- ② 輸出設定 -->
+        <div class="side-group">
+          <div class="side-title"><span class="side-step">2</span>{{ t('sideOutput') }}</div>
+          <div class="space-y-3">
+            <div :title="t('targetLangTooltip')">
+              <label class="side-label">{{ t('labelTargetLang') }}</label>
+              <select class="side-field" v-model="targetLanguage" @change="onSettingChange">
                   <option value="CHT">繁體中文</option>
                   <option value="CHS">简体中文</option>
                   <option value="ENG">English</option>
@@ -226,106 +263,155 @@
                   <option value="IND">Indonesia</option>
                   <option value="FIL">Wikang Filipino</option>
               </select>
-              <i
-                class="iconify absolute top-1 right-1 text-gray-500 pointer-events-none"
-                data-icon="carbon:chevron-down"
-              ></i>
             </div>
-          </div>
-
-          <!-- Font select + upload -->
-          <div class="flex items-center gap-1" :title="t('fontTooltip')">
-            <i class="iconify text-gray-600" data-icon="carbon:text-font"></i>
-            <div class="relative">
-              <select
-                class="appearance-none bg-transparent border-b border-gray-300 pl-4 pr-7 py-1 outline-none focus:border-blue-500"
-                v-model="fontPath"
-                @change="onSettingChange"
-              >
-                <option v-for="f in fontOptions" :value="f.value" :key="f.value">{{ f.label }}</option>
-              </select>
-              <i
-                class="iconify absolute top-1 right-1 text-gray-500 pointer-events-none"
-                data-icon="carbon:chevron-down"
-              ></i>
+            <div :title="t('fontTooltip')">
+              <label class="side-label">{{ t('labelFont') }}</label>
+              <div class="flex items-center gap-2">
+                <select class="side-field" v-model="fontPath" @change="onSettingChange">
+                  <option v-for="f in fontOptions" :value="f.value" :key="f.value">{{ f.label }}</option>
+                </select>
+                <button
+                  type="button"
+                  class="p-2 rounded-lg border border-stone-700 text-stone-400 hover:text-amber-400 hover:border-amber-500 flex-shrink-0"
+                  :title="t('uploadFont')"
+                  @click="$refs.fontInput.click()"
+                >
+                  <i class="iconify" data-icon="carbon:upload"></i>
+                </button>
+                <input
+                  ref="fontInput"
+                  type="file"
+                  accept=".ttf,.otf,.ttc,.otc"
+                  class="hidden"
+                  @change="onFontUpload"
+                />
+              </div>
             </div>
-            <button
-              type="button"
-              class="p-1 text-gray-500 hover:text-blue-600"
-              :title="t('uploadFont')"
-              @click="$refs.fontInput.click()"
-            >
-              <i class="iconify" data-icon="carbon:upload"></i>
-            </button>
-            <input
-              ref="fontInput"
-              type="file"
-              accept=".ttf,.otf,.ttc,.otc"
-              class="hidden"
-              @change="onFontUpload"
-            />
           </div>
         </div>
 
-        <!-- メインコンテンツエリア -->
-        <div>
-          <!-- 結果表示 -->
-          <div v-if="result" class="flex flex-col items-center space-y-4">
-            <img class="max-w-full rounded-md" :src="resultUri" />
-            <button
-              class="px-3 py-2 text-center rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
-              @click="clear"
-            >
+        <!-- 介面：語言 + 進階編輯 -->
+        <div class="side-group">
+          <div class="side-title"><i class="iconify text-amber-500" data-icon="carbon:settings"></i>{{ t('sideUi') }}</div>
+          <div class="space-y-3">
+            <div :title="t('uiLangTooltip')">
+              <label class="side-label"><i class="iconify inline-block align-text-bottom mr-0.5" data-icon="carbon:earth"></i>UI</label>
+              <select class="side-field" v-model="uiLang" @change="onSettingChange">
+                <option value="zh-TW">繁體中文</option>
+                <option value="zh-CN">简体中文</option>
+                <option value="en">English</option>
+                <option value="ja">日本語</option>
+              </select>
+            </div>
+            <!-- 進階編輯模式開關 -->
+            <label class="flex items-center justify-between cursor-pointer select-none" :title="t('advancedTooltip')">
+              <span class="text-sm text-stone-300 flex items-center gap-1.5">
+                <i class="iconify text-amber-500" data-icon="carbon:edit"></i>{{ t('advancedMode') }}
+              </span>
+              <span class="relative inline-block w-9 h-5">
+                <input type="checkbox" class="sr-only peer" v-model="advancedMode" @change="onSettingChange">
+                <span class="absolute inset-0 rounded-full bg-stone-600 peer-checked:bg-amber-500 transition-colors"></span>
+                <span class="absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white transition-transform peer-checked:translate-x-4"></span>
+              </span>
+            </label>
+            <!-- 深夜模式開關 -->
+            <label class="flex items-center justify-between cursor-pointer select-none">
+              <span class="text-sm text-stone-300 flex items-center gap-1.5">
+                <i class="iconify text-amber-500" :data-icon="darkMode ? 'carbon:moon' : 'carbon:sun'"></i>{{ t('darkModeLabel') }}
+              </span>
+              <span class="relative inline-block w-9 h-5">
+                <input type="checkbox" class="sr-only peer" v-model="darkMode" @change="onSettingChange">
+                <span class="absolute inset-0 rounded-full bg-stone-600 peer-checked:bg-amber-500 transition-colors"></span>
+                <span class="absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white transition-transform peer-checked:translate-x-4"></span>
+              </span>
+            </label>
+          </div>
+        </div>
+
+        <!-- 側欄底部：GitHub / 咖啡 / 檢查更新 -->
+        <div class="side-group flex flex-wrap items-center gap-x-4 gap-y-2 text-stone-400 text-sm">
+          <a href="https://github.com/DragonMeow1012/DragonMeow-MangaTranslator" target="_blank"
+             rel="noopener noreferrer" :title="t('footerGithub')"
+             class="flex items-center gap-1 hover:text-white transition-colors">
+            <i class="iconify w-5 h-5" data-icon="carbon:logo-github"></i>
+            <span>GitHub</span>
+          </a>
+          <a href="https://buymeacoffee.com/dragonmeow1012" target="_blank"
+             rel="noopener noreferrer" :title="t('footerCoffee')"
+             class="flex items-center gap-1 text-amber-500 hover:text-amber-400 transition-colors">
+            <i class="iconify w-5 h-5" data-icon="simple-icons:buymeacoffee"></i>
+            <span>Coffee</span>
+          </a>
+          <button @click="checkUpdate" :disabled="updateChecking"
+                  class="flex items-center gap-1 hover:text-white transition-colors disabled:opacity-50">
+            <i class="iconify w-5 h-5" :data-icon="updateChecking ? 'carbon:circle-dash' : 'carbon:update-now'"
+               :class="{'animate-spin': updateChecking}"></i>
+            <span>{{ t('checkUpdate') }}</span>
+          </button>
+        </div>
+      </aside>
+
+      <!-- ▶ 主工作區 -->
+      <main class="flex-1 screentone px-4 sm:px-8 py-8 min-w-0">
+        <div class="max-w-5xl mx-auto">
+        <!-- 標語 -->
+        <div class="mb-5">
+          <h1 class="text-2xl sm:text-3xl font-extrabold text-stone-900">{{ t('heroTitle') }}</h1>
+          <p class="text-sm text-stone-500 mt-1">{{ t('multiSelectHint') }}</p>
+        </div>
+
+        <!-- 投放 / 狀態 / 結果區 -->
+        <div class="ink-card overflow-hidden">
+          <!-- 結果表示（單張即時翻譯結果） -->
+          <div v-if="result" class="flex flex-col items-center gap-4 p-8">
+            <img class="max-w-full rounded-lg border-2 border-stone-900" :src="resultUri" />
+            <button class="ink-btn ink-btn-amber" @click="clear">
               {{ t('uploadAnother') }}
             </button>
           </div>
 
-          <!-- 処理中ステータス表示 -->
+          <!-- 處理中狀態 -->
           <div
             v-else-if="status"
-            class="flex flex-col items-center justify-center border-2 border-dashed border-gray-300 rounded-md p-8 h-72"
+            class="flex flex-col items-center justify-center p-10 min-h-[18rem]"
           >
             <div
               v-if="error"
               class="flex flex-col items-center gap-4 text-center"
             >
               <div class="text-red-600 font-semibold">{{ statusText }}</div>
-              <button
-                class="px-3 py-2 text-center rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                @click="clear"
-              >
+              <button class="ink-btn ink-btn-amber" @click="clear">
                 {{ t('uploadAnother') }}
               </button>
             </div>
             <div
               v-else
-              class="flex flex-col items-center gap-2 text-center text-gray-700"
+              class="flex flex-col items-center gap-2 text-center text-stone-700"
             >
               <i
-                class="iconify w-8 h-8 text-gray-500 animate-spin"
+                class="iconify w-8 h-8 text-amber-500 animate-spin"
                 data-icon="carbon:progress-bar-round"
               ></i>
               <div>{{ statusText }}</div>
             </div>
           </div>
 
-          <!-- ファイルアップロードエリア -->
+          <!-- 拖放上傳區 -->
           <label
             v-else
-            class="flex flex-col items-center justify-center border-2 border-dashed border-gray-300 rounded-md p-8 h-72 cursor-pointer hover:border-blue-400 transition-colors py-57"
+            class="flex flex-col items-center justify-center p-10 min-h-[18rem] cursor-pointer hover:bg-amber-50 transition-colors"
             for="file"
             @dragenter.prevent
             @dragover.prevent
             @dragleave.prevent
             @drop.prevent="ondrop"
           >
-            <!-- 選択済みファイルがある場合 -->
+            <!-- 已選一張圖：預覽 + 開始 -->
             <div
               v-if="file"
               class="flex flex-col items-center gap-4 text-center"
             >
-
-              <div class="text-gray-700">
+              <div class="text-stone-700 font-medium">
                 <span
                   class="iconify-inline inline-block mr-2 text-xl"
                   data-icon="carbon:image-search"
@@ -333,94 +419,70 @@
                 {{ t('filePreview') }}
               </div>
               <img
-                class="max-w-[18rem] max-h-[18rem] rounded-md border border-gray-200"
+                class="max-w-[18rem] max-h-[18rem] rounded-lg border-2 border-stone-900"
                 :src="fileUri"
               />
-              <div class="flex space-x-2">
-                <button
-                  type="button"
-                  @click="clearFile"
-                  class="px-4 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500 border border-gray-500"
-                  style="color: white !important; background-color: #4B5563 !important;"
-                >
+              <div class="flex gap-3">
+                <button type="button" @click="clearFile" class="ink-btn">
                   {{ t('clear') }}
                 </button>
-                <button
-                  type="button"
-                  @click="startTranslation"
-                  class="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-blue-500 border border-green-500"
-                  style="color: white !important; background-color: #059669 !important;"
-                >
+                <button type="button" @click="startTranslation" class="ink-btn ink-btn-amber">
+                  <i class="iconify" data-icon="carbon:play-filled-alt"></i>
                   {{ t('startTranslating') }}
                 </button>
               </div>
-              <div class="text-sm text-gray-500">
+              <div class="text-sm text-stone-500">
                 {{ t('replaceHint') }}
               </div>
             </div>
-            <!-- 複数ファイルが選択された場合 -->
-            <div v-else-if="selectedFiles.length > 0" class="flex flex-col items-center gap-4 text-center">
-              <i class="iconify w-8 h-8 text-blue-500" data-icon="carbon:document-multiple"></i>
-              <div class="text-gray-700">
-                <span class="font-medium">{{ selectedFiles.length }}</span> {{ t('filesSelected') }}
+            <!-- 已選多張 -->
+            <div v-else-if="selectedFiles.length > 0" class="flex flex-col items-center gap-4 text-center w-full max-w-md">
+              <i class="iconify w-8 h-8 text-amber-500" data-icon="carbon:document-multiple"></i>
+              <div class="text-stone-700">
+                <span class="font-bold">{{ selectedFiles.length }}</span> {{ t('filesSelected') }}
               </div>
-              <div class="max-h-32 overflow-y-auto w-full">
+              <div class="max-h-32 overflow-y-auto w-full space-y-1">
                 <div v-for="file in selectedFiles.slice(0, 5)" :key="file.name"
-                     class="text-sm text-gray-600 truncate px-2 py-1 bg-gray-50 rounded">
+                     class="text-sm text-stone-600 truncate px-2 py-1 bg-stone-100 rounded">
                   {{ file.name }}
                 </div>
-                <div v-if="selectedFiles.length > 5" class="text-sm text-gray-500">
+                <div v-if="selectedFiles.length > 5" class="text-sm text-stone-500">
                   ... {{ t('andMore') }} {{ selectedFiles.length - 5 }} {{ t('moreFiles') }}
                 </div>
               </div>
-              <div class="flex space-x-2">
-                <button
-                  type="button"
-                  @click="clearSelectedFiles"
-                  class="px-3 py-1 bg-gray-600 text-white rounded-md hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
-                  style="color: white !important; background-color: #4B5563 !important;"
-                >
+              <div class="flex gap-3">
+                <button type="button" @click="clearSelectedFiles" class="ink-btn">
                   {{ t('clear') }}
                 </button>
-                <button
-                  type="button"
-                  @click="addSelectedFilesToQueue"
-                  class="px-3 py-1 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
-                  style="color: white !important; background-color: #2563EB !important;"
-                >
+                <button type="button" @click="addSelectedFilesToQueue" class="ink-btn ink-btn-amber">
+                  <i class="iconify" data-icon="carbon:add"></i>
                   {{ t('addToQueue') }}
                 </button>
               </div>
             </div>
-            <!-- まだファイルがない場合 -->
-            <div v-else class="flex flex-col items-center gap-2 text-center">
-
-              <i
-                class="iconify w-8 h-8 text-gray-500"
-                data-icon="carbon:cloud-upload"
-              ></i>
-              <div class="text-gray-600">
+            <!-- 空狀態 -->
+            <div v-else class="flex flex-col items-center gap-3 text-center">
+              <div class="w-16 h-16 rounded-full bg-amber-100 border-2 border-stone-900 flex items-center justify-center">
+                <i
+                  class="iconify w-8 h-8 text-stone-900"
+                  data-icon="carbon:cloud-upload"
+                ></i>
+              </div>
+              <div class="text-stone-700 font-medium">
                 {{ t('pastePrompt') }}
               </div>
-              <div class="text-sm text-gray-500">
-                {{ t('multiSelectHint') }}
-              </div>
-              <div class="flex space-x-2 mt-2">
-                <button
-                  @click="selectMultipleFiles"
-                  class="px-3 py-1 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm transition-colors">
-                  <i class="iconify inline-block mr-1" data-icon="carbon:folder-add"></i>
+              <div class="flex gap-3 mt-1">
+                <button @click="selectMultipleFiles" class="ink-btn ink-btn-amber">
+                  <i class="iconify" data-icon="carbon:folder-add"></i>
                   {{ t('multipleFiles') }}
                 </button>
-                <button
-                  @click="selectFolder"
-                  class="px-3 py-1 bg-purple-600 text-white rounded-md hover:bg-purple-700 focus:outline-none focus:ring-2 focus:ring-purple-500 text-sm transition-colors">
-                  <i class="iconify inline-block mr-1" data-icon="carbon:folder"></i>
+                <button @click="selectFolder" class="ink-btn">
+                  <i class="iconify" data-icon="carbon:folder"></i>
                   {{ t('folder') }}
                 </button>
               </div>
             </div>
-            
+
 
             <input
               id="file"
@@ -433,31 +495,35 @@
           </label>
         </div>
 
-        <!-- Image Queue Section -->
-        <div class="border-t pt-6 mt-6">
-          <div class="flex items-center justify-between mb-4">
-            <h3 class="text-lg font-semibold text-gray-800">
-              {{ t('queueTitle') }} ({{ queuedImages.length }})
-            </h3>
-            <div class="flex items-center space-x-2">
+        <!-- 佇列 / 成果：分頁籤面板 -->
+        <div class="mt-8">
+          <div class="flex items-end gap-2 pl-3">
+            <button class="ink-tab" :class="{ on: mainTab === 'queue' }" @click="mainTab = 'queue'">
+              <i class="iconify inline-block align-text-bottom mr-1" data-icon="carbon:list"></i>{{ t('queueTitle') }}（{{ queuedImages.length }}）
+            </button>
+            <button class="ink-tab" :class="{ on: mainTab === 'gallery' }" @click="mainTab = 'gallery'">
+              <i class="iconify inline-block align-text-bottom mr-1" data-icon="carbon:image"></i>{{ t('resultsTitle') }}（{{ finishedImages.length }}）
+            </button>
+          </div>
+          <div class="ink-card ink-panel p-5">
+
+          <!-- ── 佇列分頁 ── -->
+          <div v-if="mainTab === 'queue'">
+            <div class="flex items-center flex-wrap gap-2 mb-4">
               <label class="flex items-center gap-1 text-sm text-gray-600 cursor-pointer select-none mr-1" :title="t('autoRetryTooltip')">
                 <input type="checkbox" v-model="autoRetryFailed" @change="onSettingChange">
                 {{ t('autoRetry') }}
               </label>
-              <button @click="retryAllErrors"
-                      class="px-3 py-1 text-sm bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors">
-                {{ t('retryAll') }}
+              <button @click="retryAllErrors" class="ink-btn">
+                <i class="iconify" data-icon="carbon:restart"></i>{{ t('retryAll') }}
               </button>
-              <button @click="skipCurrentTranslation"
-                      class="px-3 py-1 text-sm bg-red-600 text-white rounded-md hover:bg-red-700 transition-colors">
+              <button @click="skipCurrentTranslation" class="ink-btn ink-btn-red">
                 {{ t('skipCurrent') }}
               </button>
-              <button @click="clearFinishedItems"
-                      class="px-3 py-1 text-sm bg-green-600 text-white rounded-md hover:bg-green-700 transition-colors">
+              <button @click="clearFinishedItems" class="ink-btn">
                 {{ t('clearFinished') }}
               </button>
             </div>
-          </div>
 
           <!-- Queue is empty message -->
           <div v-if="queuedImages.length === 0" class="text-center py-8 text-gray-500">
@@ -563,62 +629,46 @@
                 </button>
               </div>
             </div>
+            </div>
           </div>
-        </div>
 
-        <!-- Results Gallery Section -->
-        <div class="border-t pt-6 mt-6">
-          <div class="flex items-center justify-between mb-4">
-            <h3 class="text-lg font-semibold text-gray-800">
-              {{ t('resultsTitle') }} ({{ finishedImages.length }})
-            </h3>
-            <div class="flex space-x-2">
-              <button v-if="finishedImages.length > 0" @click="toggleSelectAll"
-                      class="px-3 py-1 text-sm bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300 transition-colors">
+          <!-- ── 成果分頁 ── -->
+          <div v-else>
+            <div class="flex items-center flex-wrap gap-2 mb-4">
+              <button v-if="finishedImages.length > 0" @click="toggleSelectAll" class="ink-btn">
                 {{ allSelected ? t('deselectAll') : t('selectAll') }}
               </button>
               <button v-if="selectedGallery.length > 0" @click="downloadGalleryZip" :disabled="zipping"
-                      class="px-3 py-1 text-sm bg-indigo-600 text-white rounded-md hover:bg-indigo-700 disabled:opacity-50 transition-colors">
-                <i class="iconify inline-block mr-1" :data-icon="zipping ? 'carbon:circle-dash' : 'carbon:download'"
+                      class="ink-btn ink-btn-amber">
+                <i class="iconify" :data-icon="zipping ? 'carbon:circle-dash' : 'carbon:download'"
                    :class="{'animate-spin': zipping}"></i>{{ t('downloadZip') }} ({{ selectedGallery.length }})
               </button>
-              <button v-if="selectedGallery.length > 0" @click="deleteSelected"
-                      class="px-3 py-1 text-sm bg-red-600 text-white rounded-md hover:bg-red-700 transition-colors">
-                <i class="iconify inline-block mr-1" data-icon="carbon:trash-can"></i>{{ t('deleteSelected') }} ({{ selectedGallery.length }})
+              <button v-if="selectedGallery.length > 0" @click="deleteSelected" class="ink-btn ink-btn-red">
+                <i class="iconify" data-icon="carbon:trash-can"></i>{{ t('deleteSelected') }} ({{ selectedGallery.length }})
               </button>
-              <button v-if="finishedImages.length > 0" @click="editLatest"
-                      class="px-3 py-1 text-sm bg-purple-600 text-white rounded-md hover:bg-purple-700 transition-colors">
-                <i class="iconify inline-block mr-1" data-icon="carbon:edit"></i>{{ t('enterEditor') }}
+              <button v-if="finishedImages.length > 0" @click="editLatest" class="ink-btn ink-btn-dark">
+                <i class="iconify" data-icon="carbon:edit"></i>{{ t('enterEditor') }}
               </button>
-              <button @click="openResultsFolder"
-                      class="px-3 py-1 text-sm bg-gray-600 text-white rounded-md hover:bg-gray-700 transition-colors">
-                <i class="iconify inline-block mr-1" data-icon="carbon:folder"></i>{{ t('openFolder') }}
+              <button @click="openResultsFolder" class="ink-btn">
+                <i class="iconify" data-icon="carbon:folder"></i>{{ t('openFolder') }}
               </button>
-              <button @click="toggleGallery"
-                      class="px-3 py-1 text-sm bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors">
-                {{ showGallery ? t('hideGallery') : t('showGallery') }}
-              </button>
-              <button @click="syncGalleryWithResults"
-                      class="px-3 py-1 text-sm bg-green-600 text-white rounded-md hover:bg-green-700 transition-colors">
+              <button @click="syncGalleryWithResults" class="ink-btn">
                 {{ t('syncResults') }}
               </button>
-              <button @click="refreshGallery"
-                      class="px-3 py-1 text-sm bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors">
-                {{ t('refresh') }}
+              <button @click="refreshGallery" class="ink-btn">
+                <i class="iconify" data-icon="carbon:renew"></i>{{ t('refresh') }}
               </button>
-              <button v-if="finishedImages.length > 0" @click="clearGallery"
-                      class="px-3 py-1 text-sm text-red-600 hover:text-red-700 hover:bg-red-50 rounded-md transition-colors">
+              <button v-if="finishedImages.length > 0" @click="clearGallery" class="ink-btn ink-btn-red">
                 {{ t('deleteAll') }}
               </button>
             </div>
-          </div>
           
           <!-- Gallery Grid -->
-          <div v-if="showGallery && finishedImages.length > 0" 
+          <div v-if="finishedImages.length > 0"
                class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
             <div v-for="image in finishedImages" :key="image.id"
-                 class="group cursor-pointer bg-white rounded-lg border hover:border-blue-400 hover:shadow-md transition-all duration-200"
-                 :class="{'ring-2 ring-indigo-500': selectedGallery.includes(image.id)}"
+                 class="group cursor-pointer bg-white rounded-lg border hover:border-amber-400 hover:shadow-md transition-all duration-200"
+                 :class="{'ring-2 ring-amber-500': selectedGallery.includes(image.id)}"
                  @click="openImageModal(image)">
               <div class="relative aspect-square overflow-hidden rounded-t-lg">
                 <input type="checkbox" class="absolute top-1 left-1 z-10 w-4 h-4"
@@ -655,35 +705,17 @@
           </div>
           
           <!-- Empty gallery message -->
-          <div v-else-if="showGallery" class="text-center py-12 text-gray-500">
+          <div v-else class="text-center py-12 text-gray-500">
             <i class="iconify w-12 h-12 mx-auto mb-4 text-gray-300" data-icon="carbon:image"></i>
             <p>{{ t('noFinished') }}</p>
             <p class="text-sm">{{ t('noFinishedHint') }}</p>
           </div>
-        </div>
-      </div>
+          </div>
 
-      <!-- 頁尾：GitHub + Buy Me a Coffee -->
-      <div class="flex items-center justify-center gap-5 mt-6 text-gray-500">
-        <a href="https://github.com/DragonMeow1012/DragonMeow-MangaTranslator" target="_blank"
-           rel="noopener noreferrer" :title="t('footerGithub')"
-           class="flex items-center gap-1 hover:text-gray-800 transition-colors">
-          <i class="iconify w-6 h-6" data-icon="carbon:logo-github"></i>
-          <span class="text-sm">GitHub</span>
-        </a>
-        <a href="https://buymeacoffee.com/dragonmeow1012" target="_blank"
-           rel="noopener noreferrer" :title="t('footerCoffee')"
-           class="flex items-center gap-1 text-amber-600 hover:text-amber-700 transition-colors">
-          <i class="iconify w-6 h-6" data-icon="simple-icons:buymeacoffee"></i>
-          <span class="text-sm">Buy me a coffee</span>
-        </a>
-        <button @click="checkUpdate" :disabled="updateChecking"
-                class="flex items-center gap-1 hover:text-gray-800 transition-colors disabled:opacity-50">
-          <i class="iconify w-6 h-6" :data-icon="updateChecking ? 'carbon:circle-dash' : 'carbon:update-now'"
-             :class="{'animate-spin': updateChecking}"></i>
-          <span class="text-sm">{{ t('checkUpdate') }}</span>
-        </button>
-      </div>
+          </div>
+        </div>
+        </div>
+      </main>
 
       <!-- 更新對話框 -->
       <div v-if="updateModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4"
@@ -1101,6 +1133,15 @@
           modelPlaceholder: '模型名稱',
           sendImageLabel: '傳圖給 AI 校對',
           sendImageTooltip: '開啟：翻譯時把漫畫圖一併傳給 AI 對照原文、判斷語氣，準確度較高（需選支援看圖的視覺模型）。關閉：只傳文字，省流量、純文字模型也能用，但準確度略低。DeepSeek 官方 API 無視覺模型，一律只傳文字。',
+          sideAi: '翻譯 AI',
+          sideOutput: '輸出設定',
+          sideUi: '介面',
+          labelProvider: '服務商',
+          labelModel: '模型',
+          labelTargetLang: '翻譯成',
+          labelFont: '字型',
+          heroTitle: '把漫畫丟進來，一鍵翻譯',
+          darkModeLabel: '深夜模式',
           baseUrlTooltip: 'API base URL（OpenAI 相容端點）',
           apiKeyTooltip: 'API key（多把可用逗號分隔）',
           apiKeyPlaceholder: 'API key（多把用逗號分隔可輪換，避免 429）',
@@ -1254,6 +1295,15 @@
           modelPlaceholder: '模型名称',
           sendImageLabel: '传图给 AI 校对',
           sendImageTooltip: '开启：翻译时把漫画图一并传给 AI 对照原文、判断语气，准确度更高（需选支持看图的视觉模型）。关闭：只传文字，省流量、纯文字模型也能用，但准确度略低。DeepSeek 官方 API 无视觉模型，一律只传文字。',
+          sideAi: '翻译 AI',
+          sideOutput: '输出设置',
+          sideUi: '界面',
+          labelProvider: '服务商',
+          labelModel: '模型',
+          labelTargetLang: '翻译成',
+          labelFont: '字体',
+          heroTitle: '把漫画丢进来，一键翻译',
+          darkModeLabel: '深夜模式',
           baseUrlTooltip: 'API base URL（OpenAI 兼容端点）',
           apiKeyTooltip: 'API key（多个可用逗号分隔）',
           apiKeyPlaceholder: 'API key（多把用逗号分隔可轮换，避免 429）',
@@ -1407,6 +1457,15 @@
           modelPlaceholder: 'Model name',
           sendImageLabel: 'Send image to AI',
           sendImageTooltip: 'On: the manga page is sent along with the text so the AI can cross-check the original and tone — more accurate (requires a vision-capable model). Off: text only — cheaper and works with text-only models, slightly less accurate. DeepSeek\'s official API has no vision models, so text-only is always used there.',
+          sideAi: 'Translation AI',
+          sideOutput: 'Output',
+          sideUi: 'Interface',
+          labelProvider: 'Provider',
+          labelModel: 'Model',
+          labelTargetLang: 'Translate to',
+          labelFont: 'Font',
+          heroTitle: 'Drop your manga, translate in one click',
+          darkModeLabel: 'Dark mode',
           baseUrlTooltip: 'API base URL (OpenAI-compatible endpoint)',
           apiKeyTooltip: 'API key (comma-separate multiple keys)',
           apiKeyPlaceholder: 'API key (comma-separate several to rotate & avoid 429)',
@@ -1560,6 +1619,15 @@
           modelPlaceholder: 'モデル名',
           sendImageLabel: '画像をAIに渡す',
           sendImageTooltip: 'オン：翻訳時に漫画画像も AI に渡して原文・語気を照合するため精度が上がります（画像対応の視覚モデルが必要）。オフ：テキストのみ送信。通信量が少なくテキスト専用モデルでも使えますが、精度はやや下がります。DeepSeek 公式 API は視覚モデル非対応のため常にテキストのみ。',
+          sideAi: '翻訳 AI',
+          sideOutput: '出力設定',
+          sideUi: 'インターフェース',
+          labelProvider: 'プロバイダ',
+          labelModel: 'モデル',
+          labelTargetLang: '翻訳先',
+          labelFont: 'フォント',
+          heroTitle: '漫画をドロップ、ワンクリック翻訳',
+          darkModeLabel: 'ダークモード',
           baseUrlTooltip: 'API base URL（OpenAI 互換エンドポイント）',
           apiKeyTooltip: 'API key（複数はカンマ区切り）',
           apiKeyPlaceholder: 'API key（複数はカンマ区切りで自動ローテ・429回避）',
@@ -1786,6 +1854,10 @@
         },
         // 翻譯時是否把漫畫圖傳給 LLM 校對（準確度較高，需視覺模型）
         llmSendImage: true,
+        // 主區分頁籤：queue（翻譯佇列）/ gallery（成果圖庫）
+        mainTab: 'queue',
+        // 深夜模式（root div 加 .dark class）
+        darkMode: false,
         apiKeys: {
           gemini: '', openai: '', claude: '', grok: '', deepseek: '',
           qwen: '', kimi: '', glm: '', mistral: '', groq: '',
@@ -1939,6 +2011,7 @@
               if (settings.apiKeys) Object.assign(this.apiKeys, settings.apiKeys);
               if (settings.customBaseUrl) this.customBaseUrl = settings.customBaseUrl;
               if (typeof settings.llmSendImage === 'boolean') this.llmSendImage = settings.llmSendImage;
+              if (typeof settings.darkMode === 'boolean') this.darkMode = settings.darkMode;
               if (settings.targetLanguage) this.targetLanguage = settings.targetLanguage;
               if (settings.fontPath) this.fontPath = settings.fontPath;
               if (typeof settings.advancedMode === 'boolean') this.advancedMode = settings.advancedMode;
@@ -1958,6 +2031,7 @@
               apiKeys: this.apiKeys,
               customBaseUrl: this.customBaseUrl,
               llmSendImage: this.llmSendImage,
+              darkMode: this.darkMode,
               targetLanguage: this.targetLanguage,
               fontPath: this.fontPath,
               advancedMode: this.advancedMode,
