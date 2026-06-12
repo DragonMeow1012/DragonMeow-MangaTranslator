@@ -382,6 +382,10 @@ async def index() -> HTMLResponse:
     html_content = html_file.read_text(encoding="utf-8")
     return HTMLResponse(content=html_content)
 
+@app.get("/logo.jpg", tags=["ui"])
+async def logo() -> FileResponse:
+    return FileResponse(Path(__file__).parent / "logo.jpg", media_type="image/jpeg")
+
 @app.get("/manual", response_class=HTMLResponse, tags=["ui"])
 async def manual():
     script_directory = Path(__file__).parent
