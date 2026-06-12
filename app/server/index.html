@@ -125,6 +125,11 @@
             <datalist id="model-suggestions">
               <option v-for="m in modelSuggestions" :value="m" :key="m"></option>
             </datalist>
+            <i
+              class="iconify text-gray-400 cursor-help"
+              data-icon="carbon:view"
+              :title="t('visionHint')"
+            ></i>
           </div>
 
           <!-- Custom base URL（自訂供應商時顯示） -->
@@ -919,12 +924,32 @@
               </div>
             </div>
           </div>
-          <div class="flex-1 overflow-auto bg-gray-800 flex items-center justify-center p-4 relative">
-            <img v-if="editorPreviewUrl" :src="showOriginal ? `${BASE_URI}result/${editorFolder}/source.png` : editorPreviewUrl"
-                 class="max-w-full max-h-full object-contain rounded shadow-lg" />
+          <div class="flex-1 overflow-hidden bg-gray-800 flex items-center justify-center p-4 relative"
+               :title="t('zoomHint')"
+               :class="editorZoom > 1 ? (editorDragging ? 'cursor-grabbing' : 'cursor-grab') : ''"
+               @wheel.prevent="onEditorWheel"
+               @mousedown.prevent="editorDragStart"
+               @mousemove="editorDragMove"
+               @mouseup="editorDragEnd"
+               @mouseleave="editorDragEnd"
+               @dblclick="resetEditorZoom">
+            <img v-if="editorPreviewUrl" ref="editorImg" draggable="false"
+                 :src="showOriginal ? `${BASE_URI}result/${editorFolder}/source.png` : editorPreviewUrl"
+                 class="max-w-full max-h-full object-contain rounded shadow-lg select-none"
+                 :style="{ transform: `translate(${editorPanX}px, ${editorPanY}px) scale(${editorZoom})` }" />
             <div v-if="showOriginal"
                  class="absolute top-6 left-1/2 -translate-x-1/2 px-3 py-1 rounded-full bg-black bg-opacity-60 text-white text-sm pointer-events-none">
               {{ t('viewingOriginal') }}
+            </div>
+            <!-- 縮放控制列 -->
+            <div class="absolute bottom-4 right-4 flex items-center gap-1 bg-black bg-opacity-60 rounded-full px-2 py-1 text-white text-sm select-none"
+                 @mousedown.stop @dblclick.stop>
+              <button type="button" class="px-1.5 hover:text-blue-300" @click="zoomEditorBy(1 / 1.25)">−</button>
+              <span class="min-w-[3.2rem] text-center">{{ Math.round(editorZoom * 100) }}%</span>
+              <button type="button" class="px-1.5 hover:text-blue-300" @click="zoomEditorBy(1.25)">＋</button>
+              <button type="button" class="px-1.5 hover:text-blue-300" :title="t('zoomReset')" @click="resetEditorZoom">
+                <i class="iconify align-text-bottom" data-icon="carbon:center-to-fit"></i>
+              </button>
             </div>
           </div>
         </div>
@@ -952,75 +977,73 @@
         return `${formatSize(loaded)}/${formatSize(total)}`;
       }
 
+      // 清單只列「支援看圖（視覺）」的現役模型（2026-06 查證）。
+      // 翻譯時會附上漫畫圖讓 AI 對照原文，視覺模型準確度明顯較高。
+      // 例外：DeepSeek 官方 API 沒有視覺模型，列文字模型並在提示中註明。
       const MODEL_SUGGESTIONS = {
         gemini: [
+          'gemini-3.5-flash',
           'gemini-3.1-flash-lite',
-          'gemini-3-flash-preview',
-          'gemini-3-pro-preview',
+          'gemini-3.1-pro-preview',
           'gemini-2.5-flash',
           'gemini-2.5-flash-lite',
           'gemini-2.5-pro',
-          'gemini-2.0-flash',
         ],
         openai: [
+          'gpt-5.5',
+          'gpt-5.4',
+          'gpt-5.4-mini',
           'gpt-5.1',
-          'gpt-5.1-mini',
-          'gpt-5',
-          'gpt-5-mini',
-          'gpt-5-nano',
           'gpt-4.1',
-          'gpt-4.1-mini',
           'gpt-4o',
           'gpt-4o-mini',
         ],
         deepseek: [
+          // 官方 API 無視覺模型（翻譯時不附圖，準確度略低）
           'deepseek-chat',
           'deepseek-reasoner',
         ],
         claude: [
+          'claude-fable-5',
+          'claude-opus-4-8',
           'claude-sonnet-4-6',
           'claude-haiku-4-5',
-          'claude-opus-4-8',
         ],
         grok: [
-          'grok-4',
-          'grok-4-fast',
-          'grok-3',
-          'grok-3-mini',
+          // 舊款 grok-4 / grok-3 系列已下架，請求會被導到 4.3
+          'grok-4.3',
         ],
         qwen: [
+          'qwen3-vl-plus',
+          'qwen3-vl-flash',
           'qwen-vl-max',
-          'qwen-vl-plus',
-          'qwen-max',
-          'qwen-plus',
-          'qwen-turbo',
         ],
         kimi: [
-          'moonshot-v1-32k-vision-preview',
-          'moonshot-v1-8k-vision-preview',
-          'kimi-k2-turbo-preview',
+          // moonshot-v1 vision 與 k2 舊系列已停服
+          'kimi-k2.6',
+          'kimi-k2.5',
         ],
         glm: [
-          'glm-4v-plus',
-          'glm-4v',
-          'glm-4.6',
+          'glm-5v-turbo',
+          'glm-4.6v',
+          'glm-4.5v',
         ],
         mistral: [
-          'pixtral-large-latest',
           'mistral-large-latest',
-          'mistral-medium-latest',
+          'pixtral-large-latest',
+          'pixtral-12b',
         ],
         groq: [
-          'meta-llama/llama-4-maverick-17b-128e-instruct',
+          // llama-4-maverick 已於 2026-02 棄用；scout 是 Groq 目前的視覺選項
           'meta-llama/llama-4-scout-17b-16e-instruct',
-          'llama-3.3-70b-versatile',
         ],
         openrouter: [
-          'google/gemini-2.5-flash',
+          'google/gemini-3.5-flash',
+          'openai/gpt-5.5',
           'anthropic/claude-sonnet-4.6',
-          'openai/gpt-5.1',
-          'x-ai/grok-4',
-          'deepseek/deepseek-chat',
+          'x-ai/grok-4.3',
+          'z-ai/glm-4.6v',
+          'qwen/qwen3-vl-plus',
         ],
         custom: [],
       };
@@ -1058,6 +1081,8 @@
           testingConnection: '測試中…',
           testOk: '連接成功',
           testFail: '連接失敗',
+          zoomHint: '滾輪縮放，放大後可拖曳平移，雙擊還原',
+          zoomReset: '還原縮放',
           showKey: '顯示 API key',
           hideKey: '隱藏 API key',
           targetLangTooltip: '翻譯語言',
@@ -1207,6 +1232,8 @@
           testingConnection: '测试中…',
           testOk: '连接成功',
           testFail: '连接失败',
+          zoomHint: '滚轮缩放，放大后可拖拽平移，双击还原',
+          zoomReset: '还原缩放',
           showKey: '显示 API key',
           hideKey: '隐藏 API key',
           targetLangTooltip: '翻译语言',
@@ -1356,6 +1383,8 @@
           testingConnection: 'Testing…',
           testOk: 'Connected',
           testFail: 'Failed',
+          zoomHint: 'Scroll to zoom, drag to pan when zoomed, double-click to reset',
+          zoomReset: 'Reset zoom',
           showKey: 'Show API key',
           hideKey: 'Hide API key',
           targetLangTooltip: 'Target language',
@@ -1505,6 +1534,8 @@
           testingConnection: 'テスト中…',
           testOk: '接続成功',
           testFail: '接続失敗',
+          zoomHint: 'ホイールでズーム、ズーム中はドラッグで移動、ダブルクリックでリセット',
+          zoomReset: 'ズームをリセット',
           showKey: 'API key を表示',
           hideKey: 'API key を非表示',
           targetLangTooltip: '翻訳先の言語',
@@ -1759,6 +1790,12 @@
         editorHistory: [],
         editorHistoryIdx: -1,
         editorFreshRegions: null,
+        // 預覽縮放/平移（局部放大修圖用）
+        editorZoom: 1,
+        editorPanX: 0,
+        editorPanY: 0,
+        editorDragging: false,
+        _editorDragLast: null,
         get currentModel() { return this.models[this.llmProvider] || ''; },
         set currentModel(v) { this.models[this.llmProvider] = v; },
         get currentApiKey() { return this.apiKeys[this.llmProvider] || ''; },
@@ -1811,6 +1848,48 @@
             this.llmTestState = 'fail';
             this.llmTestMessage = String(e);
           }
+        },
+
+        // ── 進階編輯預覽：滾輪縮放（游標錨點）/ 拖曳平移 / 雙擊還原 ──
+        onEditorWheel(e) {
+          this.zoomEditorAt(e.deltaY < 0 ? 1.2 : 1 / 1.2, e.clientX, e.clientY);
+        },
+        zoomEditorAt(factor, cx, cy) {
+          const z1 = this.editorZoom;
+          const z2 = Math.min(8, Math.max(1, z1 * factor));
+          if (z2 === z1) return;
+          const img = this.$refs.editorImg;
+          if (img && cx !== undefined) {
+            // 以游標位置為錨點：縮放前後游標下的圖像點保持不動
+            const rect = img.getBoundingClientRect();
+            const ox = cx - (rect.left + rect.width / 2);
+            const oy = cy - (rect.top + rect.height / 2);
+            this.editorPanX -= ox * (z2 / z1 - 1);
+            this.editorPanY -= oy * (z2 / z1 - 1);
+          }
+          this.editorZoom = z2;
+          if (z2 === 1) { this.editorPanX = 0; this.editorPanY = 0; }
+        },
+        zoomEditorBy(factor) { this.zoomEditorAt(factor); },
+        resetEditorZoom() {
+          this.editorZoom = 1;
+          this.editorPanX = 0;
+          this.editorPanY = 0;
+          this.editorDragging = false;
+        },
+        editorDragStart(e) {
+          if (this.editorZoom <= 1) return;
+          this.editorDragging = true;
+          this._editorDragLast = { x: e.clientX, y: e.clientY };
+        },
+        editorDragMove(e) {
+          if (!this.editorDragging || !this._editorDragLast) return;
+          this.editorPanX += e.clientX - this._editorDragLast.x;
+          this.editorPanY += e.clientY - this._editorDragLast.y;
+          this._editorDragLast = { x: e.clientX, y: e.clientY };
+        },
+        editorDragEnd() {
+          this.editorDragging = false;
         },
 
         // Settings persistence
@@ -3072,6 +3151,7 @@
         this.selectedRegionId = this.editorRegions.length ? this.editorRegions[0].id : null;
         this.editorBlob = null;
         this.editorPreviewUrl = `${BASE_URI}result/${folder}/final.png?ts=${Date.now()}`;
+        this.resetEditorZoom();
         this.editorOpen = true;
 
         // 有上次編輯草稿 → 還原並重新渲染（出廠則維持 final.png 預覽）
