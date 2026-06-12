@@ -352,6 +352,9 @@ class Gemini2StageTranslator(CommonTranslator):
         # LLM 供應商：gemini（native SDK）/ openai / deepseek / custom（OpenAI 相容 API）
         self._provider = 'gemini'
         self._base_url: 'str | None' = None
+        # 是否把漫畫圖傳給 LLM 校對（網頁端開關）。關閉 = 純文字翻譯，
+        # 文字模型也能用、省流量，但 OCR 仲裁少了看圖依據，準確度略低。
+        self._send_image = True
         # 每次 _gemini_json_call 進來 round-robin 一個起始 key index。
         # 並發 K 張同時打 LLM 時，第 1 張用 key #0、第 2 張 key #1、...，分散 quota 壓力。
         # 單 thread asyncio 下整數遞增是原子的，不需 lock。
@@ -412,6 +415,9 @@ class Gemini2StageTranslator(CommonTranslator):
             self._call_idx = 0
 
         self._base_url = (getattr(args, 'llm_base_url', None) or '').strip() or None
+        send_image = getattr(args, 'llm_send_image', None)
+        if send_image is not None:
+            self._send_image = bool(send_image)
         model = (getattr(args, 'llm_model', None) or '').strip()
         if model:
             self.refine_model = self.translate_model = model
@@ -555,6 +561,8 @@ class Gemini2StageTranslator(CommonTranslator):
         from google.genai import types
 
         parts = [types.Part.from_text(text=user_text)]
+        if not self._send_image:
+            image_data = image_data_list = None
         if image_data_list:
             for img_bytes, mime in image_data_list:
                 parts.append(types.Part.from_bytes(data=img_bytes, mime_type=mime))
@@ -695,7 +703,7 @@ class Gemini2StageTranslator(CommonTranslator):
             raise ValueError(f'No base URL for provider {self._provider!r}')
 
         content: list = [{'type': 'text', 'text': user_text}]
-        if self._provider not in self._NO_VISION_PROVIDERS:
+        if self._send_image and self._provider not in self._NO_VISION_PROVIDERS:
             imgs = image_data_list or ([image_data] if image_data is not None else [])
             for img_bytes, mime in imgs:
                 b64 = base64.b64encode(img_bytes).decode()
@@ -719,21 +727,34 @@ class Gemini2StageTranslator(CommonTranslator):
         headers = {'Authorization': f'Bearer {key}'} if key else {}
         async with httpx.AsyncClient(timeout=httpx.Timeout(150.0, connect=15.0)) as client:
             resp = await client.post(url, headers=headers, json=payload)
-            if resp.status_code == 400:
-                # 本地端點（llama.cpp / 舊版 LM Studio / Ollama）常見兩種 400：
-                # 1) 不支援 response_format → 砍掉重試（prompt 內已有 JSON 格式說明）
-                # 2) 純文字模型不吃 image_url → 去圖重試（靠 prompt 內 mocr anchor 文字翻譯）
+            # 常見的「參數不被該模型/端點接受」400，逐項降級重試：
+            # 1) 不支援 response_format → 砍掉（prompt 內已有 JSON 格式說明）
+            # 2) 純文字模型不吃 image_url → 去圖（靠 prompt 內 mocr anchor 文字翻譯）
+            # 3) OpenAI 新模型（gpt-5 / o 系列）棄用 max_tokens → 換 max_completion_tokens
+            # 4) 推理模型只接受預設 temperature → 砍掉
+            # API 一次只報一個參數錯，所以最多重試 3 輪
+            for _ in range(3):
+                if resp.status_code != 400:
+                    break
                 err_text = resp.text
                 retry = False
                 if 'response_format' in err_text and 'response_format' in payload:
                     payload.pop('response_format')
                     retry = True
-                if len(content) > 1 and re.search(r'image|vision|multi.?modal', err_text, re.I):
+                if isinstance(payload['messages'][1]['content'], list) and len(payload['messages'][1]['content']) > 1 \
+                        and re.search(r'image|vision|multi.?modal', err_text, re.I):
                     payload['messages'][1]['content'] = user_text
                     retry = True
-                if retry:
-                    self.logger.warning(f'OpenAI 相容端點回 400，降級 payload 重試: {err_text[:150]}')
-                    resp = await client.post(url, headers=headers, json=payload)
+                if 'max_tokens' in payload and re.search(r'max_tokens', err_text):
+                    payload['max_completion_tokens'] = payload.pop('max_tokens')
+                    retry = True
+                if 'temperature' in payload and re.search(r'temperature', err_text):
+                    payload.pop('temperature')
+                    retry = True
+                if not retry:
+                    break
+                self.logger.warning(f'OpenAI 相容端點回 400，降級 payload 重試: {err_text[:150]}')
+                resp = await client.post(url, headers=headers, json=payload)
         if resp.status_code != 200:
             # 帶 status code 讓外層的 429/503 換 key 邏輯吃得到
             raise ValueError(f'{resp.status_code} {resp.text[:300]}')

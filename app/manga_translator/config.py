@@ -262,6 +262,8 @@ class TranslatorConfig(BaseModel):
     """LLM model override (web UI input)."""
     llm_base_url: Optional[str] = None
     """Base URL for custom OpenAI-compatible providers (e.g. http://localhost:11434/v1)."""
+    llm_send_image: Optional[bool] = None
+    """Send the manga image to the LLM for proofreading (better accuracy, needs a vision model). None = keep current/default (on)."""
     no_text_lang_skip: bool = False
     """Dont skip text that is seemingly already in the target language."""
     skip_lang: Optional[str] = None

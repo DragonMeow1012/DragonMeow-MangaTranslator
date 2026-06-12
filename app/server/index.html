@@ -125,12 +125,14 @@
             <datalist id="model-suggestions">
               <option v-for="m in modelSuggestions" :value="m" :key="m"></option>
             </datalist>
-            <i
-              class="iconify text-gray-400 cursor-help"
-              data-icon="carbon:view"
-              :title="t('visionHint')"
-            ></i>
           </div>
+
+          <!-- 是否傳圖給 LLM 校對（提高準確度，需視覺模型） -->
+          <label class="flex items-center gap-1 cursor-pointer whitespace-nowrap" :title="t('sendImageTooltip')">
+            <input type="checkbox" v-model="llmSendImage" @change="onSettingChange">
+            <span>{{ t('sendImageLabel') }}</span>
+            <i class="iconify text-gray-400" data-icon="carbon:image-search"></i>
+          </label>
 
           <!-- Custom base URL（自訂供應商時顯示） -->
           <div v-if="llmProvider === 'custom'" class="flex items-center gap-1 min-w-[14rem]" :title="t('baseUrlTooltip')">
@@ -977,11 +979,12 @@
         return `${formatSize(loaded)}/${formatSize(total)}`;
       }
 
-      // 清單只列「支援看圖（視覺）」的現役模型（2026-06 查證）。
-      // 翻譯時會附上漫畫圖讓 AI 對照原文，視覺模型準確度明顯較高。
-      // 例外：DeepSeek 官方 API 沒有視覺模型，列文字模型並在提示中註明。
+      // 各家「目前能用」的現役模型（2026-06 查證，含視覺與純文字）。
+      // 開啟「傳圖給 AI 校對」時需選支援看圖的視覺模型；
+      // 純文字模型（或 DeepSeek 官方 API）請關閉傳圖、走純文字翻譯。
       const MODEL_SUGGESTIONS = {
         gemini: [
+          // 全系列皆支援看圖
           'gemini-3.5-flash',
           'gemini-3.1-flash-lite',
           'gemini-3.1-pro-preview',
@@ -990,60 +993,82 @@
           'gemini-2.5-pro',
         ],
         openai: [
+          // 全系列皆支援看圖
           'gpt-5.5',
           'gpt-5.4',
           'gpt-5.4-mini',
+          'gpt-5.4-nano',
           'gpt-5.1',
           'gpt-4.1',
           'gpt-4o',
           'gpt-4o-mini',
         ],
         deepseek: [
-          // 官方 API 無視覺模型（翻譯時不附圖，準確度略低）
+          // 官方 API 無視覺模型 → 程式會自動不傳圖
           'deepseek-chat',
           'deepseek-reasoner',
         ],
         claude: [
+          // 全系列皆支援看圖
           'claude-fable-5',
           'claude-opus-4-8',
           'claude-sonnet-4-6',
           'claude-haiku-4-5',
         ],
         grok: [
-          // 舊款 grok-4 / grok-3 系列已下架，請求會被導到 4.3
+          // 舊款 grok-4 / grok-3 系列已下架，請求會被導到 4.3（支援看圖）
           'grok-4.3',
         ],
         qwen: [
+          // qwen*-vl 支援看圖；其餘為純文字
           'qwen3-vl-plus',
           'qwen3-vl-flash',
           'qwen-vl-max',
+          'qwen3.6-plus',
+          'qwen3.6-flash',
+          'qwen3-max',
+          'qwen-max',
+          'qwen-plus',
+          'qwen-flash',
         ],
         kimi: [
-          // moonshot-v1 vision 與 k2 舊系列已停服
+          // k2.5 / k2.6 原生多模態（支援看圖）；moonshot-v1 與舊 k2 已停服
           'kimi-k2.6',
           'kimi-k2.5',
         ],
         glm: [
+          // *v* 為視覺模型；glm-5 / glm-5-turbo 為純文字
           'glm-5v-turbo',
           'glm-4.6v',
           'glm-4.5v',
+          'glm-5.1',
+          'glm-5',
+          'glm-5-turbo',
         ],
         mistral: [
+          // large / pixtral 支援看圖；medium、small 為純文字
           'mistral-large-latest',
           'pixtral-large-latest',
           'pixtral-12b',
+          'mistral-medium-latest',
+          'mistral-small-latest',
         ],
         groq: [
-          // llama-4-maverick 已於 2026-02 棄用；scout 是 Groq 目前的視覺選項
+          // scout 支援看圖；gpt-oss / llama-3.3 為純文字（llama-4-maverick 已於 2026-02 棄用）
           'meta-llama/llama-4-scout-17b-16e-instruct',
+          'openai/gpt-oss-120b',
+          'llama-3.3-70b-versatile',
         ],
         openrouter: [
+          // 除 deepseek 外皆支援看圖
           'google/gemini-3.5-flash',
           'openai/gpt-5.5',
           'anthropic/claude-sonnet-4.6',
           'x-ai/grok-4.3',
           'z-ai/glm-4.6v',
           'qwen/qwen3-vl-plus',
+          'moonshotai/kimi-k2.6',
+          'deepseek/deepseek-chat',
         ],
         custom: [],
       };
@@ -1072,8 +1097,10 @@
           updateFailed: '更新失敗',
           providerTooltip: '翻譯服務供應商',
           customProvider: '自訂（OpenAI 相容）',
-          modelTooltip: '翻譯模型（可直接輸入任何模型名）',
+          modelTooltip: '翻譯模型（清單為各家現役模型，可直接輸入任何模型名）',
           modelPlaceholder: '模型名稱',
+          sendImageLabel: '傳圖給 AI 校對',
+          sendImageTooltip: '開啟：翻譯時把漫畫圖一併傳給 AI 對照原文、判斷語氣，準確度較高（需選支援看圖的視覺模型）。關閉：只傳文字，省流量、純文字模型也能用，但準確度略低。DeepSeek 官方 API 無視覺模型，一律只傳文字。',
           baseUrlTooltip: 'API base URL（OpenAI 相容端點）',
           apiKeyTooltip: 'API key（多把可用逗號分隔）',
           apiKeyPlaceholder: 'API key（多把用逗號分隔可輪換，避免 429）',
@@ -1223,8 +1250,10 @@
           updateFailed: '更新失败',
           providerTooltip: '翻译服务提供商',
           customProvider: '自定义（OpenAI 兼容）',
-          modelTooltip: '翻译模型（可直接输入任何模型名）',
+          modelTooltip: '翻译模型（列表为各家现役模型，可直接输入任何模型名）',
           modelPlaceholder: '模型名称',
+          sendImageLabel: '传图给 AI 校对',
+          sendImageTooltip: '开启：翻译时把漫画图一并传给 AI 对照原文、判断语气，准确度更高（需选支持看图的视觉模型）。关闭：只传文字，省流量、纯文字模型也能用，但准确度略低。DeepSeek 官方 API 无视觉模型，一律只传文字。',
           baseUrlTooltip: 'API base URL（OpenAI 兼容端点）',
           apiKeyTooltip: 'API key（多个可用逗号分隔）',
           apiKeyPlaceholder: 'API key（多把用逗号分隔可轮换，避免 429）',
@@ -1374,8 +1403,10 @@
           updateFailed: 'Update failed',
           providerTooltip: 'LLM provider',
           customProvider: 'Custom (OpenAI-compatible)',
-          modelTooltip: 'Translation model (any model name accepted)',
+          modelTooltip: 'Translation model (suggestions list current models per provider; any model name accepted)',
           modelPlaceholder: 'Model name',
+          sendImageLabel: 'Send image to AI',
+          sendImageTooltip: 'On: the manga page is sent along with the text so the AI can cross-check the original and tone — more accurate (requires a vision-capable model). Off: text only — cheaper and works with text-only models, slightly less accurate. DeepSeek\'s official API has no vision models, so text-only is always used there.',
           baseUrlTooltip: 'API base URL (OpenAI-compatible endpoint)',
           apiKeyTooltip: 'API key (comma-separate multiple keys)',
           apiKeyPlaceholder: 'API key (comma-separate several to rotate & avoid 429)',
@@ -1525,8 +1556,10 @@
           updateFailed: '更新に失敗しました',
           providerTooltip: '翻訳プロバイダ',
           customProvider: 'カスタム（OpenAI 互換）',
-          modelTooltip: '翻訳モデル（任意のモデル名を入力可）',
+          modelTooltip: '翻訳モデル（候補は各社の現行モデル、任意のモデル名も入力可）',
           modelPlaceholder: 'モデル名',
+          sendImageLabel: '画像をAIに渡す',
+          sendImageTooltip: 'オン：翻訳時に漫画画像も AI に渡して原文・語気を照合するため精度が上がります（画像対応の視覚モデルが必要）。オフ：テキストのみ送信。通信量が少なくテキスト専用モデルでも使えますが、精度はやや下がります。DeepSeek 公式 API は視覚モデル非対応のため常にテキストのみ。',
           baseUrlTooltip: 'API base URL（OpenAI 互換エンドポイント）',
           apiKeyTooltip: 'API key（複数はカンマ区切り）',
           apiKeyPlaceholder: 'API key（複数はカンマ区切りで自動ローテ・429回避）',
@@ -1743,14 +1776,16 @@
           claude: 'claude-sonnet-4-6',
           grok: 'grok-4-fast',
           deepseek: 'deepseek-chat',
-          qwen: 'qwen-vl-max',
-          kimi: 'moonshot-v1-32k-vision-preview',
-          glm: 'glm-4v-plus',
-          mistral: 'pixtral-large-latest',
-          groq: 'meta-llama/llama-4-maverick-17b-128e-instruct',
-          openrouter: 'google/gemini-2.5-flash',
+          qwen: 'qwen3-vl-flash',
+          kimi: 'kimi-k2.6',
+          glm: 'glm-4.6v',
+          mistral: 'mistral-large-latest',
+          groq: 'meta-llama/llama-4-scout-17b-16e-instruct',
+          openrouter: 'google/gemini-3.5-flash',
           custom: '',
         },
+        // 翻譯時是否把漫畫圖傳給 LLM 校對（準確度較高，需視覺模型）
+        llmSendImage: true,
         apiKeys: {
           gemini: '', openai: '', claude: '', grok: '', deepseek: '',
           qwen: '', kimi: '', glm: '', mistral: '', groq: '',
@@ -1903,6 +1938,7 @@
               if (settings.models) Object.assign(this.models, settings.models);
               if (settings.apiKeys) Object.assign(this.apiKeys, settings.apiKeys);
               if (settings.customBaseUrl) this.customBaseUrl = settings.customBaseUrl;
+              if (typeof settings.llmSendImage === 'boolean') this.llmSendImage = settings.llmSendImage;
               if (settings.targetLanguage) this.targetLanguage = settings.targetLanguage;
               if (settings.fontPath) this.fontPath = settings.fontPath;
               if (typeof settings.advancedMode === 'boolean') this.advancedMode = settings.advancedMode;
@@ -1921,6 +1957,7 @@
               models: this.models,
               apiKeys: this.apiKeys,
               customBaseUrl: this.customBaseUrl,
+              llmSendImage: this.llmSendImage,
               targetLanguage: this.targetLanguage,
               fontPath: this.fontPath,
               advancedMode: this.advancedMode,
@@ -2255,6 +2292,7 @@
               llm_api_key: this.currentApiKey || null,
               llm_model: this.currentModel || null,
               llm_base_url: this.llmProvider === 'custom' ? (this.customBaseUrl || null) : null,
+              llm_send_image: this.llmSendImage,
               post_check_max_retry_attempts: 0,
               enable_post_translation_check: false,
             },

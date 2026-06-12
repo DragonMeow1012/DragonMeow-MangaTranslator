@@ -290,16 +290,17 @@ async def test_llm(data: LLMTestRequest):
             if not model:
                 return {"ok": False, "message": "Model name is empty"}
             headers = {'Authorization': f'Bearer {key}'} if key else {}
+            payload = {
+                'model': model,
+                'messages': [{'role': 'user', 'content': 'Reply with OK'}],
+                'max_tokens': 16,
+            }
             async with httpx.AsyncClient(timeout=httpx.Timeout(30.0, connect=10.0)) as client:
-                resp = await client.post(
-                    f'{base}/chat/completions',
-                    headers=headers,
-                    json={
-                        'model': model,
-                        'messages': [{'role': 'user', 'content': 'Reply with OK'}],
-                        'max_tokens': 16,
-                    },
-                )
+                resp = await client.post(f'{base}/chat/completions', headers=headers, json=payload)
+                if resp.status_code == 400 and 'max_tokens' in resp.text:
+                    # OpenAI 新模型（gpt-5 / o 系列）棄用 max_tokens → 換 max_completion_tokens 重試
+                    payload['max_completion_tokens'] = payload.pop('max_tokens')
+                    resp = await client.post(f'{base}/chat/completions', headers=headers, json=payload)
             if resp.status_code != 200:
                 return {"ok": False, "message": f"HTTP {resp.status_code}: {resp.text[:300]}"}
             j = resp.json()
