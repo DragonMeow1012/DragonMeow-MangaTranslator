@@ -25,6 +25,10 @@ VERSION_FILE = APP_DIR / "VERSION"
 # 套用更新時「絕不覆蓋 / 刪除」的使用者資料（zip 內本來就沒有，這裡再保險跳過）
 _PROTECT = {"models", ".venv", ".env", "result", "logs", os.path.join("fonts", "user")}
 
+# 自動依平台過濾另一平台的啟動腳本：release zip 已分平台（-windows 無 .sh、-mac 無 .bat），
+# 線上更新合併原始碼時也不要把對方的帶回來
+_SKIP_EXTS = {".sh"} if sys.platform == "win32" else {".bat"}
+
 _UA = {"User-Agent": "DragonMeow-MangaTranslator-Updater"}
 
 
@@ -77,6 +81,8 @@ def _merge_copy(src: Path, dst: Path):
     for item in src.iterdir():
         rel = item.name
         if rel in _PROTECT:
+            continue
+        if item.is_file() and item.suffix in _SKIP_EXTS:
             continue
         target = dst / rel
         if item.is_dir():
