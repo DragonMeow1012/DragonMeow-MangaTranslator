@@ -96,11 +96,13 @@
 
 ## 需要什麼
 
-- Windows、Python 3.10 或 3.11
-- **建議有 NVIDIA 顯卡**（沒有也能跑，但偵測/抹字會很慢）
+- Windows 或 macOS、Python 3.10 或 3.11
+- **建議有 NVIDIA 顯卡或 Apple Silicon（M 系列）**（沒有也能跑，但偵測/抹字會很慢）
 - 一組 AI API key（Gemini 有免費額度）
 
-裝顯卡加速版（強烈建議）：setup 完**雙擊 `setup_gpu.bat`** 即可，會自動安裝 CUDA 版 PyTorch 並驗證顯卡可用。
+裝顯卡加速版（強烈建議）：
+- **Windows**：setup 完**雙擊 `setup_gpu.bat`** 即可，會自動安裝 CUDA 版 PyTorch 並驗證顯卡可用
+- **macOS**：下載 `-mac.zip`，終端機跑 `bash setup.sh` → `bash start.sh`；Apple Silicon 會自動啟用 MPS 加速，不用另外裝
 
 ---
 

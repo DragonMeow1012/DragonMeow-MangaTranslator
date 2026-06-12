@@ -96,11 +96,13 @@
 
 ## 必要なもの
 
-- Windows、Python 3.10 または 3.11
-- **NVIDIA GPU 推奨**（なくても動きますが、検出・修復がかなり遅くなります）
+- Windows または macOS、Python 3.10 または 3.11
+- **NVIDIA GPU か Apple Silicon（M シリーズ）推奨**（なくても動きますが、検出・修復がかなり遅くなります）
 - AI の API key（Gemini は無料枠あり）
 
-GPU 加速版のインストール（強く推奨）：setup 後に **`setup_gpu.bat` をダブルクリック**するだけ。CUDA 版 PyTorch を自動インストールし、GPU の認識まで確認します。
+GPU 加速版のインストール（強く推奨）：
+- **Windows**：setup 後に **`setup_gpu.bat` をダブルクリック**するだけ。CUDA 版 PyTorch を自動インストールし、GPU の認識まで確認します
+- **macOS**：`-mac.zip` をダウンロードし、ターミナルで `bash setup.sh` → `bash start.sh`。Apple Silicon は MPS 加速が自動で有効になり、追加インストール不要です
 
 ---
 

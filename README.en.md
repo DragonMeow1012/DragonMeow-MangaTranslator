@@ -96,11 +96,13 @@ The 4-koma being edited above comes out like this:
 
 ## Requirements
 
-- Windows, Python 3.10 or 3.11
-- An **NVIDIA GPU is recommended** (works without one, but detection/inpainting will be slow)
+- Windows or macOS, Python 3.10 or 3.11
+- An **NVIDIA GPU or Apple Silicon (M-series) is recommended** (works without one, but detection/inpainting will be slow)
 - An AI API key (Gemini has a free tier)
 
-GPU acceleration (strongly recommended): after setup, just **double-click `setup_gpu.bat`** — it installs the CUDA build of PyTorch and verifies your GPU is detected.
+GPU acceleration (strongly recommended):
+- **Windows**: after setup, just **double-click `setup_gpu.bat`** — it installs the CUDA build of PyTorch and verifies your GPU is detected
+- **macOS**: download the `-mac.zip`, then run `bash setup.sh` → `bash start.sh` in Terminal; Apple Silicon enables MPS acceleration automatically — nothing extra to install
 
 ---
 
