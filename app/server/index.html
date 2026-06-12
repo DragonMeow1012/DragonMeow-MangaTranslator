@@ -1013,14 +1013,15 @@
                @mouseup="editorDragEnd"
                @mouseleave="editorMouseLeave"
                @dblclick="resetEditorZoom">
-            <img v-if="editorPreviewUrl" ref="editorImg" draggable="false"
+            <img v-if="editorPreviewUrl" id="editor-img" ref="editorImg" draggable="false"
                  :src="showOriginal ? `${BASE_URI}result/${editorFolder}/source.png` : editorPreviewUrl"
                  class="max-w-full max-h-full object-contain rounded shadow-lg select-none"
                  :style="{ transform: `translate(${editorPanX}px, ${editorPanY}px) scale(${editorZoom})` }" />
-            <!-- 筆刷描繪即時回饋（螢幕座標，畫完重渲染後清除） -->
-            <canvas ref="editorOverlay" class="absolute inset-0 w-full h-full pointer-events-none"></canvas>
+            <!-- 筆刷描繪即時回饋（螢幕座標，畫完重渲染後清除）。
+                 用 id 直接查 DOM：petite-vue 的 $refs 在 v-if 子樹內拿不到，會默默失效 -->
+            <canvas id="editor-overlay" class="absolute inset-0 w-full h-full pointer-events-none"></canvas>
             <!-- 筆刷游標圈（顯示筆刷實際大小，每次移動重畫） -->
-            <canvas ref="editorCursor" class="absolute inset-0 w-full h-full pointer-events-none"></canvas>
+            <canvas id="editor-cursor" class="absolute inset-0 w-full h-full pointer-events-none"></canvas>
             <div v-if="showOriginal"
                  class="absolute top-6 left-1/2 -translate-x-1/2 px-3 py-1 rounded-full bg-black bg-opacity-60 text-white text-sm pointer-events-none">
               {{ t('viewingOriginal') }}
@@ -2058,7 +2059,7 @@
           const z1 = this.editorZoom;
           const z2 = Math.min(8, Math.max(1, z1 * factor));
           if (z2 === z1) return;
-          const img = this.$refs.editorImg;
+          const img = document.getElementById('editor-img');
           if (img && cx !== undefined) {
             // 以游標位置為錨點：縮放前後游標下的圖像點保持不動
             const rect = img.getBoundingClientRect();
@@ -2107,7 +2108,7 @@
         },
         // 滑鼠事件 → final.png 像素座標（getBoundingClientRect 已含縮放/平移）
         _imgPoint(e) {
-          const img = this.$refs.editorImg;
+          const img = document.getElementById('editor-img');
           if (!img || !img.naturalWidth) return null;
           const rect = img.getBoundingClientRect();
           if (!rect.width || !rect.height) return null;
@@ -2141,7 +2142,7 @@
         },
         // 即時回饋：在覆蓋 canvas（螢幕座標）畫半透明筆跡，重渲染後清掉
         _drawStrokeDot(e) {
-          const cv = this.$refs.editorOverlay, img = this.$refs.editorImg;
+          const cv = document.getElementById('editor-overlay'), img = document.getElementById('editor-img');
           if (!cv || !img || !img.naturalWidth) return;
           const crect = cv.getBoundingClientRect();
           if (cv.width !== Math.round(crect.width) || cv.height !== Math.round(crect.height)) {
@@ -2159,12 +2160,12 @@
           ctx.fill();
         },
         _clearStrokeOverlay() {
-          const cv = this.$refs.editorOverlay;
+          const cv = document.getElementById('editor-overlay');
           if (cv) cv.getContext('2d').clearRect(0, 0, cv.width, cv.height);
         },
         // 筆刷游標圈：選筆刷時滑鼠顯示為「筆刷實際大小」的圓圈（隨縮放換算）
         _drawCursorRing(e) {
-          const cv = this.$refs.editorCursor, img = this.$refs.editorImg;
+          const cv = document.getElementById('editor-cursor'), img = document.getElementById('editor-img');
           if (!cv) return;
           const crect = cv.getBoundingClientRect();
           if (cv.width !== Math.round(crect.width) || cv.height !== Math.round(crect.height)) {
@@ -2186,7 +2187,7 @@
           ctx.beginPath(); ctx.arc(x, y, Math.max(1, r - 1.5), 0, Math.PI * 2); ctx.stroke();
         },
         _clearCursorRing() {
-          const cv = this.$refs.editorCursor;
+          const cv = document.getElementById('editor-cursor');
           if (cv) cv.getContext('2d').clearRect(0, 0, cv.width, cv.height);
         },
         clearPatches() {
