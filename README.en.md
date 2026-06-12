@@ -26,6 +26,24 @@ The release zip already bundles all models — nothing extra to download.
 
 ---
 
+## What it looks like
+
+Settings live in the left sidebar (① pick an AI & paste your key → ② pick the output language); drop your manga on the right and it starts translating. Queue and results are tabs.
+Comes with a **dark mode** and **blue / pink / amber** accent colors.
+
+<table>
+  <tr>
+    <th>Light (blue)</th>
+    <th>Dark mode (pink)</th>
+  </tr>
+  <tr>
+    <td><img src="docs/ui-main.png" width="420"></td>
+    <td><img src="docs/ui-dark.png" width="420"></td>
+  </tr>
+</table>
+
+---
+
 ## What it can do
 
 - **Drag & drop**: one page, many pages, a whole folder, or a **zip / cbz of an entire volume**.
