@@ -26,7 +26,7 @@ The release zip already bundles all models — nothing extra to download.
 
 ---
 
-## What it looks like
+## Interface
 
 Settings live in the left sidebar (① pick an AI & paste your key → ② pick the output language); drop your manga on the right and it starts translating. Queue and results are tabs.
 Comes with a **dark mode** and **blue / pink / amber** accent colors.
