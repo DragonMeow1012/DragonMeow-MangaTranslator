@@ -1,0 +1,4 @@
+# shell 腳本必須 LF（CRLF 會讓 macOS/Linux 的 bash 解析失敗）
+*.sh text eol=lf
+# Windows 批次檔維持 CRLF
+*.bat text eol=crlf
