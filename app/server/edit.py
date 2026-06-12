@@ -159,8 +159,18 @@ def _apply_edit(region, e: RegionEdit):
     if e.color:
         rgb = _hex_to_rgb(e.color)
         if rgb is not None:
-            region.fg_colors = np.array(rgb, dtype=np.uint8)
-            region.adjust_bg_color = False
+            # 前端每次都會送顏色（預設＝偵測色）。只有跟現值不同（使用者真的改過）
+            # 才鎖定成 font_color（render() 最高優先通道，「字色從原圖取樣」蓋不掉）；
+            # 沒改過則維持取樣校正的行為。
+            try:
+                cf, _ = region.get_font_colors()
+                cur = '#%02x%02x%02x' % (int(cf[0]), int(cf[1]), int(cf[2]))
+            except Exception:
+                cur = ''
+            if e.color.lower() != cur.lower():
+                region.fg_colors = np.array(rgb, dtype=np.uint8)
+                region.font_color = e.color
+                region.adjust_bg_color = False
     if e.bold is not None:
         region.bold = bool(e.bold)
     if e.letter_spacing and e.letter_spacing > 0:
@@ -278,6 +288,9 @@ def _build_custom_region(c: 'CustomRegion', sx: float, sy: float, target_lang: s
         target_lang=target_lang,
     )
     region.adjust_bg_color = False
+    # 同 _apply_edit：用 font_color（hex）走 render() 最高優先通道，
+    # 否則「字色從原圖取樣」會把手動文本的顏色蓋掉
+    region.font_color = c.color or '#000000'
     if c.font_path:
         region.font_path = c.font_path
     if c.letter_spacing and c.letter_spacing > 0:
