@@ -1017,11 +1017,10 @@ class MangaTranslator:
             ctx.result = ctx.result.resize(ctx.input.size)
 
         # server 端把小圖放大到 1280 再翻譯（清晰、字級準）；這裡把成品縮回使用者原始尺寸，
-        # 讓「原圖進、原圖出」（與 SDMDCBOT bot 的 _restore_original_size 行為一致）。
+        # 一律「原圖進、原圖出」——使用者看到的輸出解析度永遠等於原圖。
         orig_size = getattr(config, '_orig_size', None)
         if orig_size and ctx.result is not None and tuple(ctx.result.size) != tuple(orig_size):
-            if ctx.result.width > orig_size[0]:  # 只縮不放（放大被縮的長條圖只會更糊）
-                ctx.result = ctx.result.resize(tuple(orig_size), Image.LANCZOS)
+            ctx.result = ctx.result.resize(tuple(orig_size), Image.LANCZOS)
 
         # 在verbose模式下保存final.png到调试文件夹
         if ctx.result and self.verbose:
@@ -1081,9 +1080,13 @@ class MangaTranslator:
         bg = dump_image(ctx.input, ctx.img_inpainted, getattr(ctx, 'img_alpha', None))
         orig_size = getattr(config, '_orig_size', None)
         bg.convert('RGB').save(self._result_path('background.png'))
-        # 原圖（含原文）：給編輯器「按住看原圖」比對用
+        # 原圖（含原文）：給編輯器「按住看原圖」比對用。
+        # 存回原始解析度——使用者看到的一切都跟原圖同尺寸。
         try:
-            ctx.input.convert('RGB').save(self._result_path('source.png'))
+            src = ctx.input.convert('RGB')
+            if orig_size and tuple(src.size) != tuple(orig_size):
+                src = src.resize(tuple(orig_size), Image.LANCZOS)
+            src.save(self._result_path('source.png'))
         except Exception:
             pass
 

@@ -297,6 +297,7 @@ async def rerender(result_root, folder: str, edits: list[RegionEdit],
     )
     result = Image.fromarray(output.astype(np.uint8))
 
-    if orig_size and tuple(result.size) != tuple(orig_size) and result.width > orig_size[0]:
+    # 一律縮放回原圖解析度——使用者看到的輸出永遠跟原圖同尺寸
+    if orig_size and tuple(result.size) != tuple(orig_size):
         result = result.resize(tuple(orig_size), Image.LANCZOS)
     return result
