@@ -886,6 +886,25 @@
               <button @click="setAllDirection('auto')"
                       class="px-2 py-1 rounded-md border border-gray-300 hover:bg-gray-100">{{ t('dirAuto') }}</button>
             </div>
+            <!-- 手動修補筆刷：擦除殘留 / 從原圖還原 -->
+            <div class="flex items-center gap-1 ml-2 text-sm text-gray-600">
+              <button @click="setEditorTool('erase')" :title="t('brushEraseTip')"
+                      class="px-2 py-1 rounded-md border"
+                      :class="editorTool === 'erase' ? 'bg-red-600 text-white border-red-600' : 'border-gray-300 hover:bg-gray-100'">
+                <i class="iconify inline-block align-text-bottom" data-icon="carbon:erase"></i>{{ t('brushErase') }}
+              </button>
+              <button @click="setEditorTool('restore')" :title="t('brushRestoreTip')"
+                      class="px-2 py-1 rounded-md border"
+                      :class="editorTool === 'restore' ? 'bg-green-600 text-white border-green-600' : 'border-gray-300 hover:bg-gray-100'">
+                <i class="iconify inline-block align-text-bottom" data-icon="carbon:paint-brush"></i>{{ t('brushRestore') }}
+              </button>
+              <input v-if="editorTool !== 'pan'" type="range" min="6" max="120" v-model.number="editorBrushSize"
+                     class="w-24" :title="t('brushSize') + ': ' + editorBrushSize + 'px'">
+              <button v-if="editorPatches.length" @click="clearPatches" :title="t('brushClear')"
+                      class="px-2 py-1 rounded-md border border-gray-300 hover:bg-gray-100 text-red-600">
+                {{ t('brushClear') }} ({{ editorPatches.length }})
+              </button>
+            </div>
           </div>
           <div class="flex items-center gap-2">
             <button @mousedown="showOriginal = true" @mouseup="showOriginal = false"
@@ -986,8 +1005,8 @@
             </div>
           </div>
           <div class="flex-1 overflow-hidden bg-gray-800 flex items-center justify-center p-4 relative"
-               :title="t('zoomHint')"
-               :class="editorZoom > 1 ? (editorDragging ? 'cursor-grabbing' : 'cursor-grab') : ''"
+               :title="editorTool === 'pan' ? t('zoomHint') : (editorTool === 'erase' ? t('brushEraseTip') : t('brushRestoreTip'))"
+               :class="editorTool !== 'pan' ? 'cursor-crosshair' : (editorZoom > 1 ? (editorDragging ? 'cursor-grabbing' : 'cursor-grab') : '')"
                @wheel.prevent="onEditorWheel"
                @mousedown.prevent="editorDragStart"
                @mousemove="editorDragMove"
@@ -998,6 +1017,8 @@
                  :src="showOriginal ? `${BASE_URI}result/${editorFolder}/source.png` : editorPreviewUrl"
                  class="max-w-full max-h-full object-contain rounded shadow-lg select-none"
                  :style="{ transform: `translate(${editorPanX}px, ${editorPanY}px) scale(${editorZoom})` }" />
+            <!-- 筆刷描繪即時回饋（螢幕座標，畫完重渲染後清除） -->
+            <canvas ref="editorOverlay" class="absolute inset-0 w-full h-full pointer-events-none"></canvas>
             <div v-if="showOriginal"
                  class="absolute top-6 left-1/2 -translate-x-1/2 px-3 py-1 rounded-full bg-black bg-opacity-60 text-white text-sm pointer-events-none">
               {{ t('viewingOriginal') }}
@@ -1180,6 +1201,12 @@
           testOk: '連接成功',
           testFail: '連接失敗',
           zoomHint: '滾輪縮放，放大後可拖曳平移，雙擊還原',
+          brushErase: '擦除筆刷',
+          brushRestore: '還原筆刷',
+          brushEraseTip: '在預覽上塗抹：把沒擦乾淨的殘字、擦除痕跡用周圍像素補平',
+          brushRestoreTip: '在預覽上塗抹：把該範圍從原圖貼回（找回被誤擦的圖案/網點）',
+          brushSize: '筆刷大小',
+          brushClear: '清除筆刷',
           zoomReset: '還原縮放',
           showKey: '顯示 API key',
           hideKey: '隱藏 API key',
@@ -1345,6 +1372,12 @@
           testOk: '连接成功',
           testFail: '连接失败',
           zoomHint: '滚轮缩放，放大后可拖拽平移，双击还原',
+          brushErase: '擦除笔刷',
+          brushRestore: '还原笔刷',
+          brushEraseTip: '在预览上涂抹：把没擦干净的残字、擦除痕迹用周围像素补平',
+          brushRestoreTip: '在预览上涂抹：把该范围从原图贴回（找回被误擦的图案/网点）',
+          brushSize: '笔刷大小',
+          brushClear: '清除笔刷',
           zoomReset: '还原缩放',
           showKey: '显示 API key',
           hideKey: '隐藏 API key',
@@ -1510,6 +1543,12 @@
           testOk: 'Connected',
           testFail: 'Failed',
           zoomHint: 'Scroll to zoom, drag to pan when zoomed, double-click to reset',
+          brushErase: 'Eraser',
+          brushRestore: 'Restore brush',
+          brushEraseTip: 'Paint over the preview: smooth away leftover text and erasure marks using surrounding pixels',
+          brushRestoreTip: 'Paint over the preview: paste that area back from the original image (recover wrongly erased art)',
+          brushSize: 'Brush size',
+          brushClear: 'Clear strokes',
           zoomReset: 'Reset zoom',
           showKey: 'Show API key',
           hideKey: 'Hide API key',
@@ -1675,6 +1714,12 @@
           testOk: '接続成功',
           testFail: '接続失敗',
           zoomHint: 'ホイールでズーム、ズーム中はドラッグで移動、ダブルクリックでリセット',
+          brushErase: '消しゴム',
+          brushRestore: '復元ブラシ',
+          brushEraseTip: 'プレビュー上を塗る：消し残しの文字や消去跡を周囲のピクセルで補完します',
+          brushRestoreTip: 'プレビュー上を塗る：その範囲を元画像から貼り戻します（誤って消された絵柄を復元）',
+          brushSize: 'ブラシサイズ',
+          brushClear: 'ブラシをクリア',
           zoomReset: 'ズームをリセット',
           showKey: 'API key を表示',
           hideKey: 'API key を非表示',
@@ -1944,6 +1989,11 @@
         editorPanY: 0,
         editorDragging: false,
         _editorDragLast: null,
+        // 手動修補筆刷：pan（平移）/ erase（擦除殘留）/ restore（從原圖還原）
+        editorTool: 'pan',
+        editorBrushSize: 28,
+        editorPatches: [],
+        _stroke: null,
         get currentModel() { return this.models[this.llmProvider] || ''; },
         set currentModel(v) { this.models[this.llmProvider] = v; },
         get currentApiKey() { return this.apiKeys[this.llmProvider] || ''; },
@@ -2026,18 +2076,88 @@
           this.editorDragging = false;
         },
         editorDragStart(e) {
+          if (this.editorTool !== 'pan') { this._strokeStart(e); return; }
           if (this.editorZoom <= 1) return;
           this.editorDragging = true;
           this._editorDragLast = { x: e.clientX, y: e.clientY };
         },
         editorDragMove(e) {
+          if (this._stroke) { this._strokeMove(e); return; }
           if (!this.editorDragging || !this._editorDragLast) return;
           this.editorPanX += e.clientX - this._editorDragLast.x;
           this.editorPanY += e.clientY - this._editorDragLast.y;
           this._editorDragLast = { x: e.clientX, y: e.clientY };
         },
         editorDragEnd() {
+          if (this._stroke) { this._strokeEnd(); return; }
           this.editorDragging = false;
+        },
+
+        // ── 手動修補筆刷：在預覽上塗抹 → 收集 final.png 像素座標 → 重渲染時後端套用 ──
+        setEditorTool(t) {
+          this.editorTool = this.editorTool === t ? 'pan' : t;
+        },
+        // 滑鼠事件 → final.png 像素座標（getBoundingClientRect 已含縮放/平移）
+        _imgPoint(e) {
+          const img = this.$refs.editorImg;
+          if (!img || !img.naturalWidth) return null;
+          const rect = img.getBoundingClientRect();
+          if (!rect.width || !rect.height) return null;
+          const x = (e.clientX - rect.left) / rect.width * img.naturalWidth;
+          const y = (e.clientY - rect.top) / rect.height * img.naturalHeight;
+          return [Math.round(x), Math.round(y)];
+        },
+        _strokeStart(e) {
+          const p = this._imgPoint(e);
+          if (!p) return;
+          this._stroke = { mode: this.editorTool, size: this.editorBrushSize, points: [p] };
+          this._drawStrokeDot(e);
+        },
+        _strokeMove(e) {
+          if (!this._stroke) return;
+          const p = this._imgPoint(e);
+          if (!p) return;
+          const last = this._stroke.points[this._stroke.points.length - 1];
+          if (Math.abs(p[0] - last[0]) + Math.abs(p[1] - last[1]) < 2) return;
+          this._stroke.points.push(p);
+          this._drawStrokeDot(e);
+        },
+        async _strokeEnd() {
+          const s = this._stroke;
+          this._stroke = null;
+          this._clearStrokeOverlay();
+          if (!s || !s.points.length) return;
+          this.editorPatches.push(s);
+          this.recordHistory();
+          await this.rerenderEditor();
+        },
+        // 即時回饋：在覆蓋 canvas（螢幕座標）畫半透明筆跡，重渲染後清掉
+        _drawStrokeDot(e) {
+          const cv = this.$refs.editorOverlay, img = this.$refs.editorImg;
+          if (!cv || !img || !img.naturalWidth) return;
+          const crect = cv.getBoundingClientRect();
+          if (cv.width !== Math.round(crect.width) || cv.height !== Math.round(crect.height)) {
+            cv.width = Math.round(crect.width);
+            cv.height = Math.round(crect.height);
+          }
+          const irect = img.getBoundingClientRect();
+          const r = Math.max(2, this.editorBrushSize / 2 * (irect.width / img.naturalWidth));
+          const ctx = cv.getContext('2d');
+          ctx.fillStyle = (this._stroke && this._stroke.mode === 'restore')
+            ? 'rgba(34,197,94,.45)' : 'rgba(239,68,68,.45)';
+          ctx.beginPath();
+          ctx.arc(e.clientX - crect.left, e.clientY - crect.top, r, 0, Math.PI * 2);
+          ctx.fill();
+        },
+        _clearStrokeOverlay() {
+          const cv = this.$refs.editorOverlay;
+          if (cv) cv.getContext('2d').clearRect(0, 0, cv.width, cv.height);
+        },
+        clearPatches() {
+          if (!this.editorPatches.length) return;
+          this.editorPatches = [];
+          this.recordHistory();
+          this.rerenderEditor();
         },
 
         // Settings persistence
@@ -3282,7 +3402,8 @@
     saveEditsLocal() {
       if (!this.editorFolder) return;
       try {
-        localStorage.setItem(this._editsKey(this.editorFolder), JSON.stringify(this._collectEdits()));
+        localStorage.setItem(this._editsKey(this.editorFolder),
+          JSON.stringify({ edits: this._collectEdits(), patches: this.editorPatches }));
       } catch (e) { /* 配額滿等忽略 */ }
     },
     loadEditsLocal(folder) {
@@ -3313,12 +3434,19 @@
         this.editorBlob = null;
         this.editorPreviewUrl = `${BASE_URI}result/${folder}/final.png?ts=${Date.now()}`;
         this.resetEditorZoom();
+        this.editorTool = 'pan';
+        this.editorPatches = [];
+        this._stroke = null;
         this.editorOpen = true;
 
         // 有上次編輯草稿 → 還原並重新渲染（出廠則維持 final.png 預覽）
+        // 草稿格式：舊版＝edits 陣列；新版＝{edits, patches}
         const saved = this.loadEditsLocal(folder);
-        if (saved && saved.length) {
-          this._applyEditsToRegions(saved);
+        const savedEdits = Array.isArray(saved) ? saved : (saved && saved.edits) || [];
+        const savedPatches = (!Array.isArray(saved) && saved && saved.patches) || [];
+        if (savedEdits.length || savedPatches.length) {
+          this._applyEditsToRegions(savedEdits);
+          this.editorPatches = savedPatches;
           this.resetHistory();
           this.rerenderEditor();
         } else {
@@ -3343,18 +3471,25 @@
       if (!confirm(this.t('resetConfirm'))) return;
       this.editorRegions = JSON.parse(JSON.stringify(this.editorFreshRegions));
       this.selectedRegionId = this.editorRegions.length ? this.editorRegions[0].id : null;
+      this.editorPatches = [];
       this.clearEditsLocal(this.editorFolder);
       this.resetHistory();
       // 用原始狀態重渲染一次：把 final.png 蓋回原版（圖庫也跟著還原）
       await this.rerenderEditor();
     },
 
-    // ---- 復原 / 重做 ----
-    _cloneRegions() {
-      return JSON.parse(JSON.stringify(this.editorRegions));
+    // ---- 復原 / 重做（快照含文字框編輯 + 修補筆刷）----
+    _snapshot() {
+      return JSON.parse(JSON.stringify({ regions: this.editorRegions, patches: this.editorPatches }));
+    },
+    _restoreSnapshot(s) {
+      // 相容舊格式（純 regions 陣列）
+      const snap = Array.isArray(s) ? { regions: s, patches: [] } : s;
+      this.editorRegions = JSON.parse(JSON.stringify(snap.regions || []));
+      this.editorPatches = JSON.parse(JSON.stringify(snap.patches || []));
     },
     resetHistory() {
-      this.editorHistory = [this._cloneRegions()];
+      this.editorHistory = [this._snapshot()];
       this.editorHistoryIdx = 0;
     },
     recordHistory() {
@@ -3362,7 +3497,7 @@
       if (this.editorHistoryIdx < this.editorHistory.length - 1) {
         this.editorHistory = this.editorHistory.slice(0, this.editorHistoryIdx + 1);
       }
-      this.editorHistory.push(this._cloneRegions());
+      this.editorHistory.push(this._snapshot());
       // 上限 50 步
       if (this.editorHistory.length > 50) this.editorHistory.shift();
       this.editorHistoryIdx = this.editorHistory.length - 1;
@@ -3373,14 +3508,14 @@
     undoEdit() {
       if (!this.canUndo) return;
       this.editorHistoryIdx--;
-      this.editorRegions = JSON.parse(JSON.stringify(this.editorHistory[this.editorHistoryIdx]));
+      this._restoreSnapshot(this.editorHistory[this.editorHistoryIdx]);
       this.saveEditsLocal();
       this.rerenderEditor();
     },
     redoEdit() {
       if (!this.canRedo) return;
       this.editorHistoryIdx++;
-      this.editorRegions = JSON.parse(JSON.stringify(this.editorHistory[this.editorHistoryIdx]));
+      this._restoreSnapshot(this.editorHistory[this.editorHistoryIdx]);
       this.saveEditsLocal();
       this.rerenderEditor();
     },
@@ -3409,7 +3544,7 @@
         const resp = await fetch(`${BASE_URI}edit/rerender`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ folder: this.editorFolder, edits: this._collectEdits() }),
+          body: JSON.stringify({ folder: this.editorFolder, edits: this._collectEdits(), patches: this.editorPatches }),
         });
         if (!resp.ok) {
           const err = await resp.json().catch(() => ({}));
@@ -3475,7 +3610,7 @@
     // 另存編輯檔：可載回續編
     downloadEditDoc() {
       const base = this._editBaseName();
-      const doc = { folder: this.editorFolder, edits: this._collectEdits() };
+      const doc = { folder: this.editorFolder, edits: this._collectEdits(), patches: this.editorPatches };
       const jblob = new Blob([JSON.stringify(doc, null, 2)], { type: 'application/json' });
       const ju = URL.createObjectURL(jblob);
       this._dl(ju, `${base}_edits.json`);
@@ -3489,6 +3624,7 @@
       try {
         const doc = JSON.parse(await file.text());
         this._applyEditsToRegions(doc.edits || []);
+        this.editorPatches = doc.patches || [];
         this.recordHistory();
         this.rerenderEditor();
       } catch (err) {
@@ -3504,6 +3640,9 @@
       this.editorRegions = [];
       this.editorBlob = null;
       this.editorPreviewUrl = '';
+      this.editorTool = 'pan';
+      this.editorPatches = [];
+      this._stroke = null;
     },
 
     // 在本機檔案管理器開啟結果資料夾

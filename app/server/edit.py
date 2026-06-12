@@ -10,6 +10,7 @@
 import os
 import pickle
 
+import cv2
 import numpy as np
 from PIL import Image
 from pydantic import BaseModel
@@ -42,9 +43,21 @@ class RegionEdit(BaseModel):
     dy: int = 0
 
 
+class PatchStroke(BaseModel):
+    """手動修補筆刷一筆：座標為「最終輸出圖（final.png）」像素，後端換算到處理解析度。
+
+    mode='erase'：把筆畫範圍用 OpenCV inpaint 補平（擦掉沒抹乾淨的殘字/痕跡）。
+    mode='restore'：把筆畫範圍從原圖貼回（還原被誤擦的圖案）。
+    """
+    mode: str = 'erase'           # 'erase' / 'restore'
+    size: float = 24              # 筆刷直徑（final.png 像素）
+    points: list[list[float]] = []  # [[x, y], ...] 筆畫路徑
+
+
 class RerenderRequest(BaseModel):
     folder: str
     edits: list[RegionEdit] = []
+    patches: list[PatchStroke] = []
 
 
 # region 上會被覆寫的幾何 cached_property（移動位置後要清，否則 bbox 仍是舊值）
@@ -176,7 +189,66 @@ def _fill_region_bg(base, region):
     base[y1:y2, x1:x2] = col.astype(np.uint8)
 
 
-async def rerender(result_root, folder: str, edits: list[RegionEdit]) -> Image.Image:
+def _paste_original(base, img_rgb, region, pad: int):
+    """把原圖的字形範圍貼回背景：用 textline 多邊形 + 外擴遮罩。
+
+    抹字時 complete_mask 會把遮罩膨脹（mask_dilation_offset + kernel），
+    只貼 bbox 會在框外留一圈擦除痕跡 → 這裡同步外擴才能蓋乾淨。
+    """
+    mask = np.zeros(base.shape[:2], np.uint8)
+    lines = getattr(region, 'lines', None)
+    drawn = False
+    if lines is not None and len(lines) > 0:
+        for line in lines:
+            try:
+                cv2.fillPoly(mask, [np.round(np.asarray(line)).astype(np.int32)], 255)
+                drawn = True
+            except Exception:
+                continue
+    if not drawn:
+        x1, y1, x2, y2 = _bbox_clip(region, base.shape)
+        if x2 <= x1 or y2 <= y1:
+            return
+        mask[y1:y2, x1:x2] = 255
+    mask = cv2.dilate(mask, np.ones((pad, pad), np.uint8))
+    base[mask > 0] = img_rgb[mask > 0]
+
+
+def _stroke_mask(shape, stroke: 'PatchStroke', sx: float, sy: float) -> 'np.ndarray | None':
+    """筆畫 → 處理解析度的二值遮罩（座標從 final.png 像素換算）。"""
+    pts = [(int(round(p[0] * sx)), int(round(p[1] * sy))) for p in (stroke.points or []) if len(p) >= 2]
+    if not pts:
+        return None
+    radius = max(1, int(round(stroke.size * (sx + sy) / 4)))  # 直徑→半徑，取 xy 平均縮放
+    mask = np.zeros(shape[:2], np.uint8)
+    for i, p in enumerate(pts):
+        cv2.circle(mask, p, radius, 255, -1)
+        if i:
+            cv2.line(mask, pts[i - 1], p, 255, thickness=radius * 2)
+    return mask
+
+
+def _apply_patches(base, img_rgb, patches: 'list[PatchStroke]', orig_size):
+    """套用手動修補筆刷（在嵌字前的背景上動工）。"""
+    h, w = base.shape[:2]
+    if orig_size and orig_size[0] and orig_size[1]:
+        sx, sy = w / float(orig_size[0]), h / float(orig_size[1])
+    else:
+        sx = sy = 1.0
+    for stroke in patches:
+        mask = _stroke_mask(base.shape, stroke, sx, sy)
+        if mask is None:
+            continue
+        if stroke.mode == 'restore' and img_rgb is not None:
+            base[mask > 0] = img_rgb[mask > 0]
+        else:
+            # erase：用周圍像素補平（殘字、漏擦的痕跡直接消失）
+            patched = cv2.inpaint(base, mask, 3, cv2.INPAINT_TELEA)
+            base[mask > 0] = patched[mask > 0]
+
+
+async def rerender(result_root, folder: str, edits: list[RegionEdit],
+                   patches: 'list[PatchStroke] | None' = None) -> Image.Image:
     """套用編輯、只重跑 render，回傳成品 PIL（已縮回原始尺寸）。"""
     state = load_edit_state(result_root, folder)
     if state is None:
@@ -192,17 +264,22 @@ async def rerender(result_root, folder: str, edits: list[RegionEdit]) -> Image.I
 
     edit_map = {e.id: e for e in edits}
     base = np.array(img_inpainted).copy()
+    # 原圖尺寸跟處理解析度不合（upscale/resize 過）→ 縮放對齊，「維持原文」與還原筆刷才貼得回去
+    if img_rgb is not None and img_rgb.shape[:2] != base.shape[:2]:
+        img_rgb = cv2.resize(np.asarray(img_rgb), (base.shape[1], base.shape[0]),
+                             interpolation=cv2.INTER_LANCZOS4)
+    # 貼回外擴量：跟 complete_mask 的膨脹（mask_dilation_offset + kernel*2，kernel 預設 3）同步
+    paste_pad = max(8, int(getattr(config, 'mask_dilation_offset', 20) or 20) + 6)
+
     render_regions = []
     for i, region in enumerate(regions):
         e = edit_map.get(i)
         was_skipped = i >= n_rendered
         skip = was_skipped if e is None else bool(e.skip)
         if skip:
-            # 維持原文：把原圖該框貼回背景（被跳過框背景本就含原字，這步保險）
-            if img_rgb is not None and img_rgb.shape[:2] == base.shape[:2]:
-                x1, y1, x2, y2 = _bbox_clip(region, base.shape)
-                if x2 > x1 and y2 > y1:
-                    base[y1:y2, x1:x2] = img_rgb[y1:y2, x1:x2]
+            # 維持原文：把原圖該框（含擦除暈邊）貼回背景
+            if img_rgb is not None:
+                _paste_original(base, img_rgb, region, paste_pad)
             continue
         if e:
             _apply_edit(region, e)
@@ -210,6 +287,10 @@ async def rerender(result_root, folder: str, edits: list[RegionEdit]) -> Image.I
         if was_skipped and (region.translation or '').strip():
             _fill_region_bg(base, region)
         render_regions.append(region)
+
+    # 手動修補筆刷最後套（蓋在自動貼回之上，使用者畫的最大）
+    if patches:
+        _apply_patches(base, img_rgb, patches, orig_size)
 
     output = await dispatch_rendering(
         base, render_regions, config, img_rgb, skip_font_scaling=True,
