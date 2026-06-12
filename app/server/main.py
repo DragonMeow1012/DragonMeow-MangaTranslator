@@ -559,7 +559,7 @@ async def edit_rerender(req: RerenderRequest):
     """進階編輯：套用編輯、只重跑 render，回 PNG，並把成品存回 final.png（圖庫顯示編輯後版本）。"""
     from server.edit import rerender
     try:
-        img = await rerender(RESULT_ROOT, req.folder, req.edits, req.patches)
+        img = await rerender(RESULT_ROOT, req.folder, req.edits, req.patches, req.custom_regions)
     except FileNotFoundError as e:
         raise HTTPException(404, detail=str(e))
     except Exception as e:

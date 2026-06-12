@@ -950,15 +950,20 @@
                  @click="selectedRegionId = r.id">
               <div class="flex items-start justify-between">
                 <div class="text-xs text-gray-400 flex items-center gap-1">
-                  #{{ r.id + 1 }}
-                  <span v-if="r.was_skipped" class="px-1 rounded bg-amber-100 text-amber-700">{{ t('sfxBadge') }}</span>
-                  <span v-else>· {{ t('original') }}</span>
+                  <span v-if="r.custom" class="px-1 rounded bg-blue-100 text-blue-700">{{ t('customBadge') }}</span>
+                  <span v-else>#{{ r.id + 1 }}</span>
+                  <span v-if="!r.custom && r.was_skipped" class="px-1 rounded bg-amber-100 text-amber-700">{{ t('sfxBadge') }}</span>
+                  <span v-else-if="!r.custom">· {{ t('original') }}</span>
                 </div>
-                <label class="text-xs text-gray-600 flex items-center gap-1" @click.stop>
+                <label v-if="!r.custom" class="text-xs text-gray-600 flex items-center gap-1" @click.stop>
                   <input type="checkbox" v-model="r.skip" @change="recordHistory"> {{ t('keepOriginal') }}
                 </label>
+                <button v-else @click.stop="removeCustomRegion(r.id)"
+                        class="text-xs text-red-500 hover:text-red-700 flex items-center gap-0.5">
+                  <i class="iconify" data-icon="carbon:trash-can"></i>{{ t('deleteBox') }}
+                </button>
               </div>
-              <div class="text-sm text-gray-700 mb-1 break-words">{{ r.original }}</div>
+              <div v-if="!r.custom" class="text-sm text-gray-700 mb-1 break-words">{{ r.original }}</div>
               <textarea v-model="r.translation" :disabled="r.skip" rows="2" @click.stop @change="recordHistory"
                         class="w-full text-sm border border-gray-300 rounded px-2 py-1 outline-none focus:border-blue-500 disabled:bg-gray-100"
                         :placeholder="t('translation')"></textarea>
@@ -1003,10 +1008,19 @@
                          class="w-14 border border-gray-300 rounded px-1 py-0.5"></label>
               </div>
             </div>
+            <!-- 手動新增文本：點了之後到預覽上拖曳框選位置 -->
+            <button @click="startAddTextBox"
+                    class="w-full mt-2 px-3 py-2 text-sm border-2 border-dashed rounded-md transition-colors"
+                    :class="editorTool === 'addbox'
+                      ? 'border-blue-500 text-blue-600 bg-blue-50'
+                      : 'border-gray-300 text-gray-600 hover:border-blue-400 hover:text-blue-600'">
+              <i class="iconify inline-block align-text-bottom mr-1" data-icon="carbon:text-creation"></i>
+              {{ editorTool === 'addbox' ? t('addTextBoxHint') : t('addTextBox') }}
+            </button>
           </div>
           <div class="flex-1 overflow-hidden bg-gray-800 flex items-center justify-center p-4 relative"
                :title="editorTool === 'pan' ? t('zoomHint') : (editorTool === 'erase' ? t('brushEraseTip') : t('brushRestoreTip'))"
-               :class="editorTool !== 'pan' ? 'cursor-none' : (editorZoom > 1 ? (editorDragging ? 'cursor-grabbing' : 'cursor-grab') : '')"
+               :class="editorTool === 'addbox' ? 'cursor-crosshair' : (editorTool !== 'pan' ? 'cursor-none' : (editorZoom > 1 ? (editorDragging ? 'cursor-grabbing' : 'cursor-grab') : ''))"
                @wheel.prevent="onEditorWheel"
                @mousedown.prevent="editorDragStart"
                @mousemove="editorDragMove"
@@ -1210,6 +1224,10 @@
           brushRestoreTip: '在預覽上塗抹：把該範圍從原圖貼回（找回被誤擦的圖案/網點）',
           brushSize: '筆刷大小',
           brushClear: '清除筆刷',
+          addTextBox: '手動新增文本',
+          addTextBoxHint: '到右邊預覽上拖曳框選文字位置…',
+          customBadge: '手動文本',
+          deleteBox: '刪除',
           zoomReset: '還原縮放',
           showKey: '顯示 API key',
           hideKey: '隱藏 API key',
@@ -1381,6 +1399,10 @@
           brushRestoreTip: '在预览上涂抹：把该范围从原图贴回（找回被误擦的图案/网点）',
           brushSize: '笔刷大小',
           brushClear: '清除笔刷',
+          addTextBox: '手动新增文本',
+          addTextBoxHint: '到右边预览上拖拽框选文字位置…',
+          customBadge: '手动文本',
+          deleteBox: '删除',
           zoomReset: '还原缩放',
           showKey: '显示 API key',
           hideKey: '隐藏 API key',
@@ -1552,6 +1574,10 @@
           brushRestoreTip: 'Paint over the preview: paste that area back from the original image (recover wrongly erased art)',
           brushSize: 'Brush size',
           brushClear: 'Clear strokes',
+          addTextBox: 'Add text box',
+          addTextBoxHint: 'Drag on the preview to place the text box…',
+          customBadge: 'Manual',
+          deleteBox: 'Delete',
           zoomReset: 'Reset zoom',
           showKey: 'Show API key',
           hideKey: 'Hide API key',
@@ -1723,6 +1749,10 @@
           brushRestoreTip: 'プレビュー上を塗る：その範囲を元画像から貼り戻します（誤って消された絵柄を復元）',
           brushSize: 'ブラシサイズ',
           brushClear: 'ブラシをクリア',
+          addTextBox: 'テキストを手動追加',
+          addTextBoxHint: 'プレビュー上をドラッグして配置位置を指定…',
+          customBadge: '手動テキスト',
+          deleteBox: '削除',
           zoomReset: 'ズームをリセット',
           showKey: 'API key を表示',
           hideKey: 'API key を非表示',
@@ -1997,6 +2027,8 @@
         editorBrushSize: 28,
         editorPatches: [],
         _stroke: null,
+        _box: null,
+        _customSeq: 0,
         get currentModel() { return this.models[this.llmProvider] || ''; },
         set currentModel(v) { this.models[this.llmProvider] = v; },
         get currentApiKey() { return this.apiKeys[this.llmProvider] || ''; },
@@ -2079,6 +2111,7 @@
           this.editorDragging = false;
         },
         editorDragStart(e) {
+          if (this.editorTool === 'addbox') { this._boxStart(e); return; }
           if (this.editorTool !== 'pan') { this._strokeStart(e); return; }
           if (this.editorZoom <= 1) return;
           this.editorDragging = true;
@@ -2086,19 +2119,82 @@
         },
         editorDragMove(e) {
           this._drawCursorRing(e);
+          if (this._box) { this._boxMove(e); return; }
           if (this._stroke) { this._strokeMove(e); return; }
           if (!this.editorDragging || !this._editorDragLast) return;
           this.editorPanX += e.clientX - this._editorDragLast.x;
           this.editorPanY += e.clientY - this._editorDragLast.y;
           this._editorDragLast = { x: e.clientX, y: e.clientY };
         },
-        editorDragEnd() {
+        editorDragEnd(e) {
+          if (this._box) { this._boxEnd(e); return; }
           if (this._stroke) { this._strokeEnd(); return; }
           this.editorDragging = false;
         },
         editorMouseLeave() {
           this._clearCursorRing();
+          if (this._box) { this._box = null; this._clearStrokeOverlay(); return; }
           this.editorDragEnd();
+        },
+
+        // ── 手動新增文本：框選位置 → 生成可編輯文字框卡片 ──
+        startAddTextBox() {
+          this.editorTool = this.editorTool === 'addbox' ? 'pan' : 'addbox';
+          this._clearCursorRing();
+        },
+        _boxStart(e) {
+          const p = this._imgPoint(e);
+          if (!p) return;
+          this._box = { p1: p, p2: p, s1: { x: e.clientX, y: e.clientY } };
+        },
+        _boxMove(e) {
+          if (!this._box) return;
+          const p = this._imgPoint(e);
+          if (!p) return;
+          this._box.p2 = p;
+          // 框選預覽：畫在描跡層（半透明藍框）
+          const cv = document.getElementById('editor-overlay');
+          if (!cv) return;
+          const crect = cv.getBoundingClientRect();
+          if (cv.width !== Math.round(crect.width) || cv.height !== Math.round(crect.height)) {
+            cv.width = Math.round(crect.width);
+            cv.height = Math.round(crect.height);
+          }
+          const ctx = cv.getContext('2d');
+          ctx.clearRect(0, 0, cv.width, cv.height);
+          const x1 = this._box.s1.x - crect.left, y1 = this._box.s1.y - crect.top;
+          const x2 = e.clientX - crect.left, y2 = e.clientY - crect.top;
+          ctx.fillStyle = 'rgba(59,130,246,.15)';
+          ctx.strokeStyle = 'rgba(59,130,246,.9)';
+          ctx.lineWidth = 2;
+          ctx.fillRect(Math.min(x1, x2), Math.min(y1, y2), Math.abs(x2 - x1), Math.abs(y2 - y1));
+          ctx.strokeRect(Math.min(x1, x2), Math.min(y1, y2), Math.abs(x2 - x1), Math.abs(y2 - y1));
+        },
+        _boxEnd() {
+          const b = this._box;
+          this._box = null;
+          this._clearStrokeOverlay();
+          this.editorTool = 'pan';
+          if (!b) return;
+          const x1 = Math.min(b.p1[0], b.p2[0]), x2 = Math.max(b.p1[0], b.p2[0]);
+          const y1 = Math.min(b.p1[1], b.p2[1]), y2 = Math.max(b.p1[1], b.p2[1]);
+          if (x2 - x1 < 10 || y2 - y1 < 10) return;   // 太小視為誤觸
+          this._customSeq = (this._customSeq || 0) + 1;
+          const id = 'c' + Date.now() + '-' + this._customSeq;
+          this.editorRegions.push({
+            id, custom: true, bbox: [x1, y1, x2, y2],
+            original: '', translation: '',
+            font_size: Math.max(12, Math.round((y2 - y1) / 3)),
+            color: '#000000', bold: false, direction: 'auto', font: '',
+            letter_spacing: 1, space_scale: 1, skip: false, dx: 0, dy: 0,
+          });
+          this.selectedRegionId = id;
+          this.recordHistory();
+        },
+        removeCustomRegion(id) {
+          this.editorRegions = this.editorRegions.filter(r => r.id !== id);
+          this.recordHistory();
+          this.rerenderEditor();
         },
 
         // ── 手動修補筆刷：在預覽上塗抹 → 收集 final.png 像素座標 → 重渲染時後端套用 ──
@@ -3440,7 +3536,10 @@
       if (!this.editorFolder) return;
       try {
         localStorage.setItem(this._editsKey(this.editorFolder),
-          JSON.stringify({ edits: this._collectEdits(), patches: this.editorPatches }));
+          JSON.stringify({
+            edits: this._collectEdits(), patches: this.editorPatches,
+            customs: this.editorRegions.filter(r => r.custom),
+          }));
       } catch (e) { /* 配額滿等忽略 */ }
     },
     loadEditsLocal(folder) {
@@ -3481,9 +3580,11 @@
         const saved = this.loadEditsLocal(folder);
         const savedEdits = Array.isArray(saved) ? saved : (saved && saved.edits) || [];
         const savedPatches = (!Array.isArray(saved) && saved && saved.patches) || [];
-        if (savedEdits.length || savedPatches.length) {
+        const savedCustoms = (!Array.isArray(saved) && saved && saved.customs) || [];
+        if (savedEdits.length || savedPatches.length || savedCustoms.length) {
           this._applyEditsToRegions(savedEdits);
           this.editorPatches = savedPatches;
+          savedCustoms.forEach(c => this.editorRegions.push({ ...c, custom: true }));
           this.resetHistory();
           this.rerenderEditor();
         } else {
@@ -3557,8 +3658,26 @@
       this.rerenderEditor();
     },
 
+    // 手動新增的文字框（送後端渲染；dx/dy 直接折進 bbox）
+    _collectCustoms() {
+      return this.editorRegions.filter(r => r.custom).map(r => ({
+        text: r.translation || '',
+        bbox: [
+          (r.bbox[0] || 0) + (r.dx || 0), (r.bbox[1] || 0) - (r.dy || 0),
+          (r.bbox[2] || 0) + (r.dx || 0), (r.bbox[3] || 0) - (r.dy || 0),
+        ],
+        font_size: r.font_size || 28,
+        color: r.color || null,
+        bold: !!r.bold,
+        direction: r.direction || 'auto',
+        font_path: r.font || null,
+        letter_spacing: r.letter_spacing || null,
+        space_scale: r.space_scale || null,
+      }));
+    },
+
     _collectEdits() {
-      return this.editorRegions.map(r => ({
+      return this.editorRegions.filter(r => !r.custom).map(r => ({
         id: r.id,
         translation: r.translation,
         font_size: r.font_size || null,
@@ -3581,7 +3700,10 @@
         const resp = await fetch(`${BASE_URI}edit/rerender`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ folder: this.editorFolder, edits: this._collectEdits(), patches: this.editorPatches }),
+          body: JSON.stringify({
+            folder: this.editorFolder, edits: this._collectEdits(),
+            patches: this.editorPatches, custom_regions: this._collectCustoms(),
+          }),
         });
         if (!resp.ok) {
           const err = await resp.json().catch(() => ({}));
@@ -3649,7 +3771,10 @@
     // 另存編輯檔：可載回續編
     downloadEditDoc() {
       const base = this._editBaseName();
-      const doc = { folder: this.editorFolder, edits: this._collectEdits(), patches: this.editorPatches };
+      const doc = {
+        folder: this.editorFolder, edits: this._collectEdits(),
+        patches: this.editorPatches, customs: this.editorRegions.filter(r => r.custom),
+      };
       const jblob = new Blob([JSON.stringify(doc, null, 2)], { type: 'application/json' });
       const ju = URL.createObjectURL(jblob);
       this._dl(ju, `${base}_edits.json`);
@@ -3664,6 +3789,8 @@
         const doc = JSON.parse(await file.text());
         this._applyEditsToRegions(doc.edits || []);
         this.editorPatches = doc.patches || [];
+        this.editorRegions = this.editorRegions.filter(r => !r.custom);
+        (doc.customs || []).forEach(c => this.editorRegions.push({ ...c, custom: true }));
         this.recordHistory();
         this.rerenderEditor();
       } catch (err) {

@@ -54,10 +54,27 @@ class PatchStroke(BaseModel):
     points: list[list[float]] = []  # [[x, y], ...] 筆畫路徑
 
 
+class CustomRegion(BaseModel):
+    """使用者手動新增的文字框：在預覽上框選位置、自行填譯文。
+
+    bbox 為「最終輸出圖（final.png）」像素座標，後端換算到處理解析度。
+    """
+    text: str = ''
+    bbox: list[float] = []        # [x1, y1, x2, y2]
+    font_size: int = 28           # 以 final.png 像素為準，後端換算
+    color: str | None = None      # "#rrggbb"，None = 黑
+    bold: bool = False
+    direction: str = 'auto'       # 'auto' / 'h' / 'v'
+    font_path: str | None = None
+    letter_spacing: float | None = None
+    space_scale: float | None = None
+
+
 class RerenderRequest(BaseModel):
     folder: str
     edits: list[RegionEdit] = []
     patches: list[PatchStroke] = []
+    custom_regions: list[CustomRegion] = []
 
 
 # region 上會被覆寫的幾何 cached_property（移動位置後要清，否則 bbox 仍是舊值）
@@ -228,6 +245,39 @@ def _stroke_mask(shape, stroke: 'PatchStroke', sx: float, sy: float) -> 'np.ndar
     return mask
 
 
+def _build_custom_region(c: 'CustomRegion', sx: float, sy: float, target_lang: str):
+    """手動文字框 → TextBlock（座標/字級從 final.png 像素換算到處理解析度）。"""
+    from manga_translator.utils.textblock import TextBlock
+
+    if len(c.bbox) < 4 or not (c.text or '').strip():
+        return None
+    x1, y1, x2, y2 = (float(v) for v in c.bbox[:4])
+    x1, x2 = sorted((x1 * sx, x2 * sx))
+    y1, y2 = sorted((y1 * sy, y2 * sy))
+    if x2 - x1 < 4 or y2 - y1 < 4:
+        return None
+    rgb = _hex_to_rgb(c.color or '') or (0, 0, 0)
+    region = TextBlock(
+        lines=[[[x1, y1], [x2, y1], [x2, y2], [x1, y2]]],
+        texts=[c.text],
+        translation=c.text,
+        font_size=max(6, int(round(c.font_size * (sx + sy) / 2))),
+        fg_color=rgb,
+        bg_color=(255, 255, 255),
+        bold=bool(c.bold),
+        direction=c.direction if c.direction in ('h', 'v', 'hr', 'vr') else 'auto',
+        target_lang=target_lang,
+    )
+    region.adjust_bg_color = False
+    if c.font_path:
+        region.font_path = c.font_path
+    if c.letter_spacing and c.letter_spacing > 0:
+        region.letter_spacing = float(c.letter_spacing)
+    if c.space_scale and c.space_scale > 0:
+        region.space_scale = float(c.space_scale)
+    return region
+
+
 def _apply_patches(base, img_rgb, patches: 'list[PatchStroke]', orig_size):
     """套用手動修補筆刷（在嵌字前的背景上動工）。"""
     h, w = base.shape[:2]
@@ -248,7 +298,8 @@ def _apply_patches(base, img_rgb, patches: 'list[PatchStroke]', orig_size):
 
 
 async def rerender(result_root, folder: str, edits: list[RegionEdit],
-                   patches: 'list[PatchStroke] | None' = None) -> Image.Image:
+                   patches: 'list[PatchStroke] | None' = None,
+                   custom_regions: 'list[CustomRegion] | None' = None) -> Image.Image:
     """套用編輯、只重跑 render，回傳成品 PIL（已縮回原始尺寸）。"""
     state = load_edit_state(result_root, folder)
     if state is None:
@@ -291,6 +342,19 @@ async def rerender(result_root, folder: str, edits: list[RegionEdit],
     # 手動修補筆刷最後套（蓋在自動貼回之上，使用者畫的最大）
     if patches:
         _apply_patches(base, img_rgb, patches, orig_size)
+
+    # 手動新增的文字框（座標從 final.png 像素換算到處理解析度）
+    if custom_regions:
+        h, w = base.shape[:2]
+        if orig_size and orig_size[0] and orig_size[1]:
+            sx, sy = w / float(orig_size[0]), h / float(orig_size[1])
+        else:
+            sx = sy = 1.0
+        target_lang = getattr(getattr(config, 'translator', None), 'target_lang', '') or ''
+        for c in custom_regions:
+            region = _build_custom_region(c, sx, sy, target_lang)
+            if region is not None:
+                render_regions.append(region)
 
     output = await dispatch_rendering(
         base, render_regions, config, img_rgb, skip_font_scaling=True,
