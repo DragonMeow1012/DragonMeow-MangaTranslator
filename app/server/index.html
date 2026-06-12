@@ -958,10 +958,16 @@
                 <label v-if="!r.custom" class="text-xs text-gray-600 flex items-center gap-1" @click.stop>
                   <input type="checkbox" v-model="r.skip" @change="recordHistory"> {{ t('keepOriginal') }}
                 </label>
-                <button v-else @click.stop="removeCustomRegion(r.id)"
-                        class="text-xs text-red-500 hover:text-red-700 flex items-center gap-0.5">
-                  <i class="iconify" data-icon="carbon:trash-can"></i>{{ t('deleteBox') }}
-                </button>
+                <span v-else class="flex items-center gap-2" @click.stop>
+                  <!-- 暫時隱藏：方便用筆刷把文本底下擦乾淨再顯示回來 -->
+                  <label class="text-xs text-gray-600 flex items-center gap-1" :title="t('hideBoxTip')">
+                    <input type="checkbox" v-model="r.skip" @change="recordHistory(); rerenderEditor()"> {{ t('hideBox') }}
+                  </label>
+                  <button @click="removeCustomRegion(r.id)"
+                          class="text-xs text-red-500 hover:text-red-700 flex items-center gap-0.5">
+                    <i class="iconify" data-icon="carbon:trash-can"></i>{{ t('deleteBox') }}
+                  </button>
+                </span>
               </div>
               <div v-if="!r.custom" class="text-sm text-gray-700 mb-1 break-words">{{ r.original }}</div>
               <textarea v-model="r.translation" :disabled="r.skip" rows="2" @click.stop @change="recordHistory"
@@ -1228,6 +1234,8 @@
           addTextBoxHint: '到右邊預覽上拖曳框選文字位置…',
           customBadge: '手動文本',
           deleteBox: '刪除',
+          hideBox: '隱藏',
+          hideBoxTip: '暫時不渲染這個文本（方便用筆刷把底下擦乾淨，再取消隱藏）',
           zoomReset: '還原縮放',
           showKey: '顯示 API key',
           hideKey: '隱藏 API key',
@@ -1403,6 +1411,8 @@
           addTextBoxHint: '到右边预览上拖拽框选文字位置…',
           customBadge: '手动文本',
           deleteBox: '删除',
+          hideBox: '隐藏',
+          hideBoxTip: '暂时不渲染这个文本（方便用笔刷把底下擦干净，再取消隐藏）',
           zoomReset: '还原缩放',
           showKey: '显示 API key',
           hideKey: '隐藏 API key',
@@ -1578,6 +1588,8 @@
           addTextBoxHint: 'Drag on the preview to place the text box…',
           customBadge: 'Manual',
           deleteBox: 'Delete',
+          hideBox: 'Hide',
+          hideBoxTip: 'Temporarily hide this text (handy for cleaning underneath with the brush, then un-hide)',
           zoomReset: 'Reset zoom',
           showKey: 'Show API key',
           hideKey: 'Hide API key',
@@ -1753,6 +1765,8 @@
           addTextBoxHint: 'プレビュー上をドラッグして配置位置を指定…',
           customBadge: '手動テキスト',
           deleteBox: '削除',
+          hideBox: '非表示',
+          hideBoxTip: 'このテキストを一時的に非表示（下地をブラシで消してから再表示すると便利）',
           zoomReset: 'ズームをリセット',
           showKey: 'API key を表示',
           hideKey: 'API key を非表示',
@@ -2270,7 +2284,8 @@
           }
           const ctx = cv.getContext('2d');
           ctx.clearRect(0, 0, cv.width, cv.height);
-          if (this.editorTool === 'pan' || !img || !img.naturalWidth) return;
+          // 游標圈只在「筆刷」模式顯示（框選模式用十字游標，不畫圈）
+          if (this.editorTool !== 'erase' && this.editorTool !== 'restore' || !img || !img.naturalWidth) return;
           const irect = img.getBoundingClientRect();
           const r = Math.max(2, this.editorBrushSize / 2 * (irect.width / img.naturalWidth));
           const x = e.clientX - crect.left, y = e.clientY - crect.top;
@@ -3658,9 +3673,9 @@
       this.rerenderEditor();
     },
 
-    // 手動新增的文字框（送後端渲染；dx/dy 直接折進 bbox）
+    // 手動新增的文字框（送後端渲染；dx/dy 直接折進 bbox；skip = 暫時隱藏不渲染）
     _collectCustoms() {
-      return this.editorRegions.filter(r => r.custom).map(r => ({
+      return this.editorRegions.filter(r => r.custom && !r.skip).map(r => ({
         text: r.translation || '',
         bbox: [
           (r.bbox[0] || 0) + (r.dx || 0), (r.bbox[1] || 0) - (r.dy || 0),
