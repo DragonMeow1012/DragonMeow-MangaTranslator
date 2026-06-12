@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Privacy Policy – DragonMeow MangaTranslator</title>
+  <style>
+    body { max-width: 720px; margin: 48px auto; padding: 0 24px; font-family: system-ui, sans-serif; line-height: 1.7; color: #1e293b; }
+    h1 { font-size: 1.6rem; margin-bottom: 4px; }
+    h2 { font-size: 1.1rem; margin-top: 2em; }
+    .date { color: #64748b; font-size: 0.9rem; margin-bottom: 2em; }
+    ul { padding-left: 1.4em; }
+  </style>
+</head>
+<body>
+
+<h1>Privacy Policy</h1>
+<p class="date">DragonMeow MangaTranslator Chrome Extension &nbsp;|&nbsp; Effective: 2025-01-01</p>
+
+<h2>Summary</h2>
+<p>
+  This extension does <strong>not collect, store, or transmit any personal data</strong>
+  to the developer or any third party.
+</p>
+
+<h2>What the extension does</h2>
+<ul>
+  <li>Injects a floating button on web pages so the user can select a manga image to translate.</li>
+  <li>Captures a screenshot of the selected area and sends it to a
+      <strong>locally running</strong> translation server on the user's own computer
+      (<code>http://127.0.0.1:8501</code>). The image never leaves the user's machine.</li>
+  <li>Displays the translated result in-place on the page.</li>
+</ul>
+
+<h2>Data stored locally</h2>
+<p>
+  The following data is saved only in the user's own browser
+  (<code>chrome.storage.local</code>) and is never sent anywhere:
+</p>
+<ul>
+  <li>UI preferences (bubble size, color, label, position)</li>
+  <li>AI provider settings entered by the user (API base URL, provider name, target language)</li>
+  <li>Translated image cache (base64 PNG thumbnails) to avoid re-translating the same page</li>
+</ul>
+
+<h2>Permissions explained</h2>
+<ul>
+  <li><strong>storage / unlimitedStorage</strong> – saves preferences and translation cache locally in the browser.</li>
+  <li><strong>tabs</strong> – captures a screenshot of the active tab so the selected image area can be cropped and sent to the local server.</li>
+  <li><strong>scripting</strong> – re-injects the content script after the extension is updated, so users don't need to refresh the page manually.</li>
+  <li><strong>&lt;all_urls&gt;</strong> – manga is hosted on many different domains; the extension must be able to run on any site the user chooses.</li>
+</ul>
+
+<h2>Third-party services</h2>
+<p>
+  No data is sent to the extension developer or any third party.
+  If the user configures an external AI provider (e.g. Google Gemini),
+  images are sent to that provider's API directly from the user's
+  local server — not via this extension.
+</p>
+
+<h2>Children's privacy</h2>
+<p>This extension is not directed at children under 13.</p>
+
+<h2>Changes to this policy</h2>
+<p>Any updates will be reflected on this page with a revised effective date.</p>
+
+<h2>Contact</h2>
+<p>
+  Questions? Open an issue on
+  <a href="https://github.com/DragonMeowPC/DragonMeow-MangaTranslator">GitHub</a>
+  or email <a href="mailto:borwen100@gmail.com">borwen100@gmail.com</a>.
+</p>
+
+</body>
+</html>
