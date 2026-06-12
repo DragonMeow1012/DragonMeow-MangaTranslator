@@ -24,8 +24,20 @@
         display: none;
       }
       /* ── 龍龍喵工作室風格 ─────────────────────────────
-         漫畫「網點」底紋 + 粗墨線卡片 + 琥珀主色，
+         漫畫「網點」底紋 + 粗墨線卡片 + 可切換主題色（琥珀/藍/粉），
          與一般置中白卡片式翻譯網站做出區隔。 */
+      .theme-amber { --accent: #f59e0b; --accent-ink: #1c1917; --accent-soft: #fef3c7; }
+      .theme-blue  { --accent: #3b82f6; --accent-ink: #ffffff; --accent-soft: #dbeafe; }
+      .theme-pink  { --accent: #ec4899; --accent-ink: #ffffff; --accent-soft: #fce7f3; }
+      .dark { --accent-soft: #33302c; }
+      .accent-text { color: var(--accent); }
+      .accent-bg { background-color: var(--accent); }
+      .accent-soft-bg { background-color: var(--accent-soft); }
+      .accent-border { border-color: var(--accent); }
+      .acc-hover-soft:hover { background-color: var(--accent-soft); }
+      .acc-hover-border:hover { border-color: var(--accent); color: var(--accent); }
+      .acc-ring { box-shadow: 0 0 0 2px var(--accent); }
+      input.peer:checked ~ .acc-knob { background-color: var(--accent); }
       .screentone {
         background-color: #fafaf9;
         background-image: radial-gradient(#e0ddd8 1.2px, transparent 1.2px);
@@ -49,7 +61,7 @@
       .ink-btn:hover { transform: translate(1px, 1px); box-shadow: 1px 1px 0 #1c1917; }
       .ink-btn:active { transform: translate(2px, 2px); box-shadow: 0 0 0 #1c1917; }
       .ink-btn:disabled { opacity: .45; pointer-events: none; }
-      .ink-btn-amber { background: #f59e0b; color: #1c1917; }
+      .ink-btn-accent { background: var(--accent); color: var(--accent-ink); }
       .ink-btn-dark { background: #1c1917; color: #fff; }
       .ink-btn-red { background: #fee2e2; color: #b91c1c; }
       .ink-tab {
@@ -66,17 +78,17 @@
         border-radius: 8px; padding: 7px 10px; font-size: 13px; color: #fafaf9;
         outline: none;
       }
-      .side-field:focus { border-color: #f59e0b; }
+      .side-field:focus { border-color: var(--accent); }
       .side-group { border-top: 1px solid #292524; padding-top: 14px; margin-top: 14px; }
       .side-title {
         display: flex; align-items: center; gap: 6px;
-        font-size: 12px; font-weight: 700; color: #f59e0b; margin-bottom: 10px;
+        font-size: 12px; font-weight: 700; color: var(--accent); margin-bottom: 10px;
         letter-spacing: .08em;
       }
       .side-step {
         display: inline-flex; align-items: center; justify-content: center;
         width: 18px; height: 18px; border-radius: 9999px;
-        background: #f59e0b; color: #1c1917; font-size: 11px; font-weight: 800;
+        background: var(--accent); color: var(--accent-ink); font-size: 11px; font-weight: 800;
       }
       aside::-webkit-scrollbar { width: 6px; }
       aside::-webkit-scrollbar-thumb { background: #44403c; border-radius: 3px; }
@@ -87,7 +99,7 @@
       .dark .ink-btn { background: #44403c; color: #fafaf9; border-color: #a8a29e; box-shadow: 2px 2px 0 #0c0a09; }
       .dark .ink-btn:hover { box-shadow: 1px 1px 0 #0c0a09; }
       .dark .ink-btn:active { box-shadow: 0 0 0 #0c0a09; }
-      .dark .ink-btn-amber { background: #f59e0b; color: #1c1917; }
+      .dark .ink-btn-accent { background: var(--accent); color: var(--accent-ink); }
       .dark .ink-btn-dark { background: #fafaf9; color: #1c1917; }
       .dark .ink-btn-red { background: #7f1d1d; color: #fecaca; }
       .dark .ink-tab { background: #0c0a09; color: #a8a29e; border-color: #a8a29e; }
@@ -102,13 +114,12 @@
       .dark main .bg-white { background-color: #292524; }
       .dark main .bg-gray-200, .dark main .bg-stone-200 { background-color: #44403c; }
       .dark main .border { border-color: #57534e; }
-      .dark main .hover\:bg-amber-50:hover { background-color: #292524; }
     </style>
   </head>
   <body class="bg-stone-100">
     <div
       class="min-h-screen flex flex-col lg:flex-row"
-      :class="{ dark: darkMode }"
+      :class="['theme-' + accentColor, { dark: darkMode }]"
       @vue:mounted="onmounted"
       v-scope
       v-cloak
@@ -119,7 +130,7 @@
         <!-- 品牌 -->
         <div class="flex items-center gap-3">
           <img src="https://avatars.githubusercontent.com/u/17797982?s=96&v=4"
-               class="w-11 h-11 rounded-full border-2 border-amber-500" alt="DragonMeow">
+               class="w-11 h-11 rounded-full border-2 accent-border" alt="DragonMeow">
           <div>
             <div class="text-lg font-extrabold tracking-wide">{{ t('title') }}</div>
             <div class="text-xs text-stone-400">{{ t('madeBy') }}</div>
@@ -197,11 +208,11 @@
             <!-- 是否傳圖給 LLM 校對（提高準確度，需視覺模型） -->
             <label class="flex items-center justify-between cursor-pointer select-none" :title="t('sendImageTooltip')">
               <span class="text-sm text-stone-300 flex items-center gap-1.5">
-                <i class="iconify text-amber-500" data-icon="carbon:image-search"></i>{{ t('sendImageLabel') }}
+                <i class="iconify accent-text" data-icon="carbon:image-search"></i>{{ t('sendImageLabel') }}
               </span>
               <span class="relative inline-block w-9 h-5">
                 <input type="checkbox" class="sr-only peer" v-model="llmSendImage" @change="onSettingChange">
-                <span class="absolute inset-0 rounded-full bg-stone-600 peer-checked:bg-amber-500 transition-colors"></span>
+                <span class="absolute inset-0 rounded-full bg-stone-600 acc-knob transition-colors"></span>
                 <span class="absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white transition-transform peer-checked:translate-x-4"></span>
               </span>
             </label>
@@ -209,7 +220,7 @@
             <div class="flex items-center gap-2 flex-wrap">
               <button
                 type="button"
-                class="ink-btn ink-btn-amber"
+                class="ink-btn ink-btn-accent"
                 :disabled="llmTestState === 'testing'"
                 @click="testLlmConnection"
               >
@@ -272,7 +283,7 @@
                 </select>
                 <button
                   type="button"
-                  class="p-2 rounded-lg border border-stone-700 text-stone-400 hover:text-amber-400 hover:border-amber-500 flex-shrink-0"
+                  class="p-2 rounded-lg border border-stone-700 text-stone-400 acc-hover-border flex-shrink-0"
                   :title="t('uploadFont')"
                   @click="$refs.fontInput.click()"
                 >
@@ -292,7 +303,7 @@
 
         <!-- 介面：語言 + 進階編輯 -->
         <div class="side-group">
-          <div class="side-title"><i class="iconify text-amber-500" data-icon="carbon:settings"></i>{{ t('sideUi') }}</div>
+          <div class="side-title"><i class="iconify accent-text" data-icon="carbon:settings"></i>{{ t('sideUi') }}</div>
           <div class="space-y-3">
             <div :title="t('uiLangTooltip')">
               <label class="side-label"><i class="iconify inline-block align-text-bottom mr-0.5" data-icon="carbon:earth"></i>UI</label>
@@ -306,25 +317,38 @@
             <!-- 進階編輯模式開關 -->
             <label class="flex items-center justify-between cursor-pointer select-none" :title="t('advancedTooltip')">
               <span class="text-sm text-stone-300 flex items-center gap-1.5">
-                <i class="iconify text-amber-500" data-icon="carbon:edit"></i>{{ t('advancedMode') }}
+                <i class="iconify accent-text" data-icon="carbon:edit"></i>{{ t('advancedMode') }}
               </span>
               <span class="relative inline-block w-9 h-5">
                 <input type="checkbox" class="sr-only peer" v-model="advancedMode" @change="onSettingChange">
-                <span class="absolute inset-0 rounded-full bg-stone-600 peer-checked:bg-amber-500 transition-colors"></span>
+                <span class="absolute inset-0 rounded-full bg-stone-600 acc-knob transition-colors"></span>
                 <span class="absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white transition-transform peer-checked:translate-x-4"></span>
               </span>
             </label>
             <!-- 深夜模式開關 -->
             <label class="flex items-center justify-between cursor-pointer select-none">
               <span class="text-sm text-stone-300 flex items-center gap-1.5">
-                <i class="iconify text-amber-500" :data-icon="darkMode ? 'carbon:moon' : 'carbon:sun'"></i>{{ t('darkModeLabel') }}
+                <i class="iconify accent-text" :data-icon="darkMode ? 'carbon:moon' : 'carbon:sun'"></i>{{ t('darkModeLabel') }}
               </span>
               <span class="relative inline-block w-9 h-5">
                 <input type="checkbox" class="sr-only peer" v-model="darkMode" @change="onSettingChange">
-                <span class="absolute inset-0 rounded-full bg-stone-600 peer-checked:bg-amber-500 transition-colors"></span>
+                <span class="absolute inset-0 rounded-full bg-stone-600 acc-knob transition-colors"></span>
                 <span class="absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white transition-transform peer-checked:translate-x-4"></span>
               </span>
             </label>
+            <!-- 主題色：琥珀 / 藍 / 粉 -->
+            <div class="flex items-center justify-between">
+              <span class="text-sm text-stone-300 flex items-center gap-1.5">
+                <i class="iconify accent-text" data-icon="carbon:color-palette"></i>{{ t('labelAccent') }}
+              </span>
+              <div class="flex items-center gap-2">
+                <button type="button" v-for="c in ['blue', 'pink', 'amber']" :key="c"
+                        @click="accentColor = c; onSettingChange()"
+                        class="w-6 h-6 rounded-full border-2 transition-transform"
+                        :class="accentColor === c ? 'border-white scale-110' : 'border-stone-600'"
+                        :style="{ background: c === 'blue' ? '#3b82f6' : c === 'pink' ? '#ec4899' : '#f59e0b' }"></button>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -365,7 +389,7 @@
           <!-- 結果表示（單張即時翻譯結果） -->
           <div v-if="result" class="flex flex-col items-center gap-4 p-8">
             <img class="max-w-full rounded-lg border-2 border-stone-900" :src="resultUri" />
-            <button class="ink-btn ink-btn-amber" @click="clear">
+            <button class="ink-btn ink-btn-accent" @click="clear">
               {{ t('uploadAnother') }}
             </button>
           </div>
@@ -380,7 +404,7 @@
               class="flex flex-col items-center gap-4 text-center"
             >
               <div class="text-red-600 font-semibold">{{ statusText }}</div>
-              <button class="ink-btn ink-btn-amber" @click="clear">
+              <button class="ink-btn ink-btn-accent" @click="clear">
                 {{ t('uploadAnother') }}
               </button>
             </div>
@@ -389,7 +413,7 @@
               class="flex flex-col items-center gap-2 text-center text-stone-700"
             >
               <i
-                class="iconify w-8 h-8 text-amber-500 animate-spin"
+                class="iconify w-8 h-8 accent-text animate-spin"
                 data-icon="carbon:progress-bar-round"
               ></i>
               <div>{{ statusText }}</div>
@@ -399,7 +423,7 @@
           <!-- 拖放上傳區 -->
           <label
             v-else
-            class="flex flex-col items-center justify-center p-10 min-h-[18rem] cursor-pointer hover:bg-amber-50 transition-colors"
+            class="flex flex-col items-center justify-center p-10 min-h-[18rem] cursor-pointer acc-hover-soft transition-colors"
             for="file"
             @dragenter.prevent
             @dragover.prevent
@@ -426,7 +450,7 @@
                 <button type="button" @click="clearFile" class="ink-btn">
                   {{ t('clear') }}
                 </button>
-                <button type="button" @click="startTranslation" class="ink-btn ink-btn-amber">
+                <button type="button" @click="startTranslation" class="ink-btn ink-btn-accent">
                   <i class="iconify" data-icon="carbon:play-filled-alt"></i>
                   {{ t('startTranslating') }}
                 </button>
@@ -437,7 +461,7 @@
             </div>
             <!-- 已選多張 -->
             <div v-else-if="selectedFiles.length > 0" class="flex flex-col items-center gap-4 text-center w-full max-w-md">
-              <i class="iconify w-8 h-8 text-amber-500" data-icon="carbon:document-multiple"></i>
+              <i class="iconify w-8 h-8 accent-text" data-icon="carbon:document-multiple"></i>
               <div class="text-stone-700">
                 <span class="font-bold">{{ selectedFiles.length }}</span> {{ t('filesSelected') }}
               </div>
@@ -454,7 +478,7 @@
                 <button type="button" @click="clearSelectedFiles" class="ink-btn">
                   {{ t('clear') }}
                 </button>
-                <button type="button" @click="addSelectedFilesToQueue" class="ink-btn ink-btn-amber">
+                <button type="button" @click="addSelectedFilesToQueue" class="ink-btn ink-btn-accent">
                   <i class="iconify" data-icon="carbon:add"></i>
                   {{ t('addToQueue') }}
                 </button>
@@ -462,7 +486,7 @@
             </div>
             <!-- 空狀態 -->
             <div v-else class="flex flex-col items-center gap-3 text-center">
-              <div class="w-16 h-16 rounded-full bg-amber-100 border-2 border-stone-900 flex items-center justify-center">
+              <div class="w-16 h-16 rounded-full accent-soft-bg border-2 border-stone-900 flex items-center justify-center">
                 <i
                   class="iconify w-8 h-8 text-stone-900"
                   data-icon="carbon:cloud-upload"
@@ -472,7 +496,7 @@
                 {{ t('pastePrompt') }}
               </div>
               <div class="flex gap-3 mt-1">
-                <button @click="selectMultipleFiles" class="ink-btn ink-btn-amber">
+                <button @click="selectMultipleFiles" class="ink-btn ink-btn-accent">
                   <i class="iconify" data-icon="carbon:folder-add"></i>
                   {{ t('multipleFiles') }}
                 </button>
@@ -520,6 +544,9 @@
               <button @click="skipCurrentTranslation" class="ink-btn ink-btn-red">
                 {{ t('skipCurrent') }}
               </button>
+              <button @click="abortAllQueue" class="ink-btn ink-btn-red" :title="t('abortAllTooltip')">
+                <i class="iconify" data-icon="carbon:stop-filled-alt"></i>{{ t('abortAll') }}
+              </button>
               <button @click="clearFinishedItems" class="ink-btn">
                 {{ t('clearFinished') }}
               </button>
@@ -564,7 +591,7 @@
                 <!-- Progress bar for processing items -->
                 <div v-if="queuedImage.status !== 'queued' && queuedImage.status !== 'finished' && queuedImage.status !== 'error' && getStepProgress(queuedImage).percentage > 0" class="mt-2">
                   <div class="w-full bg-gray-200 rounded-full h-2">
-                    <div class="bg-blue-600 h-2 rounded-full transition-all duration-300" 
+                    <div class="accent-bg h-2 rounded-full transition-all duration-300"
                          :style="{ width: getStepProgress(queuedImage).percentage + '%' }"></div>
                   </div>
                 </div>
@@ -595,13 +622,13 @@
                 
                 <!-- Show current step name if processing -->
                 <div v-if="queuedImage.status === 'processing' && queuedImage.progress" 
-                     class="text-xs text-blue-600 max-w-32 truncate" :title="queuedImage.progress">
+                     class="text-xs accent-text max-w-32 truncate" :title="queuedImage.progress">
                   {{ queuedImage.progress }}
                 </div>
                 
                 <!-- Show queue position if processing -->
                 <div v-if="queuedImage.status === 'processing' && queuedImage.queuePos" 
-                     class="text-xs text-blue-600">
+                     class="text-xs accent-text">
                   {{ t('position') }}: {{ queuedImage.queuePos }}
                 </div>
                 
@@ -639,7 +666,7 @@
                 {{ allSelected ? t('deselectAll') : t('selectAll') }}
               </button>
               <button v-if="selectedGallery.length > 0" @click="downloadGalleryZip" :disabled="zipping"
-                      class="ink-btn ink-btn-amber">
+                      class="ink-btn ink-btn-accent">
                 <i class="iconify" :data-icon="zipping ? 'carbon:circle-dash' : 'carbon:download'"
                    :class="{'animate-spin': zipping}"></i>{{ t('downloadZip') }} ({{ selectedGallery.length }})
               </button>
@@ -667,8 +694,8 @@
           <div v-if="finishedImages.length > 0"
                class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
             <div v-for="image in finishedImages" :key="image.id"
-                 class="group cursor-pointer bg-white rounded-lg border hover:border-amber-400 hover:shadow-md transition-all duration-200"
-                 :class="{'ring-2 ring-amber-500': selectedGallery.includes(image.id)}"
+                 class="group cursor-pointer bg-white rounded-lg border acc-hover-border hover:shadow-md transition-all duration-200"
+                 :class="{'acc-ring': selectedGallery.includes(image.id)}"
                  @click="openImageModal(image)">
               <div class="relative aspect-square overflow-hidden rounded-t-lg">
                 <input type="checkbox" class="absolute top-1 left-1 z-10 w-4 h-4"
@@ -691,7 +718,7 @@
                 </div>
                 <!-- Edit + Delete buttons -->
                 <button @click.stop="openEditor(folderFromUrl(image.result))"
-                        class="mt-1 p-1 text-blue-500 hover:text-blue-700 hover:bg-blue-50 rounded transition-colors"
+                        class="mt-1 p-1 accent-text acc-hover-soft rounded transition-colors"
                         :title="t('editThis')">
                   <i class="iconify w-3 h-3" data-icon="carbon:edit"></i>
                 </button>
@@ -1142,6 +1169,9 @@
           labelFont: '字型',
           heroTitle: '把漫畫丟進來，一鍵翻譯',
           darkModeLabel: '深夜模式',
+          labelAccent: '主題色',
+          abortAll: '中斷全部',
+          abortAllTooltip: '停止目前翻譯並清空整個佇列',
           baseUrlTooltip: 'API base URL（OpenAI 相容端點）',
           apiKeyTooltip: 'API key（多把可用逗號分隔）',
           apiKeyPlaceholder: 'API key（多把用逗號分隔可輪換，避免 429）',
@@ -1304,6 +1334,9 @@
           labelFont: '字体',
           heroTitle: '把漫画丢进来，一键翻译',
           darkModeLabel: '深夜模式',
+          labelAccent: '主题色',
+          abortAll: '中断全部',
+          abortAllTooltip: '停止当前翻译并清空整个队列',
           baseUrlTooltip: 'API base URL（OpenAI 兼容端点）',
           apiKeyTooltip: 'API key（多个可用逗号分隔）',
           apiKeyPlaceholder: 'API key（多把用逗号分隔可轮换，避免 429）',
@@ -1466,6 +1499,9 @@
           labelFont: 'Font',
           heroTitle: 'Drop your manga, translate in one click',
           darkModeLabel: 'Dark mode',
+          labelAccent: 'Accent color',
+          abortAll: 'Abort all',
+          abortAllTooltip: 'Stop the current translation and clear the whole queue',
           baseUrlTooltip: 'API base URL (OpenAI-compatible endpoint)',
           apiKeyTooltip: 'API key (comma-separate multiple keys)',
           apiKeyPlaceholder: 'API key (comma-separate several to rotate & avoid 429)',
@@ -1628,6 +1664,9 @@
           labelFont: 'フォント',
           heroTitle: '漫画をドロップ、ワンクリック翻訳',
           darkModeLabel: 'ダークモード',
+          labelAccent: 'テーマカラー',
+          abortAll: '全部中断',
+          abortAllTooltip: '現在の翻訳を停止し、キューを全部クリアします',
           baseUrlTooltip: 'API base URL（OpenAI 互換エンドポイント）',
           apiKeyTooltip: 'API key（複数はカンマ区切り）',
           apiKeyPlaceholder: 'API key（複数はカンマ区切りで自動ローテ・429回避）',
@@ -1858,6 +1897,8 @@
         mainTab: 'queue',
         // 深夜模式（root div 加 .dark class）
         darkMode: false,
+        // 主題色：blue / pink / amber（CSS 變數 --accent）
+        accentColor: 'blue',
         apiKeys: {
           gemini: '', openai: '', claude: '', grok: '', deepseek: '',
           qwen: '', kimi: '', glm: '', mistral: '', groq: '',
@@ -2012,6 +2053,7 @@
               if (settings.customBaseUrl) this.customBaseUrl = settings.customBaseUrl;
               if (typeof settings.llmSendImage === 'boolean') this.llmSendImage = settings.llmSendImage;
               if (typeof settings.darkMode === 'boolean') this.darkMode = settings.darkMode;
+              if (['blue', 'pink', 'amber'].includes(settings.accentColor)) this.accentColor = settings.accentColor;
               if (settings.targetLanguage) this.targetLanguage = settings.targetLanguage;
               if (settings.fontPath) this.fontPath = settings.fontPath;
               if (typeof settings.advancedMode === 'boolean') this.advancedMode = settings.advancedMode;
@@ -2032,6 +2074,7 @@
               customBaseUrl: this.customBaseUrl,
               llmSendImage: this.llmSendImage,
               darkMode: this.darkMode,
+              accentColor: this.accentColor,
               targetLanguage: this.targetLanguage,
               fontPath: this.fontPath,
               advancedMode: this.advancedMode,
@@ -2207,6 +2250,12 @@
               }, 500);
             }
           }
+        },
+
+        // 中斷全部：停掉目前翻譯並清空整個佇列
+        abortAllQueue() {
+          this.uploadController?.abort();
+          this.queuedImages = [];
         },
 
         // Gallery management
