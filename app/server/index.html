@@ -3138,8 +3138,16 @@
         const response = await fetch(`${BASE_URI}results/list`);
         if (response.ok) {
           const data = await response.json();
-          const folders = data.directories || [];
-          
+          // 底線開頭 = 暫存/測試資料夾，不進圖庫
+          const folders = (data.directories || []).filter(f => !f.startsWith('_'));
+
+          // 清掉伺服器上已不存在的項目（避免殘留破圖卡片）
+          const folderSet = new Set(folders);
+          this.finishedImages = this.finishedImages.filter(img => {
+            const f = this.folderFromUrl(img.result);
+            return f && folderSet.has(f);
+          });
+
           // Add any new results that aren't in our gallery
           for (const folder of folders) {
             const existingImage = this.finishedImages.find(img => 
