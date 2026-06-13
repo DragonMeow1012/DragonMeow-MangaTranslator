@@ -38,6 +38,20 @@ RESULT_ROOT = (BASE_DIR.parent / "result").resolve()
 RESULT_ROOT.mkdir(parents=True, exist_ok=True)
 
 FONTS_ROOT = (BASE_DIR.parent / "fonts").resolve()
+USER_SETTINGS_FILE = (BASE_DIR.parent / "user_settings.json").resolve()
+
+def load_user_settings() -> dict:
+    try:
+        if USER_SETTINGS_FILE.exists():
+            import json
+            return json.loads(USER_SETTINGS_FILE.read_text(encoding="utf-8"))
+    except Exception:
+        pass
+    return {}
+
+def save_user_settings(data: dict) -> None:
+    import json
+    USER_SETTINGS_FILE.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
 USER_FONTS_ROOT = (FONTS_ROOT / "user").resolve()
 # 內建可選字型：value = render.font_path 送出的值（相對 fonts/）
 _BUNDLED_FONTS = [
@@ -374,6 +388,16 @@ async def batch_images(req: Request, data: BatchTranslateRequest):
             media_type="application/zip",
             headers={"Content-Disposition": "attachment; filename=translated_images.zip"}
         )
+
+@app.get("/ui-settings", tags=["ui"])
+async def get_ui_settings():
+    return load_user_settings()
+
+@app.post("/ui-settings", tags=["ui"])
+async def post_ui_settings(request: Request):
+    data = await request.json()
+    save_user_settings(data)
+    return {"ok": True}
 
 @app.get("/", response_class=HTMLResponse,tags=["ui"])
 async def index() -> HTMLResponse:

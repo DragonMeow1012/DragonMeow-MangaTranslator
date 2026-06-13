@@ -1432,6 +1432,77 @@ def _clamp_center_drift(region: 'TextBlock', dst_points, max_ratio: float):
         return dst_points
 
 
+def _shift_region_lines(region: 'TextBlock', dx: int, dy: int) -> None:
+    """把整個 region 的多邊形平移 (dx, dy)，並清掉所有由 lines 衍生的 cached_property，
+    讓 xyxy / center / min_rect 等以新位置重算。"""
+    if dx == 0 and dy == 0:
+        return
+    try:
+        region.lines = region.lines + np.array([dx, dy], dtype=region.lines.dtype)
+    except Exception:
+        return
+    for k in ('xyxy', 'xywh', 'center', 'unrotated_polygons', 'unrotated_min_rect',
+              'min_rect', 'polygon_aspect_ratio', 'unrotated_size', 'aspect_ratio'):
+        region.__dict__.pop(k, None)
+
+
+def _separate_close_regions(text_regions: List['TextBlock']) -> None:
+    """以中心(圓心)與大小判斷兩塊原文是否會貼在一起；若是：
+      1) 縮小「字較大」那塊的字級（1-2）
+      2) 把兩塊中心沿相鄰軸稍微推開
+    位移有上限（落在抹字膨脹邊界 ~30px 內），確保平移後文字仍貼在乾淨的抹字背景上、
+    不會露出原位空洞。全程防呆，任何例外都安靜略過。"""
+    try:
+        regions = [r for r in text_regions
+                   if r is not None and str(getattr(r, 'translation', '') or '').strip()]
+    except Exception:
+        return
+    SHIFT_CAP = 12  # 單塊最大位移（px），留在抹字膨脹邊界內，避免露餡
+    n = len(regions)
+    for i in range(n):
+        for j in range(i + 1, n):
+            a, b = regions[i], regions[j]
+            try:
+                ax1, ay1, ax2, ay2 = (int(v) for v in a.xyxy)
+                bx1, by1, bx2, by2 = (int(v) for v in b.xyxy)
+            except Exception:
+                continue
+            overlap_x = min(ax2, bx2) - max(ax1, bx1)
+            overlap_y = min(ay2, by2) - max(ay1, by1)
+            gap_x = max(bx1 - ax2, ax1 - bx2)  # 水平間隙（負值=重疊）
+            gap_y = max(by1 - ay2, ay1 - by2)  # 垂直間隙
+            fa = max(int(getattr(a, 'font_size', 0) or 0), 1)
+            fb = max(int(getattr(b, 'font_size', 0) or 0), 1)
+            thresh = max(3, int(min(fa, fb) * 0.4))  # 期望兩塊至少要有的間距
+
+            horiz = (gap_x < thresh and overlap_y > 0 and gap_x <= gap_y)
+            vert = (gap_y < thresh and overlap_x > 0 and not horiz)
+            if not (horiz or vert):
+                continue
+
+            # 1) 縮字較大的那塊
+            big = a if fa >= fb else b
+            cur = max(int(getattr(big, 'font_size', 0) or 0), 1)
+            big.font_size = max(cur - (2 if cur > 12 else 1), 8)
+
+            # 2) 把兩塊中心沿相鄰軸推開（平分需要補足的間距，且不超過上限）
+            cur_gap = gap_x if horiz else gap_y
+            need = thresh - cur_gap
+            if need <= 0:
+                continue
+            push = min(SHIFT_CAP, max(2, (need + 1) // 2))
+            if horiz:
+                if (ax1 + ax2) <= (bx1 + bx2):  # a 偏左 → a 左移、b 右移
+                    _shift_region_lines(a, -push, 0); _shift_region_lines(b, +push, 0)
+                else:
+                    _shift_region_lines(a, +push, 0); _shift_region_lines(b, -push, 0)
+            else:
+                if (ay1 + ay2) <= (by1 + by2):  # a 偏上 → a 上移、b 下移
+                    _shift_region_lines(a, 0, -push); _shift_region_lines(b, 0, +push)
+                else:
+                    _shift_region_lines(a, 0, +push); _shift_region_lines(b, 0, -push)
+
+
 def resize_regions_to_font_size(img: np.ndarray, text_regions: List['TextBlock'], config: Config, original_img: np.ndarray = None, return_debug_img: bool = False, skip_font_scaling: bool = False):
     """
     Resize text regions based on layout mode.
@@ -1450,6 +1521,11 @@ def resize_regions_to_font_size(img: np.ndarray, text_regions: List['TextBlock']
             render_horizontally=_resolve_region_render_horizontal(region),
             config=config,
         )
+
+    # 兩塊原文太接近時：縮小字較大那塊 + 把兩塊中心稍微推開，避免譯文互相貼到。
+    # 編輯器手動模式（skip_font_scaling）不自動調整，尊重使用者設定的字級與位置。
+    if not skip_font_scaling:
+        _separate_close_regions(text_regions)
 
     # Prepare debug image for balloon_fill mode (only when requested)
     debug_img = None

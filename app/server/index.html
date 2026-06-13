@@ -1899,6 +1899,10 @@
         onmounted() {
           window.addEventListener("paste", this.onpaste);
           this.loadSettings();
+          // 切回此分頁時重新讀取伺服器設定，讓擴充功能那邊的修改即時反映過來。
+          document.addEventListener("visibilitychange", () => {
+            if (document.visibilityState === "visible") this.loadSettings();
+          });
           this.loadFonts();
           this.loadFinishedImages();
           // 第一次開啟顯示提醒（看過就不再跳）
@@ -2317,49 +2321,60 @@
         },
 
         // Settings persistence
+        _applySettings(settings) {
+          if (!settings) return;
+          if (settings.uiLang) this.uiLang = settings.uiLang;
+          if (settings.llmProvider) this.llmProvider = settings.llmProvider;
+          if (settings.models) Object.assign(this.models, settings.models);
+          if (settings.apiKeys) Object.assign(this.apiKeys, settings.apiKeys);
+          if (settings.customBaseUrl) this.customBaseUrl = settings.customBaseUrl;
+          if (typeof settings.llmSendImage === 'boolean') this.llmSendImage = settings.llmSendImage;
+          if (typeof settings.darkMode === 'boolean') this.darkMode = settings.darkMode;
+          if (['blue', 'pink', 'amber'].includes(settings.accentColor)) this.accentColor = settings.accentColor;
+          if (settings.targetLanguage) this.targetLanguage = settings.targetLanguage;
+          if (settings.fontPath) this.fontPath = settings.fontPath;
+          if (typeof settings.advancedMode === 'boolean') this.advancedMode = settings.advancedMode;
+          if (typeof settings.autoRetryFailed === 'boolean') this.autoRetryFailed = settings.autoRetryFailed;
+        },
+
         loadSettings() {
+          // 優先從伺服器端 user_settings.json 讀取（跨瀏覽器/清快取仍保留）。
+          // 同時把 localStorage 當作本機快取，讓第一次讀完前 UI 不空白。
           try {
-            const saved = localStorage.getItem('manga-translator-settings');
-            if (saved) {
-              const settings = JSON.parse(saved);
-              if (settings.uiLang) this.uiLang = settings.uiLang;
-              if (settings.llmProvider) this.llmProvider = settings.llmProvider;
-              if (settings.models) Object.assign(this.models, settings.models);
-              if (settings.apiKeys) Object.assign(this.apiKeys, settings.apiKeys);
-              if (settings.customBaseUrl) this.customBaseUrl = settings.customBaseUrl;
-              if (typeof settings.llmSendImage === 'boolean') this.llmSendImage = settings.llmSendImage;
-              if (typeof settings.darkMode === 'boolean') this.darkMode = settings.darkMode;
-              if (['blue', 'pink', 'amber'].includes(settings.accentColor)) this.accentColor = settings.accentColor;
-              if (settings.targetLanguage) this.targetLanguage = settings.targetLanguage;
-              if (settings.fontPath) this.fontPath = settings.fontPath;
-              if (typeof settings.advancedMode === 'boolean') this.advancedMode = settings.advancedMode;
-              if (typeof settings.autoRetryFailed === 'boolean') this.autoRetryFailed = settings.autoRetryFailed;
+            const local = localStorage.getItem('manga-translator-settings');
+            if (local) this._applySettings(JSON.parse(local));
+          } catch {}
+          fetch('/ui-settings').then(r => r.json()).then(settings => {
+            if (settings && Object.keys(settings).length) {
+              this._applySettings(settings);
+              // 回寫 localStorage 讓下次刷新立即可用
+              try { localStorage.setItem('manga-translator-settings', JSON.stringify(settings)); } catch {}
             }
-          } catch (error) {
-            console.warn('Failed to load settings:', error);
-          }
+          }).catch(() => {});
         },
 
         saveSettings() {
-          try {
-            const settings = {
-              uiLang: this.uiLang,
-              llmProvider: this.llmProvider,
-              models: this.models,
-              apiKeys: this.apiKeys,
-              customBaseUrl: this.customBaseUrl,
-              llmSendImage: this.llmSendImage,
-              darkMode: this.darkMode,
-              accentColor: this.accentColor,
-              targetLanguage: this.targetLanguage,
-              fontPath: this.fontPath,
-              advancedMode: this.advancedMode,
-              autoRetryFailed: this.autoRetryFailed,
-            };
-            localStorage.setItem('manga-translator-settings', JSON.stringify(settings));
-          } catch (error) {
-            console.warn('Failed to save settings:', error);
-          }
+          const settings = {
+            uiLang: this.uiLang,
+            llmProvider: this.llmProvider,
+            models: this.models,
+            apiKeys: this.apiKeys,
+            customBaseUrl: this.customBaseUrl,
+            llmSendImage: this.llmSendImage,
+            darkMode: this.darkMode,
+            accentColor: this.accentColor,
+            targetLanguage: this.targetLanguage,
+            fontPath: this.fontPath,
+            advancedMode: this.advancedMode,
+            autoRetryFailed: this.autoRetryFailed,
+          };
+          // 同時寫入 localStorage（即時）和伺服器（持久）
+          try { localStorage.setItem('manga-translator-settings', JSON.stringify(settings)); } catch {}
+          fetch('/ui-settings', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(settings)
+          }).catch(() => {});
         },
 
         _isZip(file) {
