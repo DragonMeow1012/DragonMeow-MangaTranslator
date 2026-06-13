@@ -474,6 +474,7 @@ function notifyPrefetchProgress(tabId) {
 async function prefetchTranslate(items, referer, tabId) {
   const settings = await loadSettings();
   let lastPage = 0; // 已預翻到的最遠頁碼（含這次新翻的）
+  let prevOrig = null; // 上一張抓到的原圖，用來偵測「站一直回同一張＝已到底」
   const myGen = _abortGen;
   const valid = items.filter((it) => it?.cacheKey && it?.imageUrl);
   if (_pfActive === 0) { _pfDone = 0; _pfTotal = 0; } // 上一輪已全部結束 → 重新計數
@@ -493,10 +494,17 @@ async function prefetchTranslate(items, referer, tabId) {
         const existing = await chrome.storage.local.get(item.cacheKey);
         if (existing[item.cacheKey]) continue; // 已翻過（finally 會釋放 in-flight 並計入 done）
         const fetched = await fetchOriginalImage(item.imageUrl, referer);
-        const r = await translateWithRetry(fetched.image, settings);
-        if (item.page) lastPage = Math.max(lastPage, item.page);
-        const translated = await blobToDataUrl(r.blob);
-        await storePrefetchCache(item.cacheKey, { src: item.imageUrl, image: translated });
+        // 重複頁偵測：有些站對「不存在的頁」不回 404，而一直回同一張（最後頁/佔位圖）。
+        // 抓到跟上一張一模一樣 → 判定已到底，停止後續預抓，不再白翻。
+        if (prevOrig !== null && fetched.image === prevOrig) {
+          stop = true;
+        } else {
+          prevOrig = fetched.image;
+          const r = await translateWithRetry(fetched.image, settings);
+          if (item.page) lastPage = Math.max(lastPage, item.page);
+          const translated = await blobToDataUrl(r.blob);
+          await storePrefetchCache(item.cacheKey, { src: item.imageUrl, image: translated });
+        }
       } catch (e) {
         // 404 = 沒有下一頁了，停止後續預抓；其他錯誤也停（避免空轉）。
         if (/40\d|沒有|not.?found/i.test(e?.message || "")) stop = true;

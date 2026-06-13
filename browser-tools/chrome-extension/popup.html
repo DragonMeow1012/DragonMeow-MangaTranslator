@@ -89,6 +89,8 @@
   }
   .switch-row:hover{ background:var(--card2); }
   .switch-row.on{ border-color:rgba(45,212,191,.45); }
+  .switch-row.locked{ opacity:.45; }
+  .switch-row.locked .switch{ background:#3b4a6b !important; }
   .switch{ flex:none; width:38px; height:21px; border-radius:11px; background:#3b4a6b; position:relative; transition:background .15s; }
   .switch .knob{ position:absolute; top:2px; left:2px; width:17px; height:17px; border-radius:50%; background:#e6edf7; transition:left .15s; box-shadow:0 1px 2px rgba(0,0,0,.4); }
   .switch-row.on .switch{ background:var(--teal); }
@@ -159,6 +161,7 @@
       <span class="switch"><span class="knob"></span></span>
     </div>
     <div class="hint" id="txt-auto-hint">適用於每頁一個連續網址</div>
+    <div class="hint" id="auto-lock-hint" style="display:none;color:#fca5a5">⚠ 需先開啟下方「🕷 原圖抓取」才能用頁碼翻譯（它要爬後面幾頁的圖）</div>
     <div id="prefetch-opts" style="display:none">
       <div class="switch-row small" id="pf-notify" style="margin-top:4px">
         <span id="txt-pf-notify">顯示翻譯進度</span>

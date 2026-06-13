@@ -493,7 +493,19 @@ document.getElementById("box-select").addEventListener("click", async () => {
 });
 
 document.getElementById("auto").addEventListener("click", async () => {
-  // 不自動關閉 popup：讓使用者看到/設定預抓選項；點頁面選取目標時 popup 會自然關閉。
+  // 頁碼翻譯靠爬蟲抓後面頁的圖 → 必須先開啟「原圖抓取」才能用，否則鎖住不啟用。
+  const autoRow = document.getElementById("auto");
+  const turningOn = !autoRow.classList.contains("on");
+  if (turningOn) {
+    const origins = await currentSiteOrigins();
+    const granted = origins.length ? await chrome.permissions.contains({ origins }).catch(() => false) : false;
+    if (!granted) {
+      await loadCrawlPref(); // 確保鎖定樣式/提示是最新
+      errBox.textContent = "請先開啟「🕷 原圖抓取」才能用頁碼翻譯";
+      return;
+    }
+  }
+  errBox.textContent = "";
   await sendCommand("toggle-auto");
 });
 
@@ -644,21 +656,25 @@ async function loadCrawlPref() {
   const origins = await currentSiteOrigins();
   const granted = origins.length ? await chrome.permissions.contains({ origins }).catch(() => false) : false;
   crawlRow.classList.toggle("on", granted);
+  // 頁碼翻譯綁定原圖抓取：沒授權就鎖住（不能選）並顯示提示
+  const autoRow = document.getElementById("auto");
+  if (autoRow) autoRow.classList.toggle("locked", !granted);
+  const lockHint = document.getElementById("auto-lock-hint");
+  if (lockHint) lockHint.style.display = granted ? "none" : "";
 }
 crawlRow.addEventListener("click", async () => {
   const origins = await currentSiteOrigins();
   if (!origins.length) return;
   const currentlyOn = crawlRow.classList.contains("on");
   try {
-    if (currentlyOn) {
-      await chrome.permissions.remove({ origins });
-      crawlRow.classList.remove("on");
-    } else {
-      const granted = await chrome.permissions.request({ origins });
-      crawlRow.classList.toggle("on", granted);
-    }
-  } catch {
-    loadCrawlPref();
+    if (currentlyOn) await chrome.permissions.remove({ origins });
+    else await chrome.permissions.request({ origins });
+  } catch {}
+  await loadCrawlPref(); // 同步原圖抓取顯示 + 頁碼翻譯鎖定狀態
+  // 關掉原圖抓取時，連帶關掉頁碼翻譯（它需要爬蟲，否則會空轉）
+  const autoRow = document.getElementById("auto");
+  if (autoRow && autoRow.classList.contains("locked") && autoRow.classList.contains("on")) {
+    updateButtons(await sendCommand("toggle-auto"));
   }
 });
 
