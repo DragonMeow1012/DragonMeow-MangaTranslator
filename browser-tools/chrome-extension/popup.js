@@ -5,7 +5,7 @@ const I18N = {
     auto: "🔁 頁碼翻譯（翻頁自動翻）",
     autoHint: "適用於每頁一個連續網址",
     tpHint: "適用於下拉式長條漫畫；新載入內容會繼續翻譯，再點一次停止",
-    pfCount: "預抓頁數",
+    pfCount: "預先翻譯頁數",
     pfNotify: "顯示預抓頁數",    enable: "✨ 啟用翻譯泡泡",
     disableBubble: "🚫 關閉翻譯泡泡",
     enableHint: "每次進入新網站需重新啟用",
@@ -15,7 +15,7 @@ const I18N = {
     downloadAll: "⬇ 下載所有翻譯圖（zip）",
     retry: "翻譯失敗自動重試",
     crawl: "🕷 原圖抓取（圖排版異常時使用）",
-    crawlHint: "需授權存取所有網站，才能抓到原始解析度",
+    crawlHint: "需授權存取「目前網站」，才能抓到原始解析度",
     debug: "🐞 偵錯：下載送出的圖",
     diagnose: "🔍 診斷快取套用",
     test: "🔌 測試連接",
@@ -65,7 +65,7 @@ const I18N = {
     auto: "🔁 页码翻译（翻页自动翻）",
     autoHint: "适用于每页一个连续网址",
     tpHint: "适用于下拉式长条漫画；新加载内容会继续翻译，再点一次停止",
-    pfCount: "预抓页数",
+    pfCount: "预先翻译页数",
     pfNotify: "显示预抓页数",    enable: "✨ 启用翻译气泡",
     disableBubble: "🚫 关闭翻译气泡",
     enableHint: "每次进入新网站需重新启用",
@@ -75,7 +75,7 @@ const I18N = {
     downloadAll: "⬇ 下载所有翻译图（zip）",
     retry: "翻译失败自动重试",
     crawl: "🕷 原图抓取（图排版异常时使用）",
-    crawlHint: "需授权访问所有网站，才能抓到原始分辨率",
+    crawlHint: "需授权访问「当前网站」，才能抓到原始分辨率",
     debug: "🐞 调试：下载送出的图",
     diagnose: "🔍 诊断缓存套用",
     test: "🔌 测试连接",
@@ -125,7 +125,7 @@ const I18N = {
     auto: "🔁 Page-by-page (auto on turn)",
     autoHint: "For sites with one URL per page",
     tpHint: "For long-strip / webtoon; keeps translating newly loaded content, click again to stop",
-    pfCount: "Prefetch pages",
+    pfCount: "Pages ahead to translate",
     pfNotify: "Show prefetch progress",    enable: "✨ Enable bubble",
     disableBubble: "🚫 Disable bubble",
     enableHint: "Re-enable on each new site",
@@ -135,7 +135,7 @@ const I18N = {
     downloadAll: "⬇ Download all (zip)",
     retry: "Auto-retry on failure",
     crawl: "🕷 Fetch original (if layout looks off)",
-    crawlHint: "Requires all-site access to fetch full resolution",
+    crawlHint: "Requires access to the current site to fetch full resolution",
     debug: "🐞 Debug: download sent image",
     diagnose: "🔍 Diagnose cache",
     test: "🔌 Test connection",
@@ -185,7 +185,7 @@ const I18N = {
     auto: "🔁 ページ送り翻訳（自動）",
     autoHint: "1ページ1URLのサイト向け",
     tpHint: "縦読み（ウェブトゥーン）向け；新しく読み込まれた内容も継続翻訳、もう一度で停止",
-    pfCount: "先読みページ数",
+    pfCount: "先に翻訳するページ数",
     pfNotify: "先読みページ数を表示",    enable: "✨ バブルを有効化",
     disableBubble: "🚫 バブルを無効化",
     enableHint: "新しいサイトごとに再有効化が必要",
@@ -195,7 +195,7 @@ const I18N = {
     downloadAll: "⬇ すべてDL（zip）",
     retry: "失敗時に自動リトライ",
     crawl: "🕷 原画像取得（レイアウト異常時）",
-    crawlHint: "全サイトへのアクセス許可が必要（原寸取得用）",
+    crawlHint: "現在のサイトへのアクセス許可が必要（原寸取得用）",
     debug: "🐞 デバッグ：送信画像をDL",
     diagnose: "🔍 キャッシュ診断",
     test: "🔌 接続テスト",
@@ -266,7 +266,6 @@ function applyLang() {
   document.getElementById("txt-translate-page").textContent = t("translatePage");
   document.getElementById("txt-tp-hint").textContent = t("tpHint");
   document.getElementById("txt-auto-hint").textContent = t("autoHint");
-  document.getElementById("txt-pf-count").textContent = t("pfCount");
   document.getElementById("txt-pf-notify").textContent = t("pfNotify");
   document.getElementById("txt-download-current").textContent = t("downloadCurrent");
   document.getElementById("txt-download-all").textContent = t("downloadAll");
@@ -381,18 +380,16 @@ function updateEnableButton() {
 }
 
 function updatePrefetchVisibility() {
-  // 預抓設定只在「頁碼翻譯」開啟時顯示。
+  // 翻譯進度提示只在「頁碼翻譯」開啟時顯示。
   const on = document.getElementById("auto").classList.contains("on");
   document.getElementById("prefetch-opts").style.display = on ? "block" : "none";
-  // 整頁翻譯的「往後預先翻 N 頁」只在整頁翻譯開啟時顯示。
-  const pageOn = document.getElementById("page").classList.contains("on");
-  document.getElementById("page-opts").style.display = pageOn ? "block" : "none";
 }
 
 function updateButtons(state) {
   if (!state) return;
   document.getElementById("auto").classList.toggle("on", Boolean(state.auto));
   document.getElementById("page").classList.toggle("on", Boolean(state.pageActive));
+  document.getElementById("box-select").classList.toggle("on", Boolean(state.boxActive));
   updatePrefetchVisibility();
   if (state.viewMode) {
     _lastViewMode = state.viewMode;
@@ -453,69 +450,46 @@ document.getElementById("download-all").addEventListener("click", () => {
   sendCommand("download-all");
 });
 
-// ---- 預抓設定：頁數（預設 10）+ 完成提示開關 ----
-const PREFETCH_COUNT_KEY = "dmmtPrefetchCount";
+// ---- 預抓進度提示開關（一律翻到完，不再有頁數設定）----
 const PREFETCH_NOTIFY_KEY = "dmmtPrefetchNotify";
-const pfCountInput = document.getElementById("pf-count");
 const pfNotifyRow = document.getElementById("pf-notify");
-
 async function loadPrefetchPrefs() {
-  const s = await chrome.storage.local.get([PREFETCH_COUNT_KEY, PREFETCH_NOTIFY_KEY]);
-  pfCountInput.value = typeof s[PREFETCH_COUNT_KEY] === "number" ? s[PREFETCH_COUNT_KEY] : 10;
+  const s = await chrome.storage.local.get(PREFETCH_NOTIFY_KEY);
   pfNotifyRow.classList.toggle("on", s[PREFETCH_NOTIFY_KEY] !== false); // 預設開
 }
-pfCountInput.addEventListener("change", async () => {
-  let n = Math.round(Number(pfCountInput.value));
-  if (!Number.isFinite(n)) n = 10;
-  n = Math.min(Math.max(n, 0), 100);
-  pfCountInput.value = n;
-  await chrome.storage.local.set({ [PREFETCH_COUNT_KEY]: n });
-});
 pfNotifyRow.addEventListener("click", async () => {
   const on = !pfNotifyRow.classList.contains("on");
   pfNotifyRow.classList.toggle("on", on);
   await chrome.storage.local.set({ [PREFETCH_NOTIFY_KEY]: on });
 });
 
-// ---- 頁碼翻譯「翻到完」（一直往後翻到 404）----
-const PREFETCH_TO_END_KEY = "dmmtPrefetchToEnd";
-const pfToEndRow = document.getElementById("pf-toend");
-async function loadPrefetchToEndPref() {
-  const s = await chrome.storage.local.get(PREFETCH_TO_END_KEY);
-  pfToEndRow.classList.toggle("on", s[PREFETCH_TO_END_KEY] === true);
+// ---- 滾輪翻頁（配合合併翻譯）----
+const WHEEL_NAV_KEY = "dmmtWheelNav";
+const wheelRow = document.getElementById("set-wheel");
+async function loadWheelPref() {
+  const s = await chrome.storage.local.get(WHEEL_NAV_KEY);
+  wheelRow.classList.toggle("on", s[WHEEL_NAV_KEY] === true);
 }
-pfToEndRow.addEventListener("click", async () => {
-  const on = !pfToEndRow.classList.contains("on");
-  pfToEndRow.classList.toggle("on", on);
-  await chrome.storage.local.set({ [PREFETCH_TO_END_KEY]: on });
+wheelRow.addEventListener("click", async () => {
+  const on = !wheelRow.classList.contains("on");
+  wheelRow.classList.toggle("on", on);
+  await chrome.storage.local.set({ [WHEEL_NAV_KEY]: on });
 });
 
-// ---- 整頁翻譯「往後預先翻 N 頁」（預設 0 = 關）----
-const PAGE_PREFETCH_KEY = "dmmtPageTranslatePrefetch";
-const ptpCountInput = document.getElementById("ptp-count");
-async function loadPagePrefetchPref() {
-  const s = await chrome.storage.local.get(PAGE_PREFETCH_KEY);
-  ptpCountInput.value = typeof s[PAGE_PREFETCH_KEY] === "number" ? s[PAGE_PREFETCH_KEY] : 10;
+const WHEEL_DIR_KEY = "dmmtWheelDir";
+const wheelDirSel = document.getElementById("wheel-dir");
+async function loadWheelDirPref() {
+  const s = await chrome.storage.local.get(WHEEL_DIR_KEY);
+  wheelDirSel.value = s[WHEEL_DIR_KEY] || "rtl";
 }
-ptpCountInput.addEventListener("change", async () => {
-  let n = Math.round(Number(ptpCountInput.value));
-  if (!Number.isFinite(n)) n = 0;
-  n = Math.min(Math.max(n, 0), 100);
-  ptpCountInput.value = n;
-  await chrome.storage.local.set({ [PAGE_PREFETCH_KEY]: n });
+wheelDirSel.addEventListener("change", async () => {
+  await chrome.storage.local.set({ [WHEEL_DIR_KEY]: wheelDirSel.value });
 });
 
-// ---- 整頁翻譯「翻到完」----
-const PAGE_TO_END_KEY = "dmmtPagePrefetchToEnd";
-const ptpToEndRow = document.getElementById("ptp-toend");
-async function loadPageToEndPref() {
-  const s = await chrome.storage.local.get(PAGE_TO_END_KEY);
-  ptpToEndRow.classList.toggle("on", s[PAGE_TO_END_KEY] === true);
-}
-ptpToEndRow.addEventListener("click", async () => {
-  const on = !ptpToEndRow.classList.contains("on");
-  ptpToEndRow.classList.toggle("on", on);
-  await chrome.storage.local.set({ [PAGE_TO_END_KEY]: on });
+document.getElementById("box-select").addEventListener("click", async () => {
+  const st = await sendCommand("box-select");
+  updateButtons(st);
+  if (st && st.boxActive) window.close(); // 進入框選 → 關 popup 讓使用者去頁面選格子
 });
 
 document.getElementById("auto").addEventListener("click", async () => {
@@ -655,24 +629,35 @@ retryRow.addEventListener("click", async () => {
   await chrome.storage.local.set({ [AUTO_RETRY_KEY]: on });
 });
 
-// ---- Crawler: optional all-sites permission to fetch original cross-origin images ----
+// ---- Crawler: 只對「目前網站」授權去抓跨域原圖（不要求所有網站，商店審核較快）----
 const crawlRow = document.getElementById("set-crawl");
+async function currentSiteOrigins() {
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  try {
+    const u = new URL(tab.url);
+    const parts = u.hostname.split(".");
+    const base = parts.length >= 2 ? parts.slice(-2).join(".") : u.hostname; // 例：nhentai.net
+    return [`*://${base}/*`, `*://*.${base}/*`]; // 含圖片 CDN 子網域（i.nhentai.net 等）
+  } catch { return []; }
+}
 async function loadCrawlPref() {
-  const granted = await chrome.permissions.contains({ origins: ["*://*/*"] }).catch(() => false);
+  const origins = await currentSiteOrigins();
+  const granted = origins.length ? await chrome.permissions.contains({ origins }).catch(() => false) : false;
   crawlRow.classList.toggle("on", granted);
 }
 crawlRow.addEventListener("click", async () => {
+  const origins = await currentSiteOrigins();
+  if (!origins.length) return;
   const currentlyOn = crawlRow.classList.contains("on");
   try {
     if (currentlyOn) {
-      await chrome.permissions.remove({ origins: ["*://*/*"] });
+      await chrome.permissions.remove({ origins });
       crawlRow.classList.remove("on");
     } else {
-      const granted = await chrome.permissions.request({ origins: ["*://*/*"] });
+      const granted = await chrome.permissions.request({ origins });
       crawlRow.classList.toggle("on", granted);
     }
   } catch {
-    // 使用者取消授權，維持原狀。
     loadCrawlPref();
   }
 });
@@ -829,9 +814,8 @@ loadRetryPref();
 loadDebugPref();
 loadCrawlPref();
 loadPrefetchPrefs();
-loadPagePrefetchPref();
-loadPrefetchToEndPref();
-loadPageToEndPref();
+loadWheelPref();
+loadWheelDirPref();
 updateCacheInfo();
 initLang().then(() => {
   loadSettings();

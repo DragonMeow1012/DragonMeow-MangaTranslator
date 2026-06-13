@@ -3,163 +3,139 @@
 <head>
 <meta charset="utf-8">
 <style>
-  body {
-    width: 240px;
-    margin: 0;
-    padding: 12px;
-    background: #0f172a;
-    color: #e2e8f0;
-    font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
-    font-size: 13px;
+  :root{
+    --bg:#0e1626; --card:#1b2842; --card2:#26365a; --line:#2c3a5a;
+    --text:#e6edf7; --muted:#8a98b5;
+    --teal:#2dd4bf; --teal-d:#0f6f66; --gold:#f5c97b; --rose:#fb5e7e;
   }
-  .title-row {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    margin-bottom: 10px;
+  *{ box-sizing:border-box; }
+  body{
+    width:264px; margin:0; padding:12px;
+    background:
+      radial-gradient(140% 60% at 50% -10%, rgba(45,212,191,.06), transparent 60%),
+      var(--bg);
+    color:var(--text);
+    font-family:system-ui,-apple-system,"Segoe UI","Noto Sans TC",sans-serif;
+    font-size:13px;
   }
-  h1 {
-    margin: 0;
-    font-size: 14px;
-    font-weight: 800;
-    color: #5eead4;
+
+  /* ---- Hero header（吉祥物）---- */
+  .hero{
+    margin:-12px -12px 12px; padding:13px 12px;
+    display:flex; align-items:center; gap:10px;
+    background:
+      radial-gradient(120% 130% at 100% 0%, rgba(245,201,123,.20), transparent 55%),
+      linear-gradient(135deg,#1d2c4b,#0e1626 78%);
+    border-bottom:1px solid var(--line);
   }
-  select#lang-select {
-    background: #1e293b;
-    color: #94a3b8;
-    border: 1px solid #334155;
-    border-radius: 6px;
-    font-size: 11px;
-    padding: 2px 4px;
-    cursor: pointer;
+  .hero-logo{
+    width:44px; height:44px; flex:none; border-radius:50%; object-fit:cover;
+    border:2px solid rgba(245,201,123,.75);
+    box-shadow:0 0 0 3px rgba(45,212,191,.16), 0 4px 12px rgba(0,0,0,.45);
+    background:#cdd6c8;
   }
-  button {
-    display: block;
-    width: 100%;
-    margin-bottom: 8px;
-    padding: 9px 12px;
-    border: 0;
-    border-radius: 8px;
-    background: #134e4a;
-    color: #fff;
-    font-size: 13px;
-    font-weight: 700;
-    cursor: pointer;
-    text-align: left;
+  .hero-text{ flex:1 1 auto; min-width:0; line-height:1.14; }
+  .hero-title{
+    font-size:15px; font-weight:900; letter-spacing:.2px;
+    white-space:nowrap;
+    background:linear-gradient(90deg,var(--gold),var(--teal));
+    -webkit-background-clip:text; background-clip:text; color:transparent;
   }
-  button:hover { background: #0f766e; }
-  button.on { background: #be123c; }
-  button.secondary { background: #1e293b; }
-  button.secondary:hover { background: #334155; }
-  .hint { color: #64748b; font-size: 11px; margin: 2px 0 10px; }
-  .settings {
-    margin-top: 4px;
-    padding: 8px 10px;
-    border-radius: 8px;
-    background: #1e293b;
-    line-height: 1.6;
-    font-size: 12px;
-    margin-bottom: 8px;
+  .hero-sub{ font-size:11px; font-weight:700; color:var(--muted); margin-top:1px; }
+  select#lang-select{
+    flex:none; align-self:flex-start;
+    background:rgba(0,0,0,.28); color:var(--text);
+    border:1px solid var(--line); border-radius:7px;
+    font-size:11px; padding:3px 4px; cursor:pointer;
   }
-  .settings b { color: #5eead4; font-weight: 700; }
-  .err { color: #fda4af; margin-top: 8px; font-size: 12px; }
-  .row { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
-  .row label { width: 32px; flex: none; color: #94a3b8; }
-  .row input[type="range"] { flex: 1; }
-  .row input[type="color"] { width: 40px; height: 24px; border: 0; padding: 0; background: none; cursor: pointer; }
-  .row input[type="text"] {
-    flex: 1;
-    padding: 4px 8px;
-    border: 1px solid #334155;
-    border-radius: 6px;
-    background: #0f172a;
-    color: #e2e8f0;
-    font-size: 13px;
+
+  /* ---- 功能分組 ---- */
+  .group{
+    background:rgba(255,255,255,.022); border:1px solid var(--line);
+    border-radius:12px; padding:11px 10px 4px; margin-bottom:11px;
   }
-  .switch-row {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 8px;
-    margin-bottom: 8px;
-    padding: 9px 12px;
-    border-radius: 8px;
-    background: #1e293b;
-    font-weight: 700;
-    cursor: pointer;
-    user-select: none;
+  .group-title{
+    font-size:10px; font-weight:800; letter-spacing:1.2px; color:var(--muted);
+    margin:1px 2px 9px; display:flex; align-items:center; gap:7px;
   }
-  .switch-row:hover { background: #334155; }
-  .switch {
-    flex: none;
-    width: 36px;
-    height: 20px;
-    border-radius: 10px;
-    background: #475569;
-    position: relative;
-    transition: background 0.15s;
+  .group-title::before{
+    content:""; width:3px; height:11px; border-radius:2px;
+    background:linear-gradient(var(--gold),var(--teal));
   }
-  .switch .knob {
-    position: absolute;
-    top: 2px;
-    left: 2px;
-    width: 16px;
-    height: 16px;
-    border-radius: 50%;
-    background: #e2e8f0;
-    transition: left 0.15s;
+  .group > :last-child{ margin-bottom:2px; }
+
+  /* ---- Buttons ---- */
+  button{
+    display:block; width:100%; margin-bottom:8px; padding:10px 13px;
+    border:0; border-radius:10px; cursor:pointer; text-align:left;
+    font-size:13px; font-weight:700; color:#fff;
+    background:linear-gradient(135deg,#127a70,#0e5b53);
+    transition:filter .12s, transform .06s;
   }
-  .switch-row.on .switch { background: #14b8a6; }
-  .switch-row.on .switch .knob { left: 18px; }
-  .server-status {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    font-size: 12px;
-    margin-bottom: 6px;
+  button:hover{ filter:brightness(1.13); }
+  button:active{ transform:translateY(1px); }
+  button.on{ background:linear-gradient(135deg,var(--rose),#c8113f); }
+  button.secondary{ background:var(--card); color:var(--text); font-weight:600; }
+  button.secondary:hover{ background:var(--card2); filter:none; }
+
+  .hint{ color:var(--muted); font-size:11px; margin:-3px 0 10px; padding:0 2px; line-height:1.45; }
+
+  /* ---- Switch rows ---- */
+  .switch-row{
+    display:flex; align-items:center; justify-content:space-between; gap:8px;
+    margin-bottom:8px; padding:10px 13px; border-radius:10px;
+    background:var(--card); border:1px solid transparent; font-weight:700;
+    cursor:pointer; user-select:none; transition:background .12s, border-color .12s;
   }
-  .dot {
-    display: inline-block;
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
-    flex: none;
-  }
-  .dot-checking { background: #64748b; }
-  .dot-online  { background: #22c55e; box-shadow: 0 0 4px #22c55e; }
-  .dot-offline { background: #f87171; }
-  .sec-title { color: #5eead4; font-weight: 700; margin: 10px 0 4px; }
-  .field-label { color: #94a3b8; font-size: 11px; margin: 6px 0 2px; }
-  .field {
-    width: 100%;
-    box-sizing: border-box;
-    padding: 6px 8px;
-    border: 1px solid #334155;
-    border-radius: 6px;
-    background: #0f172a;
-    color: #e2e8f0;
-    font-size: 13px;
-  }
-  .field-row { display: flex; gap: 6px; }
-  .field-row .field { flex: 1; }
-  .field-row .icon-btn {
-    flex: none; width: 34px; margin: 0; padding: 0;
-    background: #334155; font-size: 14px; text-align: center;
-  }
-  .switch-row.small { padding: 7px 10px; font-weight: 600; font-size: 12px; margin: 8px 0 0; }
-  #set-save { margin-top: 10px; background: #0f766e; }
-  #set-save:hover { background: #14b8a6; }
-  #set-status { display: block; font-size: 11px; color: #5eead4; margin-top: 4px; min-height: 14px; }
-  .badge {
-    display: inline-block; font-size: 9px; font-weight: 800;
-    background: #be123c; color: #fff; border-radius: 4px;
-    padding: 1px 4px; margin-left: 4px; vertical-align: middle;
+  .switch-row:hover{ background:var(--card2); }
+  .switch-row.on{ border-color:rgba(45,212,191,.45); }
+  .switch{ flex:none; width:38px; height:21px; border-radius:11px; background:#3b4a6b; position:relative; transition:background .15s; }
+  .switch .knob{ position:absolute; top:2px; left:2px; width:17px; height:17px; border-radius:50%; background:#e6edf7; transition:left .15s; box-shadow:0 1px 2px rgba(0,0,0,.4); }
+  .switch-row.on .switch{ background:var(--teal); }
+  .switch-row.on .switch .knob{ left:19px; }
+  .switch-row.small{ padding:8px 11px; font-weight:600; font-size:12px; margin:8px 0 0; background:rgba(255,255,255,.04); }
+  .switch-row.small:hover{ background:rgba(255,255,255,.08); }
+
+  /* ---- Rows / fields ---- */
+  .row{ display:flex; align-items:center; gap:8px; margin-top:6px; }
+  .row label{ width:32px; flex:none; color:var(--muted); letter-spacing:.2px; }
+  .row input[type="range"]{ flex:1; accent-color:var(--teal); }
+  .row input[type="color"]{ width:40px; height:24px; border:0; padding:0; background:none; cursor:pointer; }
+  .row input[type="text"]{ flex:1; padding:5px 8px; border:1px solid var(--line); border-radius:7px; background:#0c1322; color:var(--text); font-size:13px; }
+  .field{ width:100%; box-sizing:border-box; padding:7px 9px; border:1px solid var(--line); border-radius:7px; background:#0c1322; color:var(--text); font-size:13px; }
+  .field:focus, .row input:focus{ outline:none; border-color:var(--teal); }
+  .field-label{ color:var(--muted); font-size:11px; margin:6px 0 2px; letter-spacing:.2px; }
+  .field-row{ display:flex; gap:6px; }
+  .field-row .field{ flex:1; }
+  .field-row .icon-btn{ flex:none; width:36px; margin:0; padding:0; background:var(--card2); font-size:14px; text-align:center; }
+
+  /* ---- Settings / misc ---- */
+  .settings{ margin:0 0 11px; padding:11px 11px 6px; border-radius:12px; background:var(--card); border:1px solid var(--line); line-height:1.6; font-size:12px; }
+  .settings > b{ display:block; color:var(--teal); font-weight:800; margin:0 0 4px; }
+  .err{ color:#fca5b5; margin-top:8px; font-size:12px; }
+  .server-status{ display:flex; align-items:center; gap:6px; font-size:12px; margin-bottom:8px; color:var(--muted); }
+  .dot{ display:inline-block; width:9px; height:9px; border-radius:50%; flex:none; }
+  .dot-checking{ background:#64748b; }
+  .dot-online{ background:#34d399; box-shadow:0 0 6px #34d399; }
+  .dot-offline{ background:#fb7185; }
+  .sec-title{ color:var(--teal); font-weight:800; font-size:12px; letter-spacing:.3px; margin:12px 0 5px; }
+  #set-save{ margin-top:10px; background:linear-gradient(135deg,var(--teal),#0f8a7e); }
+  #set-save:hover{ filter:brightness(1.1); }
+  #set-status{ display:block; font-size:11px; color:var(--teal); margin-top:4px; min-height:14px; }
+  .badge{
+    display:inline-block; font-size:9px; font-weight:800;
+    background:linear-gradient(135deg,var(--gold),#e0a23c); color:#3a2a06;
+    border-radius:5px; padding:1px 5px; margin-left:5px; vertical-align:middle;
   }
 </style>
 </head>
 <body>
-  <div class="title-row">
-    <h1>DragonMeow MangaTranslator</h1>
+  <div class="hero">
+    <img class="hero-logo" src="icons/mascot.jpg" alt="DragonMeow">
+    <div class="hero-text">
+      <div class="hero-title">DragonMeow</div>
+      <div class="hero-sub">MangaTranslator</div>
+    </div>
     <select id="lang-select">
       <option value="zht">繁中</option>
       <option value="zhs">簡中</option>
@@ -167,55 +143,72 @@
       <option value="ja">日本語</option>
     </select>
   </div>
-  <button id="enable-bubble"><span id="txt-enable">✨ 啟用翻譯泡泡</span></button>
-  <div class="hint" id="txt-enable-hint">每次進入新網站需重新啟用</div>
-  <button id="pick"><span id="txt-pick">🖼 選取圖片翻譯替換</span></button>
-  <div class="switch-row" id="page">
-    <span id="txt-translate-page">📄 整頁翻譯</span>
-    <span class="switch"><span class="knob"></span></span>
+
+  <div class="group">
+    <div class="group-title" id="grp-translate">翻譯</div>
+    <button id="enable-bubble"><span id="txt-enable">✨ 啟用翻譯泡泡</span></button>
+    <div class="hint" id="txt-enable-hint">每次進入新網站需重新啟用</div>
+    <button id="pick"><span id="txt-pick">🖼 選取圖片翻譯替換</span></button>
+    <div class="switch-row" id="page">
+      <span id="txt-translate-page">📄 整頁翻譯</span>
+      <span class="switch"><span class="knob"></span></span>
+    </div>
+    <div class="hint" id="txt-tp-hint">適用於下拉式長條漫畫；翻完持續監看新載入內容</div>
+    <div class="switch-row" id="auto">
+      <span id="txt-auto">🔁 頁碼翻譯（翻頁自動翻）</span>
+      <span class="switch"><span class="knob"></span></span>
+    </div>
+    <div class="hint" id="txt-auto-hint">適用於每頁一個連續網址</div>
+    <div id="prefetch-opts" style="display:none">
+      <div class="switch-row small" id="pf-notify" style="margin-top:4px">
+        <span id="txt-pf-notify">顯示翻譯進度</span>
+        <span class="switch"><span class="knob"></span></span>
+      </div>
+    </div>
   </div>
-  <div class="hint" id="txt-tp-hint">適用於下拉式長條漫畫；翻完持續監看新載入內容</div>
-  <div id="page-opts" style="display:none">
+
+  <div class="group">
+    <div class="group-title" id="grp-view">檢視 / 原圖</div>
+    <div class="switch-row small" id="set-crawl" style="margin-top:0">
+      <span id="txt-crawl">🕷 原圖抓取（圖排版異常時使用）</span>
+      <span class="switch"><span class="knob"></span></span>
+    </div>
+    <div class="hint" id="txt-crawl-hint">需授權存取「目前網站」，才能抓到原始解析度</div>
+    <button id="view" class="secondary"><span id="txt-view">👁 顯示原圖</span></button>
+  </div>
+
+  <div class="group">
+    <div class="group-title" id="grp-output">下載 / 清除</div>
+    <button id="download-current" class="secondary"><span id="txt-download-current">⬇ 下載此頁翻譯圖</span></button>
+    <button id="download-all" class="secondary"><span id="txt-download-all">⬇ 下載所有翻譯圖（zip）</span></button>
+    <button id="clear-current" class="secondary"><span id="txt-clear-current">🧹 清除翻譯</span></button>
+    <button id="clear-all" class="secondary"><span id="txt-clear-all">🗑 清除所有翻譯</span></button>
+    <div class="hint" id="cache-info">　</div>
+    <div class="hint" id="txt-hint">　</div>
+  </div>
+
+  <div class="group">
+    <div class="group-title" id="grp-exp">🧪 實驗功能</div>
+    <div class="switch-row" id="box-select">
+      <span id="txt-box">🧩 合併翻譯（分割/打散防盜用）</span>
+      <span class="switch"><span class="knob"></span></span>
+    </div>
+    <div class="hint" id="txt-box-hint">把被拆分的漫畫格子一塊塊框起來，合併成一張一起翻譯（cmoa 等防盜站適用）；框選位置會記住，之後每換一頁點「譯」泡泡即可重翻同位置。<br>⚠️ 請一頁翻完再翻下一頁，否則頁碼會對不上；亂掉時清除翻譯重來即可。</div>
+    <div class="switch-row small" id="set-wheel">
+      <span id="txt-wheel">🖱 滾輪翻頁（配合合併翻譯）</span>
+      <span class="switch"><span class="knob"></span></span>
+    </div>
     <div class="row" style="margin-top:4px">
-      <label id="txt-ptp-count" for="ptp-count" style="width:auto;flex:none">預先翻譯頁數</label>
-      <input type="number" id="ptp-count" min="0" max="100" step="1" class="field" style="width:64px;flex:none">
+      <label id="txt-wheel-dir" for="wheel-dir" style="width:auto;flex:none">翻頁方向</label>
+      <select id="wheel-dir" class="field" style="flex:1">
+        <option value="rtl">右到左（日漫）</option>
+        <option value="ltr">左到右</option>
+        <option value="vertical">上下</option>
+      </select>
     </div>
-    <div class="switch-row small" id="ptp-toend">
-      <span id="txt-ptp-toend">翻到完（不停直到整本翻完）</span>
-      <span class="switch"><span class="knob"></span></span>
-    </div>
+    <div class="hint" id="txt-wheel-hint">滾輪往下＝下一張、往上＝上一張（被鎖住無法捲動的閱讀器用）</div>
   </div>
-  <div class="switch-row" id="auto">
-    <span><span id="txt-auto">🔁 頁碼翻譯（翻頁自動翻）</span><span class="badge">BETA</span></span>
-    <span class="switch"><span class="knob"></span></span>
-  </div>
-  <div class="hint" id="txt-auto-hint">適用於每頁一個連續網址</div>
-  <div id="prefetch-opts" style="display:none">
-    <div class="row" style="margin-top:4px">
-      <label id="txt-pf-count" for="pf-count" style="width:auto;flex:none">預先翻譯頁數</label>
-      <input type="number" id="pf-count" min="0" max="100" step="1" class="field" style="width:64px;flex:none">
-    </div>
-    <div class="switch-row small" id="pf-toend">
-      <span id="txt-pf-toend">翻到完（不停直到整本翻完）</span>
-      <span class="switch"><span class="knob"></span></span>
-    </div>
-    <div class="switch-row small" id="pf-notify">
-      <span id="txt-pf-notify">預抓完成提示</span>
-      <span class="switch"><span class="knob"></span></span>
-    </div>
-  </div>
-  <div class="switch-row small" id="set-crawl">
-    <span id="txt-crawl">🕷 原圖抓取（圖排版異常時使用）</span>
-    <span class="switch"><span class="knob"></span></span>
-  </div>
-  <div class="hint" id="txt-crawl-hint">需授權存取所有網站，才能抓到原始解析度</div>
-  <button id="view" class="secondary"><span id="txt-view">👁 顯示原圖</span></button>
-  <button id="download-current" class="secondary"><span id="txt-download-current">⬇ 下載此頁翻譯圖</span></button>
-  <button id="download-all" class="secondary"><span id="txt-download-all">⬇ 下載所有翻譯圖（zip）</span></button>
-  <button id="clear-current" class="secondary"><span id="txt-clear-current">🧹 清除翻譯</span></button>
-  <button id="clear-all" class="secondary"><span id="txt-clear-all">🗑 清除所有翻譯</span></button>
-  <div class="hint" id="cache-info">　</div>
-  <div class="hint" id="txt-hint">　</div>
+
   <div class="settings">
     <b id="txt-bubble-title">泡泡個性化</b>
     <div class="row">

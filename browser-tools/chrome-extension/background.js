@@ -379,9 +379,13 @@ function sleep(ms) {
 const FETCH_IMG_RULE_ID = 9911;
 async function fetchOriginalImage(url, referer) {
   if (!url) throw new Error("缺少圖片網址");
-  // 必須先取得該網址的主機權限（使用者在 popup 授權「原圖抓取」）。
-  const granted = await chrome.permissions.contains({ origins: ["*://*/*"] }).catch(() => false);
-  if (!granted) throw new Error("尚未授權原圖抓取");
+  // 必須先取得「該圖片網域」的主機權限（使用者在 popup 對目前網站授權「原圖抓取」）。
+  let originPattern = "";
+  try { const u = new URL(url); originPattern = `${u.protocol}//${u.hostname}/*`; } catch {}
+  const granted = originPattern
+    ? await chrome.permissions.contains({ origins: [originPattern] }).catch(() => false)
+    : false;
+  if (!granted) throw new Error("尚未授權原圖抓取（請在目前網站開啟「原圖抓取」）");
 
   let host = "";
   try { host = new URL(url).hostname; } catch {}

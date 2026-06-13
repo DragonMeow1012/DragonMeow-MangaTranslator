@@ -148,6 +148,26 @@
   box-shadow: 0 6px 18px rgba(15, 23, 42, 0.22);
 }
 
+.dmmt-ext-selbox {
+  position: fixed;
+  z-index: 2147483647;
+  pointer-events: none;
+  border: 3px solid #f5c97b;
+  background: rgba(245, 201, 123, 0.10);
+}
+.dmmt-ext-selbox::before {
+  content: attr(data-n);
+  position: absolute;
+  top: 0;
+  left: 0;
+  background: #f5c97b;
+  color: #3a2a06;
+  font-size: 13px;
+  font-weight: 900;
+  padding: 1px 8px;
+  border-radius: 0 0 8px 0;
+}
+
 .dmmt-ext-result {
   position: fixed;
   z-index: 2147483647;
