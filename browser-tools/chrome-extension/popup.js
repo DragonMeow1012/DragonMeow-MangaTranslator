@@ -60,6 +60,19 @@ const I18N = {
     errFail: "操作失敗：",
     apiSet: "已設定", apiUnset: "未設定",
     targetLang: "目標語言",
+    grpTranslate: "翻譯",
+    grpView: "檢視 / 原圖",
+    grpOutput: "下載 / 清除",
+    grpExp: "🧪 實驗功能",
+    autoLockHint: "⚠ 需先開啟下方「🕷 原圖抓取」才能用頁碼翻譯（它要爬後面幾頁的圖）",
+    box: "🧩 合併翻譯（分割/打散防盜用）",
+    boxHint: "把被拆分的漫畫格子一塊塊框起來，合併成一張一起翻譯（cmoa 等防盜站適用）；框選位置會記住，之後每換一頁點「譯」泡泡即可重翻同位置。<br>⚠️ 請一頁翻完再翻下一頁，否則頁碼會對不上；亂掉時清除翻譯重來即可。",
+    wheel: "🖱 滾輪翻頁（配合合併翻譯）",
+    wheelDir: "翻頁方向",
+    wheelRtl: "右到左（日漫）",
+    wheelLtr: "左到右",
+    wheelVert: "上下",
+    wheelHint: "滾輪往下＝下一張、往上＝上一張（被鎖住無法捲動的閱讀器用）",
   },
   zhs: {
     auto: "🔁 页码翻译（翻页自动翻）",
@@ -120,6 +133,19 @@ const I18N = {
     errFail: "操作失败：",
     apiSet: "已设置", apiUnset: "未设置",
     targetLang: "目标语言",
+    grpTranslate: "翻译",
+    grpView: "查看 / 原图",
+    grpOutput: "下载 / 清除",
+    grpExp: "🧪 实验功能",
+    autoLockHint: "⚠ 需先开启下方「🕷 原图抓取」才能用页码翻译（它要爬后面几页的图）",
+    box: "🧩 合并翻译（分割/打散防盗用）",
+    boxHint: "把被拆分的漫画格子一块块框起来，合并成一张一起翻译（cmoa 等防盗站适用）；框选位置会记住，之后每换一页点「译」气泡即可重翻同位置。<br>⚠️ 请一页翻完再翻下一页，否则页码会对不上；乱掉时清除翻译重来即可。",
+    wheel: "🖱 滚轮翻页（配合合并翻译）",
+    wheelDir: "翻页方向",
+    wheelRtl: "右到左（日漫）",
+    wheelLtr: "左到右",
+    wheelVert: "上下",
+    wheelHint: "滚轮向下＝下一张、向上＝上一张（被锁住无法滚动的阅读器用）",
   },
   en: {
     auto: "🔁 Page-by-page (auto on turn)",
@@ -180,6 +206,19 @@ const I18N = {
     errFail: "Error: ",
     apiSet: "Set", apiUnset: "Not set",
     targetLang: "Target lang",
+    grpTranslate: "Translate",
+    grpView: "View / Original",
+    grpOutput: "Download / Clear",
+    grpExp: "🧪 Experimental",
+    autoLockHint: "⚠ Enable 「🕷 Fetch original」 below first to use page-by-page (it crawls the next pages' images)",
+    box: "🧩 Merge translate (split / scattered anti-piracy)",
+    boxHint: "Box the split manga panels one by one and merge them into a single image to translate together (for anti-piracy sites like cmoa). The boxed region is remembered—on each new page just click the 「譯」 bubble to re-translate the same spot.<br>⚠️ Finish one page before the next, or page numbers desync; if it gets messy, clear translations and redo.",
+    wheel: "🖱 Wheel page-turn (with merge translate)",
+    wheelDir: "Page direction",
+    wheelRtl: "Right to left (manga)",
+    wheelLtr: "Left to right",
+    wheelVert: "Vertical",
+    wheelHint: "Wheel down = next, up = previous (for readers that lock scrolling)",
   },
   ja: {
     auto: "🔁 ページ送り翻訳（自動）",
@@ -240,6 +279,19 @@ const I18N = {
     errFail: "エラー：",
     apiSet: "設定済み", apiUnset: "未設定",
     targetLang: "翻訳先言語",
+    grpTranslate: "翻訳",
+    grpView: "表示 / 原画像",
+    grpOutput: "ダウンロード / 消去",
+    grpExp: "🧪 実験的機能",
+    autoLockHint: "⚠ ページ送り翻訳には下の「🕷 原画像取得」を先に有効化してください（次のページの画像を取得します）",
+    box: "🧩 結合翻訳（分割・分散コピー対策用）",
+    boxHint: "分割されたコマを1つずつ枠で囲み、1枚に結合してまとめて翻訳します（cmoa などの対策サイト向け）。枠の位置は記憶され、ページを変えるたびに「譯」バブルを押せば同じ位置を再翻訳できます。<br>⚠️ 1ページずつ翻訳してください（ページ番号がずれます）。乱れたら翻訳を消去してやり直してください。",
+    wheel: "🖱 ホイールでページ送り（結合翻訳と併用）",
+    wheelDir: "ページ送り方向",
+    wheelRtl: "右から左（漫画）",
+    wheelLtr: "左から右",
+    wheelVert: "上下",
+    wheelHint: "ホイール下＝次、上＝前（スクロールがロックされたビューア用）",
   }
 };
 
@@ -295,6 +347,20 @@ function applyLang() {
   document.getElementById("txt-sec-out").textContent = t("secOut");
   document.getElementById("txt-targetlang").textContent = t("fTargetlang");
   document.getElementById("txt-save").textContent = t("save");
+  // 分組標題 + 實驗功能（先前漏譯，補上四語）
+  document.getElementById("grp-translate").textContent = t("grpTranslate");
+  document.getElementById("grp-view").textContent = t("grpView");
+  document.getElementById("grp-output").textContent = t("grpOutput");
+  document.getElementById("grp-exp").textContent = t("grpExp");
+  document.getElementById("auto-lock-hint").textContent = t("autoLockHint");
+  document.getElementById("txt-box").textContent = t("box");
+  document.getElementById("txt-box-hint").innerHTML = t("boxHint");
+  document.getElementById("txt-wheel").textContent = t("wheel");
+  document.getElementById("txt-wheel-dir").textContent = t("wheelDir");
+  document.getElementById("txt-wheel-hint").textContent = t("wheelHint");
+  document.querySelector('#wheel-dir option[value="rtl"]').textContent = t("wheelRtl");
+  document.querySelector('#wheel-dir option[value="ltr"]').textContent = t("wheelLtr");
+  document.querySelector('#wheel-dir option[value="vertical"]').textContent = t("wheelVert");
   updateViewButton();
   updateEnableButton();
   updateApiKeyPlaceholder();
