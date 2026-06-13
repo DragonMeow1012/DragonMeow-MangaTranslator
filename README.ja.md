@@ -12,11 +12,10 @@
 
 ---
 
-## 3 ステップで開始（Windows）
+## 2 ステップで開始（Windows）
 
-1. **Python をインストール** —— [python.org](https://www.python.org/downloads/) から 3.10 か 3.11 を。インストール時に **Add to PATH** にチェック。
-2. **`setup.bat` をダブルクリック** —— 環境を自動構築（初回は数分かかります）。
-3. **`start.bat` をダブルクリック** —— ブラウザが自動で開くので、**API key を入力**して漫画画像をドラッグすれば翻訳開始。
+1. **`setup.bat` をダブルクリック** —— 環境を自動構築（初回は数分かかります）。**Python のインストール不要**、zip にポータブル版を同梱済み。
+2. **`start.bat` をダブルクリック** —— ブラウザが自動で開くので、**API key を入力**して漫画画像をドラッグすれば翻訳開始。
 
 リリース zip にはモデルがすべて同梱済み。追加ダウンロードは不要です。
 
@@ -96,7 +95,7 @@
 
 ## 必要なもの
 
-- Windows または macOS、Python 3.10 または 3.11
+- Windows または macOS（**Python のインストール不要**、zip にポータブル版を同梱）
 - **NVIDIA GPU か Apple Silicon（M シリーズ）推奨**（なくても動きますが、検出・修復がかなり遅くなります）
 - AI の API key（Gemini は無料枠あり）
 
@@ -116,6 +115,8 @@ setup.bat
 app\.venv\Scripts\python -c "from huggingface_hub import snapshot_download; snapshot_download(repo_id='kha-white/manga-ocr-base')"
 ```
 その他のモデルは初回実行時に自動ダウンロード。zip リリース版は同梱済みで不要です。
+
+> **zip 版は Python のインストール不要**（ポータブル版を同梱）。`git clone` には同梱 Python が含まれないため、自分で Python 3.10–3.12 が必要です（`setup.bat` は同梱 Python が見つからない場合、システムの Python から `.venv` を自動作成します）。
 
 ---
 

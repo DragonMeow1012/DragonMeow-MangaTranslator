@@ -12,11 +12,10 @@ It detects the dialogue, erases the original text, and typesets the translation 
 
 ---
 
-## Get started in three steps (Windows)
+## Get started in two steps (Windows)
 
-1. **Install Python** — get 3.10 or 3.11 from [python.org](https://www.python.org/downloads/), and check **Add to PATH** during install.
-2. **Double-click `setup.bat`** — sets up the environment automatically (takes a few minutes the first time).
-3. **Double-click `start.bat`** — your browser opens the UI automatically. **Enter an API key** there, then drag a manga page in and it starts translating.
+1. **Double-click `setup.bat`** — sets up the environment automatically (takes a few minutes the first time). **No Python install needed** — a portable build is bundled in the zip.
+2. **Double-click `start.bat`** — your browser opens the UI automatically. **Enter an API key** there, then drag a manga page in and it starts translating.
 
 The release zip already bundles all models — nothing extra to download.
 
@@ -96,7 +95,7 @@ The 4-koma being edited above comes out like this:
 
 ## Requirements
 
-- Windows or macOS, Python 3.10 or 3.11
+- Windows or macOS (**no Python install needed** — a portable build is bundled in the zip)
 - An **NVIDIA GPU or Apple Silicon (M-series) is recommended** (works without one, but detection/inpainting will be slow)
 - An AI API key (Gemini has a free tier)
 
@@ -116,6 +115,8 @@ setup.bat
 app\.venv\Scripts\python -c "from huggingface_hub import snapshot_download; snapshot_download(repo_id='kha-white/manga-ocr-base')"
 ```
 Other model weights download automatically on first run; the zip release bundles everything.
+
+> **The zip needs no Python install** (a portable build is bundled). A `git clone` does **not** include the bundled Python, so you need your own Python 3.10–3.12 — when `setup.bat` finds no bundled Python it falls back to building a `.venv` from your system Python.
 
 ---
 

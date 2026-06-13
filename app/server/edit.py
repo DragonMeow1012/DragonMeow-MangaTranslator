@@ -15,7 +15,7 @@ import numpy as np
 from PIL import Image
 from pydantic import BaseModel
 
-from manga_translator.rendering import dispatch as dispatch_rendering
+from manga_translator.rendering import dispatch as dispatch_rendering, _separate_close_regions
 
 
 def _hex_to_rgb(value: str):
@@ -380,6 +380,11 @@ async def rerender(result_root, folder: str, edits: list[RegionEdit],
             region = _build_custom_region(c, sx, sy, target_lang)
             if region is not None:
                 render_regions.append(region)
+
+    # 進階編輯也套用「譯文防重疊分離」：兩塊譯文太接近時縮小較大字級、把中心稍微推開。
+    # 自動翻譯是在 resize_regions_to_font_size 內做，但這裡用 skip_font_scaling=True 會跳過它，
+    # 所以在 render 前手動套一次，行為與自動模式一致（位移有 12px 上限，仍貼在抹字背景內）。
+    _separate_close_regions(render_regions)
 
     output = await dispatch_rendering(
         base, render_regions, config, img_rgb, skip_font_scaling=True,

@@ -12,11 +12,10 @@
 
 ---
 
-## 三步开始用（Windows）
+## 两步开始用（Windows）
 
-1. **装 Python** —— 到 [python.org](https://www.python.org/downloads/) 下载 3.10 或 3.11，安装时记得勾 **Add to PATH**。
-2. **双击 `setup.bat`** —— 自动装好环境（第一次要等几分钟）。
-3. **双击 `start.bat`** —— 浏览器会自动打开界面，在上面**填一组 API key**，再把漫画图拖进去就开始翻。
+1. **双击 `setup.bat`** —— 自动装好环境（第一次要等几分钟）。**免装 Python**，压缩包已内附便携版。
+2. **双击 `start.bat`** —— 浏览器会自动打开界面，在上面**填一组 API key**，再把漫画图拖进去就开始翻。
 
 下载的压缩包已内附所有模型，不用另外下载。
 
@@ -96,7 +95,7 @@
 
 ## 需要什么
 
-- Windows 或 macOS、Python 3.10 或 3.11
+- Windows 或 macOS（**免装 Python**，压缩包已内附便携版）
 - **建议有 NVIDIA 显卡或 Apple Silicon（M 系列）**（没有也能跑，但检测/抹字会很慢）
 - 一组 AI API key（Gemini 有免费额度）
 
@@ -116,6 +115,8 @@ setup.bat
 app\.venv\Scripts\python -c "from huggingface_hub import snapshot_download; snapshot_download(repo_id='kha-white/manga-ocr-base')"
 ```
 其余模型权重首次运行会自动下载；zip release 版已内附、免下载。
+
+> **zip 版免装 Python**（已内附便携版）；`git clone` 因不含内附 Python，需自备 Python 3.10–3.12，`setup.bat` 检测不到内附版时会自动用系统 Python 创建 `.venv`。
 
 ---
 
