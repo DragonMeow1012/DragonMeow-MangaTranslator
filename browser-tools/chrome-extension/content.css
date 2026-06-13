@@ -1,0 +1,188 @@
+#dmmt-ext-root {
+  position: fixed;
+  inset: 0;
+  z-index: 2147483647;
+  pointer-events: none;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+#dmmt-ext-root.dmmt-ext-capture-hidden {
+  visibility: hidden !important;
+}
+
+.dmmt-ext-button {
+  position: fixed;
+  z-index: 2147483647;
+  pointer-events: auto;
+  border: 0;
+  border-radius: 50%;
+  width: var(--dmmt-bubble-size, 48px);
+  height: var(--dmmt-bubble-size, 48px);
+  padding: 0;
+  background: var(--dmmt-bubble-bg, #0f766e);
+  color: #fff;
+  font-size: calc(var(--dmmt-bubble-size, 48px) * 0.36);
+  font-weight: 700;
+  line-height: var(--dmmt-bubble-size, 48px);
+  text-align: center;
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.25);
+  cursor: grab;
+  user-select: none;
+  touch-action: none;
+  opacity: 0.88;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.dmmt-ext-button:hover {
+  opacity: 1;
+}
+
+.dmmt-ext-button.dmmt-ext-dragging {
+  cursor: grabbing;
+  opacity: 1;
+}
+
+.dmmt-ext-button.dmmt-ext-active {
+  background: #be123c;
+}
+.dmmt-ext-status {
+  position: fixed;
+  left: 50%;
+  top: 86px;
+  transform: translateX(-50%);
+  max-width: min(680px, calc(100vw - 32px));
+  z-index: 2147483647;
+  pointer-events: none;
+  border-radius: 7px;
+  padding: 10px 14px;
+  background: #111827;
+  color: #fff;
+  font-size: 14px;
+  font-weight: 650;
+  line-height: 1.45;
+  box-shadow: 0 12px 30px rgba(15, 23, 42, 0.28);
+}
+
+.dmmt-ext-progress {
+  position: fixed;
+  left: 0;
+  top: 0;
+  width: 100vw;
+  height: 22px;
+  z-index: 2147483647;
+  pointer-events: none;
+  background: rgba(17, 24, 39, 0.78);
+  overflow: hidden;
+}
+
+.dmmt-ext-progress-track {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 100%;
+  height: 4px;
+  background: rgba(255, 255, 255, 0.18);
+}
+
+.dmmt-ext-progress-bar {
+  position: absolute;
+  left: -35%;
+  top: 0;
+  width: 35%;
+  height: 100%;
+  background: #14b8a6;
+  animation: dmmt-ext-progress-slide 1.05s ease-in-out infinite;
+}
+
+.dmmt-ext-progress-text {
+  position: absolute;
+  left: 10px;
+  top: 5px;
+  color: #fff;
+  font-size: 11px;
+  line-height: 14px;
+  font-weight: 700;
+}
+
+@keyframes dmmt-ext-progress-slide {
+  0% {
+    transform: translateX(0);
+  }
+  50% {
+    transform: translateX(230vw);
+  }
+  100% {
+    transform: translateX(230vw);
+  }
+}
+
+.dmmt-ext-pick-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 2147483646;
+  pointer-events: auto;
+  cursor: pointer;
+  background: transparent;
+}
+
+.dmmt-ext-highlight {
+  position: fixed;
+  z-index: 2147483647;
+  pointer-events: none;
+  border: 2px solid #14b8a6;
+  background: rgba(20, 184, 166, 0.14);
+  box-shadow: 0 0 0 9999px rgba(15, 23, 42, 0.22);
+}
+
+.dmmt-ext-label {
+  position: fixed;
+  z-index: 2147483647;
+  pointer-events: none;
+  padding: 4px 7px;
+  border-radius: 6px;
+  background: #0f766e;
+  color: #fff;
+  font-size: 12px;
+  line-height: 1.2;
+  box-shadow: 0 6px 18px rgba(15, 23, 42, 0.22);
+}
+
+.dmmt-ext-result {
+  position: fixed;
+  z-index: 2147483647;
+  pointer-events: none;
+}
+
+.dmmt-ext-result img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: fill;
+  pointer-events: none;
+}
+
+.dmmt-ext-tools {
+  position: absolute;
+  right: 0;
+  top: -36px;
+  display: flex;
+  gap: 6px;
+  pointer-events: auto;
+}
+
+.dmmt-ext-icon {
+  min-width: 34px;
+  height: 30px;
+  border: 0;
+  border-radius: 7px;
+  background: #111827;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.dmmt-ext-hidden {
+  display: none !important;
+}

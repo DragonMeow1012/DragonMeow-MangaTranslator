@@ -1,0 +1,305 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<style>
+  body {
+    width: 240px;
+    margin: 0;
+    padding: 12px;
+    background: #0f172a;
+    color: #e2e8f0;
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+    font-size: 13px;
+  }
+  .title-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 10px;
+  }
+  h1 {
+    margin: 0;
+    font-size: 14px;
+    font-weight: 800;
+    color: #5eead4;
+  }
+  select#lang-select {
+    background: #1e293b;
+    color: #94a3b8;
+    border: 1px solid #334155;
+    border-radius: 6px;
+    font-size: 11px;
+    padding: 2px 4px;
+    cursor: pointer;
+  }
+  button {
+    display: block;
+    width: 100%;
+    margin-bottom: 8px;
+    padding: 9px 12px;
+    border: 0;
+    border-radius: 8px;
+    background: #134e4a;
+    color: #fff;
+    font-size: 13px;
+    font-weight: 700;
+    cursor: pointer;
+    text-align: left;
+  }
+  button:hover { background: #0f766e; }
+  button.on { background: #be123c; }
+  button.secondary { background: #1e293b; }
+  button.secondary:hover { background: #334155; }
+  .hint { color: #64748b; font-size: 11px; margin: 2px 0 10px; }
+  .settings {
+    margin-top: 4px;
+    padding: 8px 10px;
+    border-radius: 8px;
+    background: #1e293b;
+    line-height: 1.6;
+    font-size: 12px;
+    margin-bottom: 8px;
+  }
+  .settings b { color: #5eead4; font-weight: 700; }
+  .err { color: #fda4af; margin-top: 8px; font-size: 12px; }
+  .row { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
+  .row label { width: 32px; flex: none; color: #94a3b8; }
+  .row input[type="range"] { flex: 1; }
+  .row input[type="color"] { width: 40px; height: 24px; border: 0; padding: 0; background: none; cursor: pointer; }
+  .row input[type="text"] {
+    flex: 1;
+    padding: 4px 8px;
+    border: 1px solid #334155;
+    border-radius: 6px;
+    background: #0f172a;
+    color: #e2e8f0;
+    font-size: 13px;
+  }
+  .switch-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 8px;
+    padding: 9px 12px;
+    border-radius: 8px;
+    background: #1e293b;
+    font-weight: 700;
+    cursor: pointer;
+    user-select: none;
+  }
+  .switch-row:hover { background: #334155; }
+  .switch {
+    flex: none;
+    width: 36px;
+    height: 20px;
+    border-radius: 10px;
+    background: #475569;
+    position: relative;
+    transition: background 0.15s;
+  }
+  .switch .knob {
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: #e2e8f0;
+    transition: left 0.15s;
+  }
+  .switch-row.on .switch { background: #14b8a6; }
+  .switch-row.on .switch .knob { left: 18px; }
+  .server-status {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    margin-bottom: 6px;
+  }
+  .dot {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    flex: none;
+  }
+  .dot-checking { background: #64748b; }
+  .dot-online  { background: #22c55e; box-shadow: 0 0 4px #22c55e; }
+  .dot-offline { background: #f87171; }
+  .sec-title { color: #5eead4; font-weight: 700; margin: 10px 0 4px; }
+  .field-label { color: #94a3b8; font-size: 11px; margin: 6px 0 2px; }
+  .field {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 6px 8px;
+    border: 1px solid #334155;
+    border-radius: 6px;
+    background: #0f172a;
+    color: #e2e8f0;
+    font-size: 13px;
+  }
+  .field-row { display: flex; gap: 6px; }
+  .field-row .field { flex: 1; }
+  .field-row .icon-btn {
+    flex: none; width: 34px; margin: 0; padding: 0;
+    background: #334155; font-size: 14px; text-align: center;
+  }
+  .switch-row.small { padding: 7px 10px; font-weight: 600; font-size: 12px; margin: 8px 0 0; }
+  #set-save { margin-top: 10px; background: #0f766e; }
+  #set-save:hover { background: #14b8a6; }
+  #set-status { display: block; font-size: 11px; color: #5eead4; margin-top: 4px; min-height: 14px; }
+  .badge {
+    display: inline-block; font-size: 9px; font-weight: 800;
+    background: #be123c; color: #fff; border-radius: 4px;
+    padding: 1px 4px; margin-left: 4px; vertical-align: middle;
+  }
+</style>
+</head>
+<body>
+  <div class="title-row">
+    <h1>DragonMeow MangaTranslator</h1>
+    <select id="lang-select">
+      <option value="zht">繁中</option>
+      <option value="zhs">簡中</option>
+      <option value="en">EN</option>
+      <option value="ja">日本語</option>
+    </select>
+  </div>
+  <button id="enable-bubble"><span id="txt-enable">✨ 啟用翻譯泡泡</span></button>
+  <div class="hint" id="txt-enable-hint">每次進入新網站需重新啟用</div>
+  <button id="pick"><span id="txt-pick">🖼 選取圖片翻譯替換</span></button>
+  <div class="switch-row" id="page">
+    <span id="txt-translate-page">📄 整頁翻譯</span>
+    <span class="switch"><span class="knob"></span></span>
+  </div>
+  <div class="hint" id="txt-tp-hint">適用於下拉式長條漫畫；翻完持續監看新載入內容</div>
+  <div id="page-opts" style="display:none">
+    <div class="row" style="margin-top:4px">
+      <label id="txt-ptp-count" for="ptp-count" style="width:auto;flex:none">預先翻譯頁數</label>
+      <input type="number" id="ptp-count" min="0" max="100" step="1" class="field" style="width:64px;flex:none">
+    </div>
+    <div class="switch-row small" id="ptp-toend">
+      <span id="txt-ptp-toend">翻到完（不停直到整本翻完）</span>
+      <span class="switch"><span class="knob"></span></span>
+    </div>
+  </div>
+  <div class="switch-row" id="auto">
+    <span><span id="txt-auto">🔁 頁碼翻譯（翻頁自動翻）</span><span class="badge">BETA</span></span>
+    <span class="switch"><span class="knob"></span></span>
+  </div>
+  <div class="hint" id="txt-auto-hint">適用於每頁一個連續網址</div>
+  <div id="prefetch-opts" style="display:none">
+    <div class="row" style="margin-top:4px">
+      <label id="txt-pf-count" for="pf-count" style="width:auto;flex:none">預先翻譯頁數</label>
+      <input type="number" id="pf-count" min="0" max="100" step="1" class="field" style="width:64px;flex:none">
+    </div>
+    <div class="switch-row small" id="pf-toend">
+      <span id="txt-pf-toend">翻到完（不停直到整本翻完）</span>
+      <span class="switch"><span class="knob"></span></span>
+    </div>
+    <div class="switch-row small" id="pf-notify">
+      <span id="txt-pf-notify">預抓完成提示</span>
+      <span class="switch"><span class="knob"></span></span>
+    </div>
+  </div>
+  <div class="switch-row small" id="set-crawl">
+    <span id="txt-crawl">🕷 原圖抓取（圖排版異常時使用）</span>
+    <span class="switch"><span class="knob"></span></span>
+  </div>
+  <div class="hint" id="txt-crawl-hint">需授權存取所有網站，才能抓到原始解析度</div>
+  <button id="view" class="secondary"><span id="txt-view">👁 顯示原圖</span></button>
+  <button id="download-current" class="secondary"><span id="txt-download-current">⬇ 下載此頁翻譯圖</span></button>
+  <button id="download-all" class="secondary"><span id="txt-download-all">⬇ 下載所有翻譯圖（zip）</span></button>
+  <button id="clear-current" class="secondary"><span id="txt-clear-current">🧹 清除翻譯</span></button>
+  <button id="clear-all" class="secondary"><span id="txt-clear-all">🗑 清除所有翻譯</span></button>
+  <div class="hint" id="cache-info">　</div>
+  <div class="hint" id="txt-hint">　</div>
+  <div class="settings">
+    <b id="txt-bubble-title">泡泡個性化</b>
+    <div class="row">
+      <label for="bubble-size" id="txt-size">大小</label>
+      <input type="range" id="bubble-size" min="28" max="96" step="2">
+      <span id="bubble-size-value"></span>
+    </div>
+    <div class="row">
+      <label for="bubble-color" id="txt-color">顏色</label>
+      <input type="color" id="bubble-color">
+    </div>
+    <div class="row">
+      <label for="bubble-label" id="txt-text">文字</label>
+      <input type="text" id="bubble-label" maxlength="4" placeholder="譯">
+    </div>
+    <button id="bubble-reset" class="secondary" style="margin:6px 0 0">恢復預設</button>
+  </div>
+  <div class="settings" id="settings">
+    <div id="server-status" class="server-status">
+      <span id="server-dot" class="dot dot-checking"></span>
+      <span id="server-label">偵測中…</span>
+    </div>
+
+    <div class="sec-title" id="txt-sec-ai">翻譯 AI</div>
+    <button id="sync-web" class="secondary" style="margin:0 0 4px"><span id="txt-sync-web">🔄 同步網頁設定</span></button>
+    <span id="sync-web-status" style="display:block;font-size:11px;color:#5eead4;min-height:14px;margin-bottom:4px"></span>
+    <div class="field-label" id="txt-provider">服務商</div>
+    <select class="field" id="set-provider">
+      <option value="gemini">Gemini</option>
+      <option value="openai">ChatGPT (OpenAI)</option>
+      <option value="claude">Claude (Anthropic)</option>
+      <option value="grok">Grok (xAI)</option>
+      <option value="deepseek">DeepSeek</option>
+      <option value="qwen">Qwen (通義千問)</option>
+      <option value="kimi">Kimi (Moonshot)</option>
+      <option value="glm">GLM (智譜)</option>
+      <option value="mistral">Mistral</option>
+      <option value="groq">Groq</option>
+      <option value="openrouter">OpenRouter</option>
+      <option value="custom">自訂 (OpenAI 相容)</option>
+    </select>
+
+    <div class="field-label" id="txt-model">模型</div>
+    <input class="field" id="set-model" type="text" autocomplete="off">
+
+    <div class="field-label" id="txt-apikey">API key</div>
+    <div class="field-row">
+      <input class="field" id="set-apikey" type="password" autocomplete="off">
+      <button class="icon-btn" id="set-apikey-eye" type="button">👁</button>
+    </div>
+
+    <div class="field-label" id="txt-baseurl" style="display:none">Base URL</div>
+    <input class="field" id="set-baseurl" type="text" autocomplete="off" style="display:none">
+
+    <div class="switch-row small" id="set-sendimage">
+      <span id="txt-sendimage">傳圖給 AI 校對</span>
+      <span class="switch"><span class="knob"></span></span>
+    </div>
+    <div class="switch-row small" id="set-retry">
+      <span id="txt-retry">翻譯失敗自動重試</span>
+      <span class="switch"><span class="knob"></span></span>
+    </div>
+    <button id="test-conn" class="secondary" style="margin-top:8px"><span id="txt-test">🔌 測試連接</span></button>
+    <span id="test-status"></span>
+
+    <div class="sec-title" id="txt-sec-out">輸出設定</div>
+    <div class="field-label" id="txt-targetlang">翻譯成</div>
+    <select class="field" id="set-lang">
+      <option value="CHT">繁體中文</option>
+      <option value="CHS">简体中文</option>
+      <option value="ENG">English</option>
+      <option value="JPN">日本語</option>
+    </select>
+
+    <button id="set-save"><span id="txt-save">💾 儲存設定</span></button>
+    <span id="set-status"></span>
+    <button id="open-web" class="secondary" style="margin-top:8px"><span id="txt-open-web">🌐 同步翻譯網站</span></button>
+    <div class="switch-row small" id="set-debug" style="margin-top:8px">
+      <span id="txt-debug">🐞 偵錯：下載送出的圖</span>
+      <span class="switch"><span class="knob"></span></span>
+    </div>
+    <button id="diagnose-cache" class="secondary" style="margin-top:8px"><span id="txt-diagnose">🔍 診斷快取套用</span></button>
+  </div>
+  <div class="err" id="err"></div>
+  <script src="popup.js"></script>
+</body>
+</html>

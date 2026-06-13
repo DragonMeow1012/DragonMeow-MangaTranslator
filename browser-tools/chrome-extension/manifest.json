@@ -1,0 +1,36 @@
+{
+  "manifest_version": 3,
+  "name": "DragonMeow MangaTranslator",
+  "version": "1.3.0",
+  "description": "Translate manga in-place via a local AI server. Pick any image with the bubble, or use Auto mode to translate on each page turn.",
+  "icons": {
+    "16": "icons/16.png",
+    "48": "icons/48.png",
+    "128": "icons/128.png"
+  },
+  "permissions": [
+    "storage",
+    "unlimitedStorage",
+    "activeTab",
+    "scripting",
+    "declarativeNetRequestWithHostAccess"
+  ],
+  "host_permissions": [
+    "http://127.0.0.1:8501/*",
+    "http://localhost:8501/*"
+  ],
+  "optional_host_permissions": [
+    "*://*/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_title": "DragonMeow MangaTranslator",
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icons/16.png",
+      "48": "icons/48.png"
+    }
+  }
+}
