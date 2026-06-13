@@ -99,11 +99,16 @@ async function handleMessage(message, sender) {
 
   if (message?.type === "translate-data-url") {
     const settings = await loadSettings();
-    const r = await translateWithRetry(message.image, settings);
-    return {
-      image: await blobToDataUrl(r.blob),
-      noText: r.noText
-    };
+    _manualActive += 1; // 手動補翻譯插隊：暫停預抓，把伺服器讓給這個請求
+    try {
+      const r = await translateWithRetry(message.image, settings);
+      return {
+        image: await blobToDataUrl(r.blob),
+        noText: r.noText
+      };
+    } finally {
+      _manualActive -= 1;
+    }
   }
 
   if (message?.type === "fetch-server-settings") {
@@ -466,6 +471,7 @@ function abortAllTasks() {
 let _pfActive = 0;
 let _pfDone = 0;
 let _pfTotal = 0;
+let _manualActive = 0; // 手動補翻譯進行中的數量；>0 時預抓暫停讓出伺服器（手動插隊到最上面）
 function notifyPrefetchProgress(tabId) {
   if (tabId == null) return;
   chrome.tabs.sendMessage(tabId, { type: "prefetch-progress", done: _pfDone, total: _pfTotal }).catch(() => {});
@@ -484,6 +490,11 @@ async function prefetchTranslate(items, referer, tabId) {
   try {
     for (let i = 0; i < valid.length; i++) {
       if (_abortGen !== myGen) break; // 使用者中止 → 停止後續預抓
+      // 手動補翻譯插隊：有手動翻譯進行中時暫停預抓，等它做完再繼續（不搶伺服器）。
+      while (_manualActive > 0 && _abortGen === myGen) {
+        await new Promise((r) => setTimeout(r, 120));
+      }
+      if (_abortGen !== myGen) break;
       const item = valid[i];
       // 同步搶占 in-flight 再 await：連續翻頁會各開一批預抓，若 add 在 await 之後，
       // 兩批可能同時搶到同一張 → 重複翻譯。必須先標記、再去查快取/抓圖。
