@@ -81,6 +81,3 @@ app/user_settings.json
 # 打包暫存：裸 python 來源（下載後解壓，用完即刪，勿入庫）
 /_bare_win/
 /_py_*.tar.gz
-
-# 瀏覽器擴充原始碼（Chrome extension / userscript）— 未入庫，加此規則讓 git clean 不會誤刪
-/browser-tools/
