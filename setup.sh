@@ -9,6 +9,11 @@ echo "============================================"
 echo " DragonMeow-MangaTranslator setup (macOS/Linux)"
 echo "============================================"
 
+# macOS：清除下載 zip 帶來的隔離屬性，否則 Gatekeeper 會擋未簽章的內建 Python（執行時直接被 kill）。
+if [ "$(uname)" = "Darwin" ] && [ -d "$ROOT/python" ]; then
+    xattr -dr com.apple.quarantine "$ROOT/python" 2>/dev/null || true
+fi
+
 # 優先用內建可攜式 Python（解壓 portable python 後出現 python/bin/python3），
 # 用戶就不必自己安裝 Python。先確認它真的能執行（架構不符時自動跳過、退回系統 Python）。
 PY=""
