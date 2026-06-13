@@ -2,29 +2,42 @@
 # macOS / Linux 安裝腳本（對應 Windows 的 setup.bat）
 # 用法：在終端機執行  bash setup.sh
 set -e
-cd "$(dirname "$0")/app"
+ROOT="$(cd "$(dirname "$0")" && pwd)"
+cd "$ROOT/app"
 
 echo "============================================"
 echo " DragonMeow-MangaTranslator setup (macOS/Linux)"
 echo "============================================"
 
-# 優先找 3.11 / 3.10（其他版本不保證相容）
+# 優先用內建可攜式 Python（解壓 portable python 後出現 python/bin/python3），
+# 用戶就不必自己安裝 Python。先確認它真的能執行（架構不符時自動跳過、退回系統 Python）。
 PY=""
-for cand in python3.11 python3.10 python3; do
-    if command -v "$cand" >/dev/null 2>&1; then
+# 先試真正的執行檔再試 symlink（避免依賴 symlink 在解壓時是否被還原）
+for cand in "$ROOT/python/bin/python3.12" "$ROOT/python/bin/python3"; do
+    if [ -x "$cand" ] && "$cand" --version >/dev/null 2>&1; then
         PY="$cand"
+        echo "Using bundled portable Python ($("$PY" --version))"
         break
     fi
 done
 if [ -z "$PY" ]; then
-    echo "[ERROR] Python not found. Install Python 3.10 or 3.11 first:"
-    echo "        https://www.python.org/downloads/  (or: brew install python@3.11)"
+    for cand in python3.12 python3.11 python3.10 python3; do
+        if command -v "$cand" >/dev/null 2>&1; then
+            PY="$cand"
+            break
+        fi
+    done
+fi
+if [ -z "$PY" ]; then
+    echo "[ERROR] No Python found. Unzip the portable Python into this folder"
+    echo "        (so that python/bin/python3 exists), or install Python 3.12:"
+    echo "        https://www.python.org/downloads/  (or: brew install python@3.12)"
     exit 1
 fi
-echo "Using $($PY --version) ($PY)"
-case "$($PY --version 2>&1)" in
-    *" 3.10."*|*" 3.11."*) ;;
-    *) echo "[WARN] Python 3.10/3.11 recommended; other versions may fail to install deps." ;;
+echo "Using $("$PY" --version) ($PY)"
+case "$("$PY" --version 2>&1)" in
+    *" 3.10."*|*" 3.11."*|*" 3.12."*) ;;
+    *) echo "[WARN] Python 3.10/3.11/3.12 recommended; other versions may fail to install deps." ;;
 esac
 
 if [ ! -d .venv ]; then

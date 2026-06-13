@@ -69,6 +69,11 @@ key.pem
 /_test*
 /_testcfg.json
 
+# 可攜式 Python（隨 release 另附 zip 讓用戶丟進根目錄，勿入庫）
+/python/
+/python-portable*.zip
+
 # Release 打包產物（手動打包，勿入庫）
 /DragonMeow-MangaTranslator-*.zip
 /_tmp_pack*.py
+app/user_settings.json
