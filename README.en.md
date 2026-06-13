@@ -93,6 +93,42 @@ The 4-koma being edited above comes out like this:
 
 ---
 
+## 🧩 Chrome extension: translate manga in-place on any site
+
+v1.3 adds a **browser extension** — no need to download images; translate right on the manga site and overlay the translated text in place. It runs through your own local AI server, so **images never go to a third-party cloud**.
+
+<table>
+  <tr>
+    <td width="33%"><img src="docs/ext-feat-translate.png"></td>
+    <td width="33%"><img src="docs/ext-feat-exp.png"></td>
+    <td width="33%"><img src="docs/ext-feat-ai.png"></td>
+  </tr>
+  <tr>
+    <th>Core translate</th><th>Experimental</th><th>AI settings</th>
+  </tr>
+</table>
+
+- **Multiple ways to translate**: pick an image, whole page, or page-by-page (auto on each turn).
+- **Merge translate**: box and merge split panels to translate together (for anti-piracy sites like cmoa); wheel page-turn supported.
+- **Fetch original**: re-fetch full resolution when the layout looks off or images are downscaled.
+- **Multilingual UI**: 繁中 / 简中 / English / 日本語.
+
+### Install (Developer Mode — usable before store approval)
+
+> The extension is **under review on the Chrome Web Store**; a one-click install link will be added here once approved. For now, load it via Developer Mode:
+
+1. **Start the app first** (`start.bat` or `bash start.sh`) and confirm `http://127.0.0.1:8501` is up — the extension relies on it.
+2. Download **`chrome-extension.zip`** from the release and unzip it.
+3. In Chrome, open `chrome://extensions` → turn on **Developer mode** (top-right).
+4. Click **Load unpacked** → select the unzipped folder that contains `manifest.json`.
+5. (Optional) Pin the extension to the toolbar via the puzzle-piece icon.
+6. Open the extension → click **🔄 Pull web settings** to bring over your AI provider / API key (or fill them in manually).
+7. On a manga page, click **✨ Enable bubble** → click the "譯" bubble on an image to translate; or use **Translate whole page / Page-by-page**.
+
+> Re-click "Enable bubble" each time you enter a new site.
+
+---
+
 ## Requirements
 
 - Windows or macOS (**no Python install needed** — a portable build is bundled in the zip)
