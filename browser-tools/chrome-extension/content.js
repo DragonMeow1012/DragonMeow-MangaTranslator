@@ -117,6 +117,11 @@ function refreshBubbleTitle() {
   const autoOn = state.autoTargets.length > 0 || state.autoArming || _autoPersistEnabled;
   if (state.boxEditing || (_boxMode && _boxRects.length)) {
     state.button.title = "點一下翻譯這頁（合併翻譯）";
+  } else if (_pageTranslate) {
+    const pt = _pageTranslate;
+    let t = pt.total > 0 ? `整頁翻譯：已完成 ${pt.ok}/${pt.total}` : "整頁翻譯啟用中…";
+    if (pt.blocked) t += `，防盜圖 ${pt.blocked}`;
+    state.button.title = t;
   } else if (_showPrefetch && autoOn) {
     state.button.title = _pfProg ? `頁碼翻譯：已完成 ${_pfProg.done} 頁` : "頁碼翻譯啟用中";
   } else {
@@ -580,6 +585,7 @@ async function pageTranslateWorker(pt) {
 function updatePageStatus() {
   const pt = _pageTranslate;
   if (pt && pt.done < pt.total) showStatus(`整頁翻譯中… ${pt.done}/${pt.total}`);
+  refreshBubbleTitle(); // 進度也寫進「譯」泡泡 tooltip（與頁碼翻譯一致，指著泡泡即可看）
 }
 
 // 佇列清空（暫時沒有待翻圖）→ 顯示成果並提示仍在監看，不關閉，等新內容載入後自動接續。
@@ -591,6 +597,7 @@ function onPageQueueDrained() {
   if (pt.failed) msg += `，失敗 ${pt.failed}`;
   msg += "；持續監看中，捲動載入新內容會自動翻譯（再點一次可停止）";
   showStatus(msg, 4000);
+  refreshBubbleTitle();
 }
 
 function stopPageTranslate() {
