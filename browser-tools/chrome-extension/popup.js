@@ -37,6 +37,7 @@ const I18N = {
     fSendimage: "傳圖給 AI 校對",
     secOut: "輸出設定",
     fTargetlang: "翻譯成",
+    fOcr: "OCR 模型", fDir: "輸出排版", fInpaint: "抹字模型",
     save: "💾 儲存設定",
     saving: "儲存中…",
     savedLocal: "已儲存（伺服器未連線）",
@@ -110,6 +111,7 @@ const I18N = {
     fSendimage: "传图给 AI 校对",
     secOut: "输出设置",
     fTargetlang: "翻译成",
+    fOcr: "OCR 模型", fDir: "输出排版", fInpaint: "抹字模型",
     save: "💾 保存设置",
     saving: "保存中…",
     savedLocal: "已保存（服务器未连线）",
@@ -183,6 +185,7 @@ const I18N = {
     fSendimage: "Send image to AI",
     secOut: "Output",
     fTargetlang: "Translate to",
+    fOcr: "OCR model", fDir: "Text direction", fInpaint: "Text removal",
     save: "💾 Save settings",
     saving: "Saving…",
     savedLocal: "Saved (server offline)",
@@ -256,6 +259,7 @@ const I18N = {
     fSendimage: "画像を AI に送る",
     secOut: "出力設定",
     fTargetlang: "翻訳先",
+    fOcr: "OCRモデル", fDir: "文字方向", fInpaint: "文字消去",
     save: "💾 設定を保存",
     saving: "保存中…",
     savedLocal: "保存しました（サーバー未接続）",
@@ -346,6 +350,9 @@ function applyLang() {
   document.getElementById("txt-sendimage").textContent = t("fSendimage");
   document.getElementById("txt-sec-out").textContent = t("secOut");
   document.getElementById("txt-targetlang").textContent = t("fTargetlang");
+  document.getElementById("txt-ocr").textContent = t("fOcr");
+  document.getElementById("txt-dir").textContent = t("fDir");
+  document.getElementById("txt-inpaint").textContent = t("fInpaint");
   document.getElementById("txt-save").textContent = t("save");
   // 分組標題 + 實驗功能（先前漏譯，補上四語）
   document.getElementById("grp-translate").textContent = t("grpTranslate");
@@ -601,6 +608,9 @@ const baseurlInput = document.getElementById("set-baseurl");
 const baseurlLabel = document.getElementById("txt-baseurl");
 const sendimageRow = document.getElementById("set-sendimage");
 const langSetSelect = document.getElementById("set-lang");
+const ocrSelect = document.getElementById("set-ocr");
+const dirSelect = document.getElementById("set-dir");
+const inpaintSelect = document.getElementById("set-inpaint");
 const saveStatus = document.getElementById("set-status");
 
 let _view = null; // 後端回傳的設定視圖（含 models 與 apiKeySet）
@@ -616,6 +626,9 @@ function applyViewToFields() {
   providerSelect.value = _view.llmProvider || "gemini";
   refreshProviderDependentFields();
   langSetSelect.value = _view.targetLanguage || "CHT";
+  ocrSelect.value = _view.ocrModel || "mocr";
+  dirSelect.value = _view.renderTextDirection || "auto";
+  inpaintSelect.value = _view.inpainter || "lama_large";
   sendimageRow.classList.toggle("on", _view.llmSendImage !== false);
 }
 
@@ -668,7 +681,10 @@ document.getElementById("set-save").addEventListener("click", async () => {
     llmProvider: providerSelect.value,
     model: modelInput.value.trim(),
     llmSendImage: sendimageRow.classList.contains("on"),
-    targetLanguage: langSetSelect.value
+    targetLanguage: langSetSelect.value,
+    ocrModel: ocrSelect.value,
+    renderTextDirection: dirSelect.value,
+    inpainter: inpaintSelect.value
   };
   if (apikeyInput.value.trim() !== "") patch.apiKey = apikeyInput.value.trim();
   if (providerSelect.value === "custom") patch.customBaseUrl = baseurlInput.value.trim();

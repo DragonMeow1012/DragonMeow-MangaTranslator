@@ -52,10 +52,10 @@ function defaultRawSettings() {
     apiKeys,
     llmSendImage: true,
     targetLanguage: "CHT",
-    customBaseUrl: ""
-    // 注意：ocrModel / inpainter / renderTextDirection 故意「不」放進擴充的 raw。
-    // 這三項只在網頁 UI 編輯，擴充純讀取（翻譯前即時抓 /ui-settings）。若放進 raw，
-    // 擴充存檔時會用預設值把網頁設好的值蓋掉。
+    customBaseUrl: "",
+    ocrModel: "mocr",
+    inpainter: "lama_large",
+    renderTextDirection: "auto"
   };
 }
 
@@ -206,6 +206,9 @@ async function getSettingsView() {
     llmSendImage: raw.llmSendImage,
     targetLanguage: raw.targetLanguage,
     customBaseUrl: raw.customBaseUrl,
+    ocrModel: raw.ocrModel || DEFAULT_SETTINGS.ocrModel,
+    inpainter: raw.inpainter || DEFAULT_SETTINGS.inpainter,
+    renderTextDirection: raw.renderTextDirection || DEFAULT_SETTINGS.renderTextDirection,
     providerDefaults: PROVIDER_DEFAULT_MODELS
   };
 }
@@ -221,6 +224,9 @@ async function saveSettings(patch) {
   if (typeof patch.llmSendImage === "boolean") raw.llmSendImage = patch.llmSendImage;
   if (typeof patch.targetLanguage === "string") raw.targetLanguage = patch.targetLanguage;
   if (typeof patch.customBaseUrl === "string") raw.customBaseUrl = patch.customBaseUrl;
+  if (typeof patch.ocrModel === "string") raw.ocrModel = patch.ocrModel;
+  if (typeof patch.inpainter === "string") raw.inpainter = patch.inpainter;
+  if (typeof patch.renderTextDirection === "string") raw.renderTextDirection = patch.renderTextDirection;
 
   const stored = await chrome.storage.local.get(SETTINGS_KEY);
   const apiBase = stored[SETTINGS_KEY]?.apiBase || DEFAULT_SETTINGS.apiBase;
@@ -231,14 +237,13 @@ async function saveSettings(patch) {
   let serverSaved = false;
   try {
     const base = String(apiBase).replace(/\/+$/, "");
-    // 只回寫擴充會編輯的欄位；OCR / 抹字 / 排版屬網頁 UI 專屬，擴充絕不回寫，以免用（可能
-    // 過時的）值蓋掉網頁設定。伺服器端 /ui-settings 會做合併，故省略的欄位會保留網頁的值。
-    const { ocrModel, inpainter, renderTextDirection, ...payload } = raw;
-    void ocrModel; void inpainter; void renderTextDirection;
+    // 回寫整包 raw（含使用者在擴充剛改的 OCR/抹字/排版）。popup 開啟時已先抓伺服器現值
+    // 回填，故送出的是「當前或剛改的」值、不會用過時值蓋掉；伺服器端 /ui-settings 亦做合併，
+    // 只更新有送的欄位。
     const resp = await fetch(`${base}/ui-settings`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
+      body: JSON.stringify(raw),
       signal: AbortSignal.timeout(4000)
     });
     serverSaved = resp.ok;

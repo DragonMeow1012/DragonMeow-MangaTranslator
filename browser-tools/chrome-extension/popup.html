@@ -286,6 +286,25 @@
       <option value="JPN">日本語</option>
     </select>
 
+    <div class="field-label" id="txt-ocr">OCR 模型</div>
+    <select class="field" id="set-ocr">
+      <option value="mocr">manga-ocr（日漫專用）</option>
+      <option value="paddle/auto">PaddleOCR（中/日/英/韓）</option>
+    </select>
+
+    <div class="field-label" id="txt-dir">輸出排版</div>
+    <select class="field" id="set-dir">
+      <option value="auto">自動</option>
+      <option value="horizontal">橫式</option>
+      <option value="vertical">直式</option>
+    </select>
+
+    <div class="field-label" id="txt-inpaint">抹字模型</div>
+    <select class="field" id="set-inpaint">
+      <option value="lama_large">乾淨（lama_large）</option>
+      <option value="lama_mpe">快速（lama_mpe）</option>
+    </select>
+
     <button id="set-save"><span id="txt-save">💾 儲存設定</span></button>
     <span id="set-status"></span>
     <button id="open-web" class="secondary" style="margin-top:8px"><span id="txt-open-web">🌐 同步翻譯網站</span></button>
