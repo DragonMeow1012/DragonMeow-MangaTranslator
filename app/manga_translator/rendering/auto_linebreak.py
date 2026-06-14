@@ -477,9 +477,17 @@ def _layout_horizontal_eng(
         if not new_syls:
             # 查無音節（如羅馬字名 Kagerou/Yukikaze）→ 整顆保留，不逐字硬拆。
             new_syls = [word]
-        # 音節比泡泡寬時也「整顆保留」，不逐字硬拆（逐字拆會產生 dest-roye-r、Kage-rou
-        # 之類亂斷加 - 號）。真的塞不下交由上層字級搜尋自動縮小，只在真正的音節點斷字。
-        syllables.append(list(new_syls))
+        # 一般情況整顆保留，不逐字硬拆（逐字拆會產生 dest-roye-r、Kage-rou 之類亂斷加 - 號）。
+        # 但若「單一音節本身就比整行還寬」——例如中日韓無空格長句被當成英文排版時，整句=一個音節
+        # ——主換行 pass 會在該音節處無法推進而死循環。對這種「超寬音節」逐字拆，使其能逐字換行
+        # （等同改動前對 CJK 的行為）；一般英文音節都比行窄，完全不受影響。
+        safe_syls: List[str] = []
+        for syl in new_syls:
+            if len(syl) > 1 and get_string_width(font_size, syl, letter_spacing=letter_spacing) > max_width:
+                safe_syls.extend(list(syl))
+            else:
+                safe_syls.append(syl)
+        syllables.append(safe_syls)
 
     # 主换行 pass
     line_words_list: List[List[int]] = []
@@ -537,8 +545,17 @@ def _layout_horizontal_eng(
                     if hyphenation_idx > 0:
                         line_words.append(i)
                         line_width += cur_w
-                    cur_w = 0
-                    break_line()
+                        cur_w = 0
+                        break_line()
+                    elif line_width == 0 and cur_w == 0:
+                        # 單一音節比整行還寬、且當前行全空：強制放下並前進 j，杜絕死循環。
+                        # （正常不會走到這——超寬音節已在切音節時逐字拆；此為最後防線。）
+                        cur_w += sw
+                        j += 1
+                        hyphenation_idx = j
+                    else:
+                        cur_w = 0
+                        break_line()
             line_words.append(i)
             line_width += cur_w
             i += 1
