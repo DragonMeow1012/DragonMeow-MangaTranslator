@@ -1631,16 +1631,17 @@ function replaceImgElement(img, dataUrl) {
     dataUrl // 翻譯圖，供「顯示原圖／翻譯圖」切換用
   };
 
-  // 鎖住原本顯示寬高（在改任何 src/srcset 前先量）：換成翻譯圖後，避免 img 跟著翻譯圖的
-  // 自然尺寸縮放跑版——有些站（如 Naver）的 <img> 沒用 CSS 釘死寬度，原地替換會縮小/錯位。
-  // 記下原 inline style 供「顯示原圖」與還原時復原。
+  // 鎖住原本顯示「寬度」（在改任何 src/srcset 前先量）：換成翻譯圖後，避免 img 跟著翻譯圖
+  // 的自然寬度縮放跑版——有些站（如 Naver）的 <img> 沒用 CSS 釘死寬度，原地替換會縮小/錯位。
+  // 高度設 auto：翻譯圖與原圖同比例，瀏覽器依比例算出的高度＝原高，垂直切片仍無縫拼接，
+  // 也避免四捨五入高度造成的縫隙/切到。記下原 inline style 供還原時復原。
   record.styleWidth = img.style.width;
   record.styleHeight = img.style.height;
   {
     const _r = img.getBoundingClientRect();
-    if (_r.width > 0 && _r.height > 0) {
+    if (_r.width > 0) {
       img.style.width = Math.round(_r.width) + "px";
-      img.style.height = Math.round(_r.height) + "px";
+      img.style.height = "auto";
     }
   }
 
