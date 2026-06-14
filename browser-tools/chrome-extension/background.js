@@ -9,7 +9,11 @@ const DEFAULT_SETTINGS = {
   llmModel: "",
   llmBaseUrl: "",
   llmSendImage: true,
-  fontPath: ""
+  fontPath: "",
+  // 以下三項對齊網頁 UI（index.html）預設；翻譯時會即時抓 /ui-settings 覆蓋成你在 127.0.0.1:8501 的設定。
+  ocrModel: "mocr",
+  inpainter: "lama_large",
+  renderTextDirection: "auto"
 };
 
 const SETTINGS_KEY = "dmmtSyncedSettings";
@@ -49,6 +53,9 @@ function defaultRawSettings() {
     llmSendImage: true,
     targetLanguage: "CHT",
     customBaseUrl: ""
+    // 注意：ocrModel / inpainter / renderTextDirection 故意「不」放進擴充的 raw。
+    // 這三項只在網頁 UI 編輯，擴充純讀取（翻譯前即時抓 /ui-settings）。若放進 raw，
+    // 擴充存檔時會用預設值把網頁設好的值蓋掉。
   };
 }
 
@@ -224,10 +231,14 @@ async function saveSettings(patch) {
   let serverSaved = false;
   try {
     const base = String(apiBase).replace(/\/+$/, "");
+    // 只回寫擴充會編輯的欄位；OCR / 抹字 / 排版屬網頁 UI 專屬，擴充絕不回寫，以免用（可能
+    // 過時的）值蓋掉網頁設定。伺服器端 /ui-settings 會做合併，故省略的欄位會保留網頁的值。
+    const { ocrModel, inpainter, renderTextDirection, ...payload } = raw;
+    void ocrModel; void inpainter; void renderTextDirection;
     const resp = await fetch(`${base}/ui-settings`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(raw),
+      body: JSON.stringify(payload),
       signal: AbortSignal.timeout(4000)
     });
     serverSaved = resp.ok;
@@ -261,7 +272,11 @@ function normalizeUiSettings(raw, apiBase) {
     llmModel: models[provider] || raw.llmModel || "",
     llmBaseUrl: raw.customBaseUrl || raw.llmBaseUrl || "",
     llmSendImage: typeof raw.llmSendImage === "boolean" ? raw.llmSendImage : true,
-    fontPath: raw.fontPath || ""
+    fontPath: raw.fontPath || "",
+    // OCR / 抹字 / 輸出排版：完全跟隨網頁 UI（user_settings.json），不在擴充寫死。
+    ocrModel: raw.ocrModel || DEFAULT_SETTINGS.ocrModel,
+    inpainter: raw.inpainter || DEFAULT_SETTINGS.inpainter,
+    renderTextDirection: raw.renderTextDirection || DEFAULT_SETTINGS.renderTextDirection
   };
 }
 
@@ -329,22 +344,23 @@ function buildConfig(settings) {
       det_gamma_correct: false
     },
     ocr: {
-      ocr: "mocr",
+      ocr: (settings.ocrModel || "mocr").split("/")[0],
+      paddle_lang: (settings.ocrModel || "mocr").split("/")[1] || "korean",
       use_mocr_merge: false,
       min_text_length: 1,
       prob: 0.08,
       ignore_bubble: 0
     },
     inpainter: {
-      inpainter: "lama_mpe",
-      inpainting_size: 1280,
+      inpainter: settings.inpainter || "lama_large",
+      inpainting_size: 2048,
       inpainting_precision: "bf16"
     },
     render: {
       renderer: "manga2eng",
       alignment: "auto",
       disable_font_border: true,
-      direction: isLatin ? "horizontal" : "auto",
+      direction: (settings.renderTextDirection && settings.renderTextDirection !== "auto") ? settings.renderTextDirection : (isLatin ? "horizontal" : "auto"),
       bubble_layout_english: isLatin,
       font_path: settings.fontPath || null,
       uppercase: false,
@@ -371,7 +387,7 @@ function buildConfig(settings) {
       paste_mask_dilation_pixels: 10,
       ai_renderer_concurrency: 1
     },
-    mask_dilation_offset: 30
+    mask_dilation_offset: 40
   };
 }
 
@@ -565,6 +581,12 @@ async function testConnection() {
 
 async function translateImageDataUrl(dataUrl, settings) {
   const apiBase = String(settings.apiBase || DEFAULT_SETTINGS.apiBase).replace(/\/+$/, "");
+  // 永遠以 http://127.0.0.1:8501 的最新設定為準：OCR / 抹字 / 排版 / 翻譯 / 目標語言全部跟網頁 UI
+  // 即時同步，不在擴充寫死。取不到時（伺服器未存設定或暫時離線）才沿用本地快取的 settings。
+  try {
+    const fresh = await fetchServerSettings(apiBase);
+    settings = { ...settings, ...fresh };
+  } catch (_) { /* 沿用傳入的 settings */ }
   // 必須用 /translate/image/stream：它會把「真正的成品圖」直接放進串流回傳。
   // 不能用網頁的 /web 端點——/web 是「佔位符優化」，只把成品存到伺服器硬碟（final.png）、
   // 串流裡只送一張 1×1 白色佔位圖，真正的圖要另外去抓檔案。擴充功能沒抓檔案，就會得到全白圖。

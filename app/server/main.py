@@ -396,7 +396,13 @@ async def get_ui_settings():
 @app.post("/ui-settings", tags=["ui"])
 async def post_ui_settings(request: Request):
     data = await request.json()
-    save_user_settings(data)
+    # 合併而非整包覆蓋：網頁 UI 與 Chrome 擴充共用同一份 user_settings.json，各自只送
+    # 自己會編輯的欄位（擴充送翻譯AI/目標語言；網頁另含 OCR/抹字/排版等）。用合併才不會
+    # 互相洗掉對方專屬的設定，達成「兩邊都套用」的雙向同步。
+    if isinstance(data, dict):
+        merged = load_user_settings()
+        merged.update(data)
+        save_user_settings(merged)
     return {"ok": True}
 
 @app.get("/", response_class=HTMLResponse,tags=["ui"])
