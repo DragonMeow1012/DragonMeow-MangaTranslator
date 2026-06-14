@@ -301,8 +301,11 @@
             <div>
               <label class="side-label">{{ t('labelOcr') }}</label>
               <select class="side-field" v-model="ocrModel" @change="onSettingChange">
-                <option value="mocr">manga-ocr (日)</option>
-                <option value="paddle">PaddleOCR (韓文)</option>
+                <option value="mocr">manga-ocr (日漫專用)</option>
+                <option value="paddle/korean">PaddleOCR (韓)</option>
+                <option value="paddle/ch">PaddleOCR (中)</option>
+                <option value="paddle/japan">PaddleOCR (日)</option>
+                <option value="paddle/en">PaddleOCR (英)</option>
               </select>
             </div>
             <div>
@@ -2763,7 +2766,8 @@
               det_gamma_correct: false,
             },
             ocr: {
-              ocr: this.ocrModel || "mocr",
+              ocr: (this.ocrModel || "mocr").split("/")[0],
+              paddle_lang: (this.ocrModel || "mocr").split("/")[1] || "korean",
               use_mocr_merge: false,
               min_text_length: 1,
               prob: 0.08,
