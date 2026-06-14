@@ -475,14 +475,11 @@ def _layout_horizontal_eng(
             except Exception:
                 new_syls = []
         if not new_syls:
-            new_syls = [word] if len(word) <= 3 else list(word)
-        normalized: List[str] = []
-        for syl in new_syls:
-            if get_string_width(font_size, syl, letter_spacing=letter_spacing) > max_width:
-                normalized.extend(list(syl))
-            else:
-                normalized.append(syl)
-        syllables.append(normalized)
+            # 查無音節（如羅馬字名 Kagerou/Yukikaze）→ 整顆保留，不逐字硬拆。
+            new_syls = [word]
+        # 音節比泡泡寬時也「整顆保留」，不逐字硬拆（逐字拆會產生 dest-roye-r、Kage-rou
+        # 之類亂斷加 - 號）。真的塞不下交由上層字級搜尋自動縮小，只在真正的音節點斷字。
+        syllables.append(list(new_syls))
 
     # 主换行 pass
     line_words_list: List[List[int]] = []
