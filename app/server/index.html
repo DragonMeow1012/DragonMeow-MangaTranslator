@@ -324,9 +324,18 @@
               <label class="side-label">{{ t('labelFontMin') }}</label>
               <select class="side-field" v-model="fontSizeMinimum" @change="onSettingChange">
                 <option value="0">{{ t('fmAuto') }}</option>
-                <option value="24">24px</option>
-                <option value="30">30px</option>
-                <option value="36">36px</option>
+                <option value="0.7">70%</option>
+                <option value="0.8">80%</option>
+              </select>
+            </div>
+            <div :title="t('concurrencyTip')">
+              <label class="side-label">{{ t('labelConcurrency') }}</label>
+              <select class="side-field" v-model="concurrency" @change="onSettingChange">
+                <option value="1">1</option>
+                <option value="2">2</option>
+                <option value="3">3</option>
+                <option value="5">5</option>
+                <option value="8">8</option>
               </select>
             </div>
           </div>
@@ -1255,6 +1264,7 @@
           labelFont: '字型',
           labelOcr: 'OCR 模型', labelDir: '輸出排版', labelInpaint: '抹字模型',
           labelFontMin: '最小字級', fmAuto: '自動（縮到塞下）',
+          labelConcurrency: '並發數', concurrencyTip: '整批／擴充翻譯同時送幾張（對齊伺服器 slot；改了伺服器要重啟才生效）。',
           dirAuto: '自動', dirH: '橫式', dirV: '直式',
           inpClean: 'lama_large（較乾淨）', inpFast: 'lama_mpe（較快）',
           ocrMocr: 'manga-ocr（日漫專用）', ocrPaddle: 'PaddleOCR（中/日/英/韓）',
@@ -1439,6 +1449,7 @@
           labelFont: '字体',
           labelOcr: 'OCR 模型', labelDir: '输出排版', labelInpaint: '抹字模型',
           labelFontMin: '最小字级', fmAuto: '自动（缩到塞下）',
+          labelConcurrency: '并发数', concurrencyTip: '整批／扩展翻译同时送几张（对齐服务器 slot；改了服务器要重启才生效）。',
           dirAuto: '自动', dirH: '横式', dirV: '竖式',
           inpClean: 'lama_large（较干净）', inpFast: 'lama_mpe（较快）',
           ocrMocr: 'manga-ocr（日漫专用）', ocrPaddle: 'PaddleOCR（中/日/英/韩）',
@@ -1623,6 +1634,7 @@
           labelFont: 'Font',
           labelOcr: 'OCR model', labelDir: 'Text layout', labelInpaint: 'Text removal',
           labelFontMin: 'Min font size', fmAuto: 'Auto (shrink to fit)',
+          labelConcurrency: 'Concurrency', concurrencyTip: 'How many images to translate at once (batch / extension). Match the server slots; restart the server to apply.',
           dirAuto: 'Auto', dirH: 'Horizontal', dirV: 'Vertical',
           inpClean: 'lama_large (cleaner)', inpFast: 'lama_mpe (faster)',
           ocrMocr: 'manga-ocr (Japanese)', ocrPaddle: 'PaddleOCR (CN/JP/EN/KO)',
@@ -1807,6 +1819,7 @@
           labelFont: 'フォント',
           labelOcr: 'OCR モデル', labelDir: 'レイアウト', labelInpaint: '文字消去',
           labelFontMin: '最小フォント', fmAuto: '自動（収まるまで縮小）',
+          labelConcurrency: '並列数', concurrencyTip: '一括／拡張翻訳で同時に送る枚数（サーバーのslotに合わせる。変更後はサーバー再起動）。',
           dirAuto: '自動', dirH: '横書き', dirV: '縦書き',
           inpClean: 'lama_large（きれい）', inpFast: 'lama_mpe（速い）',
           ocrMocr: 'manga-ocr（日本語）', ocrPaddle: 'PaddleOCR（中/日/英/韓）',
@@ -2137,6 +2150,7 @@
         inpainter: "lama_large",
         ocrModel: "mocr",
         fontSizeMinimum: "0",
+        concurrency: "5",
 
         uploadController: null,
 
@@ -2400,6 +2414,7 @@
           if (settings.renderTextDirection) this.renderTextDirection = settings.renderTextDirection;
           if (settings.inpainter) this.inpainter = settings.inpainter;
           if (settings.fontSizeMinimum != null) this.fontSizeMinimum = String(settings.fontSizeMinimum);
+          if (settings.concurrency != null) this.concurrency = String(settings.concurrency);
           if (typeof settings.advancedMode === 'boolean') this.advancedMode = settings.advancedMode;
           if (typeof settings.autoRetryFailed === 'boolean') this.autoRetryFailed = settings.autoRetryFailed;
         },
@@ -2436,6 +2451,7 @@
             renderTextDirection: this.renderTextDirection,
             inpainter: this.inpainter,
             fontSizeMinimum: this.fontSizeMinimum,
+            concurrency: this.concurrency,
             advancedMode: this.advancedMode,
             autoRetryFailed: this.autoRetryFailed,
           };
@@ -2829,7 +2845,8 @@
               check_br_and_retry: false,
               strict_smart_scaling: false,
               font_size_offset: 0,
-              font_size_minimum: parseInt(this.fontSizeMinimum) || 0,
+              font_size_minimum: 0,
+              font_size_min_ratio: ((parseFloat(this.fontSizeMinimum) || 0) <= 1) ? (parseFloat(this.fontSizeMinimum) || 0) : 0,
               no_hyphenation: false,
               stroke_width: 0.07,
               enable_template_alignment: false,

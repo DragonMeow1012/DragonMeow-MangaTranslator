@@ -172,6 +172,8 @@ class RenderConfig(BaseModel):
     """Maximum output font size. 0 means no limit."""
     font_scale_ratio: float = 1.0
     """Scale ratio applied to computed font size before max/min clamping."""
+    font_size_min_ratio: float = 0.0
+    """Floor the shrunk font at this ratio of the auto/initial font size (0 = off; e.g. 0.7 = never below 70%). Allows gentle overflow to keep long text readable."""
     center_text_in_bubble: bool = False
     """Center the text block vertically inside the bubble when possible."""
     optimize_line_breaks: bool = False

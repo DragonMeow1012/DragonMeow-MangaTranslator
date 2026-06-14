@@ -86,8 +86,13 @@ const PREFETCH_TO_END_CAP = 200; // 預抓往後猜的上限（一律翻到完�
 let _showPrefetch = true;   // 顯示預抓進度（指泡泡時的 tooltip）
 let _lastPrefetchPage = 0;
 let _pfProg = null;         // 頁碼翻譯預抓即時進度 {done,total}，顯示在泡泡 tooltip
+// 並發送出數：從同步設定讀（網頁 UI「並發數」→ user_settings.json → background 存進 dmmtSyncedSettings）。
+function _applyConcurrency(synced) {
+  const n = parseInt(synced?.concurrency);
+  if (n >= 1 && n <= 16) PAGE_TRANSLATE_CONCURRENCY = n;
+}
 function loadDebugFlag() {
-  chromeSafeGet(["dmmtDebugInput", "dmmtPrefetchNotify", "dmmtBoxMode", "dmmtBoxOrigin", "dmmtBoxRects", "dmmtWheelNav", "dmmtWheelDir"], (s) => {
+  chromeSafeGet(["dmmtDebugInput", "dmmtPrefetchNotify", "dmmtBoxMode", "dmmtBoxOrigin", "dmmtBoxRects", "dmmtWheelNav", "dmmtWheelDir", "dmmtSyncedSettings"], (s) => {
     _debugOn = s?.dmmtDebugInput === true;
     if (typeof s?.dmmtWheelNav === "boolean") _wheelNav = s.dmmtWheelNav;
     if (typeof s?.dmmtWheelDir === "string") _wheelDir = s.dmmtWheelDir;
@@ -95,6 +100,7 @@ function loadDebugFlag() {
       _boxMode = true; _boxRects = s.dmmtBoxRects;
     }
     if (typeof s?.dmmtPrefetchNotify === "boolean") _showPrefetch = s.dmmtPrefetchNotify;
+    _applyConcurrency(s?.dmmtSyncedSettings);
   });
   try {
     chrome.storage.onChanged.addListener((changes, area) => {
@@ -106,6 +112,7 @@ function loadDebugFlag() {
         _showPrefetch = changes.dmmtPrefetchNotify.newValue;
         refreshBubbleTitle();
       }
+      if (changes.dmmtSyncedSettings) _applyConcurrency(changes.dmmtSyncedSettings.newValue);
     });
   } catch {}
 }
@@ -421,7 +428,9 @@ function bubbleSize() {
 // 跨域防盜圖無法讀取像素（canvas 受污染），這類圖會被略過並在結尾統計回報。
 // 持續模式：完成首批後仍持續監看，網頁延遲載入（lazy-load）或無限捲動載入的新圖會接著
 // 自動翻譯，直到使用者再次點「整頁翻譯」關閉，或執行清除／離開頁面。
-const PAGE_TRANSLATE_CONCURRENCY = 3;
+// 並發送出數：對齊伺服器預設 5 slot（MT_WORKER_CONCURRENCY=5，=bot 的 5 並發）。
+// 伺服器端 gpu_lock 序列化 GPU 階段、LLM 階段重疊，送滿 5 不會炸 GPU。可由設定覆寫。
+let PAGE_TRANSLATE_CONCURRENCY = 5;
 let _pageTranslate = null; // 持續模式狀態物件；null = 未啟用
 
 // 是否為「值得整頁翻譯」的圖：已載入、自然或顯示尺寸夠大（過濾圖示/頭像/廣告），且尚未替換。

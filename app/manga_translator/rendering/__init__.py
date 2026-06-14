@@ -1667,7 +1667,12 @@ def resize_regions_to_font_size(img: np.ndarray, text_regions: List['TextBlock']
                     region.original_font_size = original_region_font_size
 
                 layout_min_font_size = 1
-                target_font_size = max(_resolve_initial_layout_font_size(region, img, config), layout_min_font_size)
+                _initial_layout_fs = _resolve_initial_layout_font_size(region, img, config)
+                target_font_size = max(_initial_layout_fs, layout_min_font_size)
+                # 相對字級下限：字級不低於「自動字級」的指定比例（容許略超框、保持可讀；與解析度無關）。
+                _min_ratio = getattr(getattr(config, 'render', None), 'font_size_min_ratio', 0) or 0
+                if _min_ratio and 0 < float(_min_ratio) <= 1:
+                    layout_min_font_size = max(layout_min_font_size, int(_initial_layout_fs * float(_min_ratio)))
 
                 # 入口只保留布局算法自身的参考字号：
                 # region.font_size > 图像估算值
@@ -2245,12 +2250,13 @@ def resize_regions_to_font_size(img: np.ndarray, text_regions: List['TextBlock']
                                          required_height / bubble_height if bubble_height > 0 else 1.0)
                         diff_ratio = scale_needed - 1.0
                         font_shrink_ratio = diff_ratio / 2 / (1 + diff_ratio)
+                        _pre_shrink_fs = target_font_size
                         font_scale_factor = 1 - min(font_shrink_ratio, 0.5)
                         target_font_size = int(target_font_size * font_scale_factor)
-                        # 字級下限：smart_scaling 縮放後不低於使用者設定的最小字級（寧可略超框也保持可讀）。
-                        _min_fs = _resolve_configured_min_font_size(config)
-                        if _min_fs > 0:
-                            target_font_size = max(target_font_size, _min_fs)
+                        # 相對字級下限：smart_scaling 縮放後不低於「縮放前字級 × 比例」，避免英文太長縮太小。
+                        _min_ratio = getattr(getattr(config, 'render', None), 'font_size_min_ratio', 0) or 0
+                        if _min_ratio and 0 < float(_min_ratio) <= 1:
+                            target_font_size = max(target_font_size, int(_pre_shrink_fs * float(_min_ratio)))
 
                         # 用取整后的字体重新算required
                         if render_horizontally:

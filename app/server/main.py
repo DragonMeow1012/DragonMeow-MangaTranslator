@@ -455,8 +455,15 @@ def start_translator_client_proc(host: str, port: int, nonce: str, params: Names
     # 同一個 worker 進程註冊 K 次（每次獨立 ExecutorInstance，各有自己 busy flag），
     # 讓 orchestrator 的 find_executor() / free_executors() 看到 K 個邏輯 slot，
     # 全部指到同 ip:port → worker 端用 _PriorityGpuLock 自己處理並發。
-    # K 從 env 讀，預設 5（對應 bot side MANGA_TRANSLATOR_CONCURRENCY=5）。
+    # K 預設 5（對應 bot side MANGA_TRANSLATOR_CONCURRENCY=5）。優先吃網頁 UI 的「並發數」設定
+    # （user_settings.json.concurrency），其次環境變數 MT_WORKER_CONCURRENCY。改了要重啟才生效。
     _slots = int(os.getenv('MT_WORKER_CONCURRENCY', '5'))
+    try:
+        _cfg_conc = load_user_settings().get('concurrency')
+        if _cfg_conc is not None:
+            _slots = max(1, min(int(_cfg_conc), 16))
+    except Exception:
+        pass
     for _ in range(max(1, _slots)):
         executor_instances.register(ExecutorInstance(ip=host, port=port))
 

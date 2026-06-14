@@ -50,18 +50,24 @@ class ModelPaddleOCR(OfflineOCR):
             paddle.set_flags({'FLAGS_use_mkldnn': False})
         except Exception:
             pass
+        # GPU build（paddlepaddle-gpu）→ 用 GPU 加速；CPU build → 固定 CPU。
+        # 注意：傳 'gpu' 給 CPU build 會走「嘗試 GPU 失敗 → 退回 CPU」路徑，那條不吃
+        # FLAGS_use_mkldnn → 仍啟用 oneDNN → 踩 ConvertPirAttribute bug；故只在真 GPU build 才傳 gpu。
+        try:
+            use_gpu = bool(paddle.is_compiled_with_cuda()) and paddle.device.cuda.device_count() > 0
+        except Exception:
+            use_gpu = False
+        device = 'gpu' if use_gpu else 'cpu'
         from paddleocr import PaddleOCR
-        # paddlepaddle 安裝的是 CPU build；固定走 CPU。傳 'gpu' 會走「嘗試 GPU 失敗 → 退回 CPU」
-        # 的路徑，那條路徑不吃 FLAGS_use_mkldnn → 仍啟用 oneDNN → 踩 ConvertPirAttribute bug。
         self._engines[lang] = PaddleOCR(
             lang=lang,
             use_doc_orientation_classify=False,
             use_doc_unwarping=False,
             use_textline_orientation=False,
             enable_mkldnn=False,
-            device='cpu',
+            device=device,
         )
-        self.logger.info(f'PaddleOCR engine ready (lang={lang})')
+        self.logger.info(f'PaddleOCR engine ready (lang={lang}, device={device})')
         return self._engines[lang]
 
     def _detect_lang(self, image: np.ndarray, quadrilaterals) -> str:

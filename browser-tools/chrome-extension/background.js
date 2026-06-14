@@ -14,7 +14,8 @@ const DEFAULT_SETTINGS = {
   ocrModel: "mocr",
   inpainter: "lama_large",
   renderTextDirection: "auto",
-  fontSizeMinimum: "0"
+  fontSizeMinimum: "0",
+  concurrency: "5"
 };
 
 const SETTINGS_KEY = "dmmtSyncedSettings";
@@ -283,7 +284,8 @@ function normalizeUiSettings(raw, apiBase) {
     ocrModel: raw.ocrModel || DEFAULT_SETTINGS.ocrModel,
     inpainter: raw.inpainter || DEFAULT_SETTINGS.inpainter,
     renderTextDirection: raw.renderTextDirection || DEFAULT_SETTINGS.renderTextDirection,
-    fontSizeMinimum: raw.fontSizeMinimum || DEFAULT_SETTINGS.fontSizeMinimum
+    fontSizeMinimum: raw.fontSizeMinimum || DEFAULT_SETTINGS.fontSizeMinimum,
+    concurrency: raw.concurrency || DEFAULT_SETTINGS.concurrency
   };
 }
 
@@ -387,7 +389,8 @@ function buildConfig(settings) {
       check_br_and_retry: false,
       strict_smart_scaling: false,
       font_size_offset: 0,
-      font_size_minimum: parseInt(settings.fontSizeMinimum) || 0,
+      font_size_minimum: 0,
+      font_size_min_ratio: ((parseFloat(settings.fontSizeMinimum) || 0) <= 1) ? (parseFloat(settings.fontSizeMinimum) || 0) : 0,
       no_hyphenation: false,
       stroke_width: 0.07,
       enable_template_alignment: false,
@@ -502,6 +505,7 @@ function notifyPrefetchProgress(tabId) {
 
 async function prefetchTranslate(items, referer, tabId) {
   const settings = await loadSettings();
+  const conc = Math.max(1, Math.min(parseInt(settings.concurrency) || 5, 16)); // 並發數（對齊伺服器 slot）
   let lastPage = 0; // 已預翻到的最遠頁碼（含這次新翻的）
   let prevOrig = null; // 上一張抓到的原圖，用來偵測「站一直回同一張＝已到底」
   const myGen = _abortGen;
@@ -510,6 +514,22 @@ async function prefetchTranslate(items, referer, tabId) {
   _pfActive += 1;
   _pfTotal += valid.length;
   notifyPrefetchProgress(tabId);
+
+  // 並發翻譯池：抓圖維持「序列」（fetchOriginalImage 共用 referer 偽造的 session rule，並行會互踩；
+  // 且重複頁偵測 prevOrig 需順序），但「翻譯」（真正的瓶頸）並發。_sem 限制最多 conc 個翻譯同時跑，
+  // 並對抓圖迴圈形成背壓（每張抓圖前先取槽 → 最多領先 conc 張，不會衝太前面吃爆記憶體）。
+  let _semActive = 0;
+  const _semWaiters = [];
+  const _semAcquire = () => (_semActive < conc
+    ? (_semActive++, Promise.resolve())
+    : new Promise((r) => _semWaiters.push(r)));
+  const _semRelease = () => {
+    _semActive--;
+    const w = _semWaiters.shift();
+    if (w) { _semActive++; w(); }
+  };
+  const _pending = []; // 進行中的翻譯 promise
+
   try {
     for (let i = 0; i < valid.length; i++) {
       if (_abortGen !== myGen) break; // 使用者中止 → 停止後續預抓
@@ -519,36 +539,60 @@ async function prefetchTranslate(items, referer, tabId) {
       }
       if (_abortGen !== myGen) break;
       const item = valid[i];
-      // 同步搶占 in-flight 再 await：連續翻頁會各開一批預抓，若 add 在 await 之後，
-      // 兩批可能同時搶到同一張 → 重複翻譯。必須先標記、再去查快取/抓圖。
+      // 先同步搶占 in-flight，避免兩批同時搶同一張重複翻。
       if (_prefetchInFlight.has(item.cacheKey)) { _pfDone += 1; notifyPrefetchProgress(tabId); continue; }
       _prefetchInFlight.add(item.cacheKey);
-      let stop = false;
+      // 取並發槽（背壓）：conc 個翻譯都在跑時，這裡會等到有翻譯完成釋放槽才繼續抓下一張。
+      await _semAcquire();
+      if (_abortGen !== myGen) { _prefetchInFlight.delete(item.cacheKey); _semRelease(); break; }
+      let stop = false, fired = false;
       try {
         const existing = await chrome.storage.local.get(item.cacheKey);
-        if (existing[item.cacheKey]) continue; // 已翻過（finally 會釋放 in-flight 並計入 done）
+        if (existing[item.cacheKey]) continue; // 已翻過（finally 釋放槽 + in-flight + done）
         const fetched = await fetchOriginalImage(item.imageUrl, referer);
-        // 重複頁偵測：有些站對「不存在的頁」不回 404，而一直回同一張（最後頁/佔位圖）。
-        // 抓到跟上一張一模一樣 → 判定已到底，停止後續預抓，不再白翻。
+        // 重複頁偵測：有些站對「不存在的頁」不回 404，而一直回同一張 → 已到底，停止後續預抓。
         if (prevOrig !== null && fetched.image === prevOrig) {
           stop = true;
         } else {
           prevOrig = fetched.image;
-          const r = await translateWithRetry(fetched.image, settings);
-          if (item.page) lastPage = Math.max(lastPage, item.page);
-          const translated = await blobToDataUrl(r.blob);
-          await storePrefetchCache(item.cacheKey, { src: item.imageUrl, image: translated });
+          // 非同步翻譯：沿用上面取得的槽，完成時釋放槽 + in-flight + done（不在此 await）。
+          fired = true;
+          _pending.push((async () => {
+            try {
+              // 手動補翻譯插隊中：尚未送出的預抓先讓位（已送出的無法收回），把伺服器讓給手動。
+              while (_manualActive > 0 && _abortGen === myGen) {
+                await new Promise((r) => setTimeout(r, 120));
+              }
+              if (_abortGen !== myGen) return; // 已中止 → 不再送出（finally 仍會收尾）
+              const r = await translateWithRetry(fetched.image, settings);
+              if (item.page) lastPage = Math.max(lastPage, item.page);
+              const translated = await blobToDataUrl(r.blob);
+              await storePrefetchCache(item.cacheKey, { src: item.imageUrl, image: translated });
+            } catch (e) {
+              // 翻譯失敗略過
+            } finally {
+              _prefetchInFlight.delete(item.cacheKey);
+              _pfDone += 1;
+              notifyPrefetchProgress(tabId);
+              _semRelease();
+            }
+          })());
         }
       } catch (e) {
         // 404 = 沒有下一頁了，停止後續預抓；其他錯誤也停（避免空轉）。
         if (/40\d|沒有|not.?found/i.test(e?.message || "")) stop = true;
       } finally {
-        _prefetchInFlight.delete(item.cacheKey);
-        _pfDone += 1;
-        notifyPrefetchProgress(tabId);
+        // 沒有 fire 翻譯的（已翻快取／重複頁／404／錯誤）：在此釋放槽 + in-flight + done。
+        if (!fired) {
+          _prefetchInFlight.delete(item.cacheKey);
+          _pfDone += 1;
+          notifyPrefetchProgress(tabId);
+          _semRelease();
+        }
       }
       if (stop) { _pfTotal -= (valid.length - 1 - i); break; } // 後面的頁不存在，扣掉還沒做的
     }
+    await Promise.all(_pending); // 等所有已 fire 的並發翻譯收尾
   } finally {
     _pfActive -= 1;
     notifyPrefetchProgress(tabId);

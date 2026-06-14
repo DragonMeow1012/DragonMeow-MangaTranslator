@@ -36,12 +36,20 @@ _LEADING_CJK_INTERJECTION_RE = re.compile(
 _PURE_KANA_SFX_RE = re.compile(r'^[\u3040-\u309f\u30a0-\u30ffー！？!？?．。…・\s]+$')
 
 
+_ANCHOR_LEAK_RE = re.compile(r'OCR\s*漏抓|漏抓的泡泡|逐字讀出|點點與假名|裡面有字')
+
+
 def clean_synonym_parens(text: str) -> str:
     """
     砍同義並列／註解括號／LLM 殘留標籤／多餘空白。SFX 原文（純假名）跳過不動。
     """
     if not text:
         return text
+    # 空泡泡（_synth_bubble）的錨點指示「(OCR 漏抓的泡泡…請看圖逐字讀出，含點點與假名)」
+    # 有時會被 LLM 照抄回 corrected/translated_text。這些字串絕不會出現在真對白，命中即視為
+    # 「LLM 沒讀出內容」→ 清空，避免把 prompt 指示渲染到圖上。
+    if _ANCHOR_LEAK_RE.search(text):
+        return ''
     # 純假名（SFX 回填的原文）不要動
     if re.match(r'^[぀-ゟ゠-ヿー…．.\s]+$', text):
         return text
