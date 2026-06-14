@@ -372,7 +372,15 @@ class TextBlock(object):
     @property
     def direction(self):
         """Render direction determined through used language or aspect ratio."""
-        if self._direction not in ('h', 'v', 'hr', 'vr'):
+        # 正規化強制方向：config.render.direction 送來的是 Direction enum 值
+        # ("horizontal"/"vertical"/"auto")，需轉成內部 'h'/'v'，否則「強制橫/直」
+        # 會落回自動判斷而失效（這也是「英文翻回中文卡橫式、轉不回直式」的成因）。
+        forced = self._direction
+        if forced == 'horizontal':
+            forced = 'h'
+        elif forced == 'vertical':
+            forced = 'v'
+        if forced not in ('h', 'v', 'hr', 'vr'):
             d = LANGUAGE_ORIENTATION_PRESETS.get(self.target_lang)
             if d in ('h', 'v', 'hr', 'vr'):
                 return d
@@ -409,7 +417,7 @@ class TextBlock(object):
                     return 'v'
                 else:
                     return 'h'
-        return self._direction
+        return forced
 
     @property
     def vertical(self):

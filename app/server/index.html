@@ -298,6 +298,28 @@
                 />
               </div>
             </div>
+            <div>
+              <label class="side-label">{{ t('labelOcr') }}</label>
+              <select class="side-field" v-model="ocrModel" @change="onSettingChange">
+                <option value="mocr">manga-ocr (日)</option>
+                <option value="paddle" disabled>PaddleOCR (韓/中/英/日) — 安裝後可用</option>
+              </select>
+            </div>
+            <div>
+              <label class="side-label">{{ t('labelDir') }}</label>
+              <select class="side-field" v-model="renderTextDirection" @change="onSettingChange">
+                <option value="auto">{{ t('dirAuto') }}</option>
+                <option value="horizontal">{{ t('dirH') }}</option>
+                <option value="vertical">{{ t('dirV') }}</option>
+              </select>
+            </div>
+            <div>
+              <label class="side-label">{{ t('labelInpaint') }}</label>
+              <select class="side-field" v-model="inpainter" @change="onSettingChange">
+                <option value="lama_large">{{ t('inpClean') }}</option>
+                <option value="lama_mpe">{{ t('inpFast') }}</option>
+              </select>
+            </div>
           </div>
         </div>
 
@@ -1215,6 +1237,9 @@
           labelModel: '模型',
           labelTargetLang: '翻譯成',
           labelFont: '字型',
+          labelOcr: 'OCR 模型', labelDir: '輸出排版', labelInpaint: '抹字模型',
+          dirAuto: '自動', dirH: '橫式', dirV: '直式',
+          inpClean: 'lama_large（較乾淨）', inpFast: 'lama_mpe（較快）',
           heroTitle: '把漫畫丟進來，一鍵翻譯',
           darkModeLabel: '深夜模式',
           labelAccent: '主題色',
@@ -1393,6 +1418,9 @@
           labelModel: '模型',
           labelTargetLang: '翻译成',
           labelFont: '字体',
+          labelOcr: 'OCR 模型', labelDir: '输出排版', labelInpaint: '抹字模型',
+          dirAuto: '自动', dirH: '横式', dirV: '竖式',
+          inpClean: 'lama_large（较干净）', inpFast: 'lama_mpe（较快）',
           heroTitle: '把漫画丢进来，一键翻译',
           darkModeLabel: '深夜模式',
           labelAccent: '主题色',
@@ -1571,6 +1599,9 @@
           labelModel: 'Model',
           labelTargetLang: 'Translate to',
           labelFont: 'Font',
+          labelOcr: 'OCR model', labelDir: 'Text layout', labelInpaint: 'Text removal',
+          dirAuto: 'Auto', dirH: 'Horizontal', dirV: 'Vertical',
+          inpClean: 'lama_large (cleaner)', inpFast: 'lama_mpe (faster)',
           heroTitle: 'Drop your manga, translate in one click',
           darkModeLabel: 'Dark mode',
           labelAccent: 'Accent color',
@@ -1749,6 +1780,9 @@
           labelModel: 'モデル',
           labelTargetLang: '翻訳先',
           labelFont: 'フォント',
+          labelOcr: 'OCR モデル', labelDir: 'レイアウト', labelInpaint: '文字消去',
+          dirAuto: '自動', dirH: '横書き', dirV: '縦書き',
+          inpClean: 'lama_large（きれい）', inpFast: 'lama_mpe（速い）',
           heroTitle: '漫画をドロップ、ワンクリック翻訳',
           darkModeLabel: 'ダークモード',
           labelAccent: 'テーマカラー',
@@ -2069,11 +2103,12 @@
         textThreshold: 0.2,
         renderTextDirection: "auto",
         translator: "gemini_2stage",
-        inpaintingSize: "1280",
+        inpaintingSize: "2048",
         customUnclipRatio: 1.2,
         customBoxThreshold: 0.2,
-        maskDilationOffset: 30,
-        inpainter: "lama_mpe",
+        maskDilationOffset: 40,
+        inpainter: "lama_large",
+        ocrModel: "mocr",
 
         uploadController: null,
 
@@ -2333,6 +2368,9 @@
           if (['blue', 'pink', 'amber'].includes(settings.accentColor)) this.accentColor = settings.accentColor;
           if (settings.targetLanguage) this.targetLanguage = settings.targetLanguage;
           if (settings.fontPath) this.fontPath = settings.fontPath;
+          if (settings.ocrModel) this.ocrModel = settings.ocrModel;
+          if (settings.renderTextDirection) this.renderTextDirection = settings.renderTextDirection;
+          if (settings.inpainter) this.inpainter = settings.inpainter;
           if (typeof settings.advancedMode === 'boolean') this.advancedMode = settings.advancedMode;
           if (typeof settings.autoRetryFailed === 'boolean') this.autoRetryFailed = settings.autoRetryFailed;
         },
@@ -2365,6 +2403,9 @@
             accentColor: this.accentColor,
             targetLanguage: this.targetLanguage,
             fontPath: this.fontPath,
+            ocrModel: this.ocrModel,
+            renderTextDirection: this.renderTextDirection,
+            inpainter: this.inpainter,
             advancedMode: this.advancedMode,
             autoRetryFailed: this.autoRetryFailed,
           };
@@ -2722,22 +2763,22 @@
               det_gamma_correct: false,
             },
             ocr: {
-              ocr: "mocr",
+              ocr: this.ocrModel || "mocr",
               use_mocr_merge: false,
               min_text_length: 1,
               prob: 0.08,
               ignore_bubble: 0,
             },
             inpainter: {
-              inpainter: "lama_mpe",
-              inpainting_size: 1280,
+              inpainter: this.inpainter,
+              inpainting_size: parseInt(this.inpaintingSize) || 2048,
               inpainting_precision: "bf16",
             },
             render: {
               renderer: "manga2eng",
               alignment: "auto",
               disable_font_border: true,
-              direction: isLatin ? "horizontal" : "auto",
+              direction: (this.renderTextDirection && this.renderTextDirection !== 'auto') ? this.renderTextDirection : (isLatin ? "horizontal" : "auto"),
               bubble_layout_english: isLatin,
               font_path: this.fontPath || null,
               uppercase: false,
@@ -2764,7 +2805,7 @@
               paste_mask_dilation_pixels: 10,
               ai_renderer_concurrency: 1,
             },
-            mask_dilation_offset: 30,
+            mask_dilation_offset: parseInt(this.maskDilationOffset) || 40,
           });
 
           formData.append("config", config);
