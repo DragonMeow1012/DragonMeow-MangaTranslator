@@ -9,6 +9,13 @@ from ..utils import Quadrilateral
 OCRS = {
     Ocr.mocr: ModelMangaOCR,
 }
+# PaddleOCR（韓/中/英/日多語；模型由 paddleocr 自動下載快取）。模組對 paddleocr 採延遲匯入，
+# 故此處註冊不需 paddle 已安裝；未安裝時會在實際使用（_infer）才拋出清楚的匯入錯誤。
+try:
+    from .model_paddle_ocr import ModelPaddleOCR
+    OCRS[Ocr.paddle] = ModelPaddleOCR
+except Exception:
+    pass
 ocr_cache = {}
 
 

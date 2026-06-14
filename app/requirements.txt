@@ -21,6 +21,9 @@ ImageHash==4.3.2
 
 # --- OCR / NLP ---
 manga-ocr==0.1.14
+# 韓/中/英多語 OCR（PaddleOCR；用戶可在輸出設定選「PaddleOCR」改用，翻韓漫等）
+paddleocr==3.7.0
+paddlepaddle==3.3.1
 transformers==4.49.0
 huggingface_hub==0.36.2
 sentencepiece==0.2.1
