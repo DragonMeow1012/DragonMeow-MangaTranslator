@@ -15,7 +15,7 @@ const I18N = {
     downloadAll: "⬇ 下載所有翻譯圖（zip）",
     retry: "翻譯失敗自動重試",
     crawl: "🕷 原圖抓取（圖排版異常時使用）",
-    crawlHint: "需授權存取「目前網站」，才能抓到原始解析度",
+    crawlHint: "需授權存取「所有網站」，才能抓原圖（圖片常放在不同網域的 CDN）",
     debug: "🐞 偵錯：下載送出的圖",
     diagnose: "🔍 診斷快取套用",
     test: "🔌 測試連接",
@@ -89,7 +89,7 @@ const I18N = {
     downloadAll: "⬇ 下载所有翻译图（zip）",
     retry: "翻译失败自动重试",
     crawl: "🕷 原图抓取（图排版异常时使用）",
-    crawlHint: "需授权访问「当前网站」，才能抓到原始分辨率",
+    crawlHint: "需授权访问「所有网站」，才能抓原图（图片常放在不同网域的 CDN）",
     debug: "🐞 调试：下载送出的图",
     diagnose: "🔍 诊断缓存套用",
     test: "🔌 测试连接",
@@ -163,7 +163,7 @@ const I18N = {
     downloadAll: "⬇ Download all (zip)",
     retry: "Auto-retry on failure",
     crawl: "🕷 Fetch original (if layout looks off)",
-    crawlHint: "Requires access to the current site to fetch full resolution",
+    crawlHint: "Requires access to all sites to fetch originals (images are often on a different CDN domain)",
     debug: "🐞 Debug: download sent image",
     diagnose: "🔍 Diagnose cache",
     test: "🔌 Test connection",
@@ -237,7 +237,7 @@ const I18N = {
     downloadAll: "⬇ すべてDL（zip）",
     retry: "失敗時に自動リトライ",
     crawl: "🕷 原画像取得（レイアウト異常時）",
-    crawlHint: "現在のサイトへのアクセス許可が必要（原寸取得用）",
+    crawlHint: "全サイトへのアクセス許可が必要（画像は別ドメインのCDNにあることが多い）",
     debug: "🐞 デバッグ：送信画像をDL",
     diagnose: "🔍 キャッシュ診断",
     test: "🔌 接続テスト",
@@ -723,16 +723,13 @@ retryRow.addEventListener("click", async () => {
   await chrome.storage.local.set({ [AUTO_RETRY_KEY]: on });
 });
 
-// ---- Crawler: 只對「目前網站」授權去抓跨域原圖（不要求所有網站，商店審核較快）----
+// ---- Crawler: 請求「所有網站」存取權去抓跨域原圖 ----
+// 許多站的圖片放在與頁面「不同網域」的 CDN（例：Naver 頁面在 comic.naver.com，圖卻在
+// image-comic.pstatic.net），只授權頁面網域抓不到原圖。故統一請求 *://*/*（manifest 的
+// optional_host_permissions 已宣告），使用者一次授權即可涵蓋任何圖片 CDN。
 const crawlRow = document.getElementById("set-crawl");
 async function currentSiteOrigins() {
-  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-  try {
-    const u = new URL(tab.url);
-    const parts = u.hostname.split(".");
-    const base = parts.length >= 2 ? parts.slice(-2).join(".") : u.hostname; // 例：nhentai.net
-    return [`*://${base}/*`, `*://*.${base}/*`]; // 含圖片 CDN 子網域（i.nhentai.net 等）
-  } catch { return []; }
+  return ["*://*/*"];
 }
 async function loadCrawlPref() {
   const origins = await currentSiteOrigins();

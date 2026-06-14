@@ -1631,6 +1631,19 @@ function replaceImgElement(img, dataUrl) {
     dataUrl // 翻譯圖，供「顯示原圖／翻譯圖」切換用
   };
 
+  // 鎖住原本顯示寬高（在改任何 src/srcset 前先量）：換成翻譯圖後，避免 img 跟著翻譯圖的
+  // 自然尺寸縮放跑版——有些站（如 Naver）的 <img> 沒用 CSS 釘死寬度，原地替換會縮小/錯位。
+  // 記下原 inline style 供「顯示原圖」與還原時復原。
+  record.styleWidth = img.style.width;
+  record.styleHeight = img.style.height;
+  {
+    const _r = img.getBoundingClientRect();
+    if (_r.width > 0 && _r.height > 0) {
+      img.style.width = Math.round(_r.width) + "px";
+      img.style.height = Math.round(_r.height) + "px";
+    }
+  }
+
   const picture = img.parentElement?.tagName?.toLowerCase() === "picture" ? img.parentElement : null;
   if (picture) {
     for (const source of picture.querySelectorAll("source")) {
@@ -1719,6 +1732,8 @@ function restoreInPlaceReplacement(element, dropCache = true) {
     if (record.sizes !== null) element.setAttribute("sizes", record.sizes);
     if (record.src !== null) element.setAttribute("src", record.src);
     else element.removeAttribute("src");
+    if (record.styleWidth !== undefined) element.style.width = record.styleWidth;
+    if (record.styleHeight !== undefined) element.style.height = record.styleHeight;
     for (const { source, srcset } of record.sources) {
       if (srcset !== null) source.setAttribute("srcset", srcset);
     }
