@@ -60,12 +60,19 @@ def _resolve_manga_ocr_model_path() -> str:
         if candidates:
             return str(max(candidates, key=lambda path: path.stat().st_mtime))
 
-    raise RuntimeError(
-        'Local manga OCR model not found. Place the kha-white/manga-ocr-base model in '
-        'models/manga-ocr-base/ (or set MANGA_OCR_MODEL_DIR) containing '
-        'preprocessor_config.json, config.json, tokenizer_config.json, vocab.txt, '
-        'and pytorch_model.bin.'
-    )
+    # 本地與快取都找不到 → 從 HuggingFace 自動下載（自癒：解壓不完整 / git clone /
+    # 防毒誤刪大檔 pytorch_model.bin 都能救回；下載後會落在 HF 快取，下次直接命中）。
+    try:
+        from huggingface_hub import snapshot_download
+        return snapshot_download(repo_id='kha-white/manga-ocr-base')
+    except Exception as e:
+        raise RuntimeError(
+            'Local manga OCR model not found, and auto-download from HuggingFace failed '
+            f'({type(e).__name__}: {e}). Place the kha-white/manga-ocr-base model in '
+            'models/manga-ocr-base/ (or set MANGA_OCR_MODEL_DIR) containing '
+            'preprocessor_config.json, config.json, tokenizer_config.json, vocab.txt, '
+            'and pytorch_model.bin.'
+        )
 
 async def merge_bboxes(bboxes: List[Quadrilateral], width: int, height: int) -> Tuple[List[Quadrilateral], int]:
     # step 1: divide into multiple text region candidates
