@@ -13,7 +13,8 @@ const DEFAULT_SETTINGS = {
   // 以下三項對齊網頁 UI（index.html）預設；翻譯時會即時抓 /ui-settings 覆蓋成你在 127.0.0.1:8501 的設定。
   ocrModel: "mocr",
   inpainter: "lama_large",
-  renderTextDirection: "auto"
+  renderTextDirection: "auto",
+  fontSizeMinimum: "0"
 };
 
 const SETTINGS_KEY = "dmmtSyncedSettings";
@@ -281,7 +282,8 @@ function normalizeUiSettings(raw, apiBase) {
     // OCR / 抹字 / 輸出排版：完全跟隨網頁 UI（user_settings.json），不在擴充寫死。
     ocrModel: raw.ocrModel || DEFAULT_SETTINGS.ocrModel,
     inpainter: raw.inpainter || DEFAULT_SETTINGS.inpainter,
-    renderTextDirection: raw.renderTextDirection || DEFAULT_SETTINGS.renderTextDirection
+    renderTextDirection: raw.renderTextDirection || DEFAULT_SETTINGS.renderTextDirection,
+    fontSizeMinimum: raw.fontSizeMinimum || DEFAULT_SETTINGS.fontSizeMinimum
   };
 }
 
@@ -385,7 +387,7 @@ function buildConfig(settings) {
       check_br_and_retry: false,
       strict_smart_scaling: false,
       font_size_offset: 0,
-      font_size_minimum: 0,
+      font_size_minimum: parseInt(settings.fontSizeMinimum) || 0,
       no_hyphenation: false,
       stroke_width: 0.07,
       enable_template_alignment: false,

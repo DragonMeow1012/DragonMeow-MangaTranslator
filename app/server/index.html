@@ -320,6 +320,15 @@
                 <option value="lama_mpe">{{ t('inpFast') }}</option>
               </select>
             </div>
+            <div>
+              <label class="side-label">{{ t('labelFontMin') }}</label>
+              <select class="side-field" v-model="fontSizeMinimum" @change="onSettingChange">
+                <option value="0">{{ t('fmAuto') }}</option>
+                <option value="24">24px</option>
+                <option value="30">30px</option>
+                <option value="36">36px</option>
+              </select>
+            </div>
           </div>
         </div>
 
@@ -381,6 +390,12 @@
              class="flex items-center gap-1 hover:text-white transition-colors">
             <i class="iconify w-5 h-5" data-icon="carbon:logo-github"></i>
             <span>GitHub</span>
+          </a>
+          <a href="https://chromewebstore.google.com/detail/dragonmeow-mangatranslato/gfoajcgelfgihpnaijmimhhfkioocoej" target="_blank"
+             rel="noopener noreferrer" :title="t('footerExt')"
+             class="flex items-center gap-1 text-teal-400 hover:text-teal-300 transition-colors">
+            <i class="iconify w-5 h-5" data-icon="simple-icons:googlechrome"></i>
+            <span>Chrome</span>
           </a>
           <a href="https://buymeacoffee.com/dragonmeow1012" target="_blank"
              rel="noopener noreferrer" :title="t('footerCoffee')"
@@ -1210,6 +1225,7 @@
           welcomeBody: '嗨～這是我（龍龍喵）做的免費小工具，開源、不收任何費用。網路上凡是要你付錢的版本，都是盜版。覺得好用的話，到 GitHub 點顆星、或請我喝杯咖啡，都是給我很大的鼓勵 ☕',
           welcomeStar: 'GitHub：給星星 / 打賞作者',
           footerGithub: '到 GitHub 給星星',
+          footerExt: '安裝 Chrome 擴充功能（網頁邊看邊翻）',
           footerCoffee: '請作者喝杯咖啡',
           checkUpdate: '檢查更新',
           updateTitle: '線上更新',
@@ -1238,6 +1254,7 @@
           labelTargetLang: '翻譯成',
           labelFont: '字型',
           labelOcr: 'OCR 模型', labelDir: '輸出排版', labelInpaint: '抹字模型',
+          labelFontMin: '最小字級', fmAuto: '自動（縮到塞下）',
           dirAuto: '自動', dirH: '橫式', dirV: '直式',
           inpClean: 'lama_large（較乾淨）', inpFast: 'lama_mpe（較快）',
           ocrMocr: 'manga-ocr（日漫專用）', ocrPaddle: 'PaddleOCR（中/日/英/韓）',
@@ -1392,6 +1409,7 @@
           welcomeBody: '嗨～这是我（龙龙喵）做的免费小工具，开源、不收任何费用。网上凡是要你付钱的版本，都是盗版。觉得好用的话，到 GitHub 点颗星、或请我喝杯咖啡，都是给我很大的鼓励 ☕',
           welcomeStar: 'GitHub：给星星 / 打赏作者',
           footerGithub: '到 GitHub 给星星',
+          footerExt: '安装 Chrome 扩展功能（网页边看边翻）',
           footerCoffee: '请作者喝杯咖啡',
           checkUpdate: '检查更新',
           updateTitle: '在线更新',
@@ -1420,6 +1438,7 @@
           labelTargetLang: '翻译成',
           labelFont: '字体',
           labelOcr: 'OCR 模型', labelDir: '输出排版', labelInpaint: '抹字模型',
+          labelFontMin: '最小字级', fmAuto: '自动（缩到塞下）',
           dirAuto: '自动', dirH: '横式', dirV: '竖式',
           inpClean: 'lama_large（较干净）', inpFast: 'lama_mpe（较快）',
           ocrMocr: 'manga-ocr（日漫专用）', ocrPaddle: 'PaddleOCR（中/日/英/韩）',
@@ -1574,6 +1593,7 @@
           welcomeBody: 'Hi! This is a free little tool I (DragonMeow) made — open-source and free, always. Any version that asks you to pay is pirated. If you find it useful, a GitHub star or a coffee really makes my day ☕',
           welcomeStar: 'GitHub: Star / Buy a coffee',
           footerGithub: 'Star on GitHub',
+          footerExt: 'Get the Chrome extension (translate webtoons in-place)',
           footerCoffee: 'Buy the author a coffee',
           checkUpdate: 'Check for updates',
           updateTitle: 'Online Update',
@@ -1602,6 +1622,7 @@
           labelTargetLang: 'Translate to',
           labelFont: 'Font',
           labelOcr: 'OCR model', labelDir: 'Text layout', labelInpaint: 'Text removal',
+          labelFontMin: 'Min font size', fmAuto: 'Auto (shrink to fit)',
           dirAuto: 'Auto', dirH: 'Horizontal', dirV: 'Vertical',
           inpClean: 'lama_large (cleaner)', inpFast: 'lama_mpe (faster)',
           ocrMocr: 'manga-ocr (Japanese)', ocrPaddle: 'PaddleOCR (CN/JP/EN/KO)',
@@ -1756,6 +1777,7 @@
           welcomeBody: 'こんにちは！これは私（龍龍喵）が作った無料の小さなツールです。オープンソースで、ずっと無料。お金を取る版はすべて海賊版です。気に入ったら GitHub でスター、またはコーヒーを一杯おごってくれると嬉しいです ☕',
           welcomeStar: 'GitHub：スター / 作者を支援',
           footerGithub: 'GitHub でスター',
+          footerExt: 'Chrome 拡張機能を入手（Web上でそのまま翻訳）',
           footerCoffee: '作者にコーヒーを奢る',
           checkUpdate: '更新を確認',
           updateTitle: 'オンライン更新',
@@ -1784,6 +1806,7 @@
           labelTargetLang: '翻訳先',
           labelFont: 'フォント',
           labelOcr: 'OCR モデル', labelDir: 'レイアウト', labelInpaint: '文字消去',
+          labelFontMin: '最小フォント', fmAuto: '自動（収まるまで縮小）',
           dirAuto: '自動', dirH: '横書き', dirV: '縦書き',
           inpClean: 'lama_large（きれい）', inpFast: 'lama_mpe（速い）',
           ocrMocr: 'manga-ocr（日本語）', ocrPaddle: 'PaddleOCR（中/日/英/韓）',
@@ -2113,6 +2136,7 @@
         maskDilationOffset: 40,
         inpainter: "lama_large",
         ocrModel: "mocr",
+        fontSizeMinimum: "0",
 
         uploadController: null,
 
@@ -2375,6 +2399,7 @@
           if (settings.ocrModel) this.ocrModel = settings.ocrModel;
           if (settings.renderTextDirection) this.renderTextDirection = settings.renderTextDirection;
           if (settings.inpainter) this.inpainter = settings.inpainter;
+          if (settings.fontSizeMinimum != null) this.fontSizeMinimum = String(settings.fontSizeMinimum);
           if (typeof settings.advancedMode === 'boolean') this.advancedMode = settings.advancedMode;
           if (typeof settings.autoRetryFailed === 'boolean') this.autoRetryFailed = settings.autoRetryFailed;
         },
@@ -2410,6 +2435,7 @@
             ocrModel: this.ocrModel,
             renderTextDirection: this.renderTextDirection,
             inpainter: this.inpainter,
+            fontSizeMinimum: this.fontSizeMinimum,
             advancedMode: this.advancedMode,
             autoRetryFailed: this.autoRetryFailed,
           };
@@ -2803,7 +2829,7 @@
               check_br_and_retry: false,
               strict_smart_scaling: false,
               font_size_offset: 0,
-              font_size_minimum: 0,
+              font_size_minimum: parseInt(this.fontSizeMinimum) || 0,
               no_hyphenation: false,
               stroke_width: 0.07,
               enable_template_alignment: false,

@@ -2247,6 +2247,10 @@ def resize_regions_to_font_size(img: np.ndarray, text_regions: List['TextBlock']
                         font_shrink_ratio = diff_ratio / 2 / (1 + diff_ratio)
                         font_scale_factor = 1 - min(font_shrink_ratio, 0.5)
                         target_font_size = int(target_font_size * font_scale_factor)
+                        # 字級下限：smart_scaling 縮放後不低於使用者設定的最小字級（寧可略超框也保持可讀）。
+                        _min_fs = _resolve_configured_min_font_size(config)
+                        if _min_fs > 0:
+                            target_font_size = max(target_font_size, _min_fs)
 
                         # 用取整后的字体重新算required
                         if render_horizontally:
