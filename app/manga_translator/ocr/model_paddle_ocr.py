@@ -1,4 +1,10 @@
 import os
+
+# paddlepaddle CPU 在 oneDNN 下推論會炸（ConvertPirAttribute2RuntimeAttribute），且 FLAGS 必須
+# 在 import paddle 前就設好。本模組於 OCR 註冊時（伺服器啟動、paddle 尚未匯入）載入，故在此設
+# 最保險；start.bat / start.sh 也會在 process 啟動時各設一道（雙保險）。
+os.environ.setdefault("FLAGS_use_mkldnn", "0")
+
 from typing import List
 
 import numpy as np
@@ -10,19 +16,21 @@ from ..utils import Quadrilateral
 
 class ModelPaddleOCR(OfflineOCR):
     """
-    PaddleOCR 後端 —— 主供韓漫（韓文 korean_PP-OCRv5）使用，也讀拉丁字母/數字。
+    PaddleOCR 後端 —— 中/日/英/韓多語。預設 paddle_lang='auto' 會自動偵測語言
+    （取最大文字區域用各語言模型探測、選信心最高者），也可指定 korean/ch/japan/en。
 
-    模型由 PaddleOCR 自行下載並快取於 ~/.paddlex/official_models，不走本框架的
-    _MODEL_MAPPING（故留空）。已知 paddlepaddle CPU 在 oneDNN 下推論會炸
-    （ConvertPirAttribute2RuntimeAttribute），因此固定 enable_mkldnn=False。
+    模型由 PaddleOCR 自行下載並快取於 ~/.paddlex/official_models。已知 paddlepaddle CPU
+    在 oneDNN 下推論會炸（ConvertPirAttribute2RuntimeAttribute），故固定 enable_mkldnn=False。
     """
     _MODEL_MAPPING = {}
+
+    # 自動偵測候選（拉丁字母在這幾個模型都讀得到，故不另列 en）
+    _DETECT_LANGS = ('korean', 'ch', 'japan')
 
     def __init__(self, *args, **kwargs):
         os.makedirs(self.model_dir, exist_ok=True)
         super().__init__(*args, **kwargs)
-        self._engine = None
-        self._engine_lang = None
+        self._engines = {}        # lang -> PaddleOCR（多語各快取一份）
         self.device = 'cpu'
 
     async def _load(self, device: str):
@@ -30,16 +38,15 @@ class ModelPaddleOCR(OfflineOCR):
         self.device = device
 
     async def _unload(self):
-        self._engine = None
-        self._engine_lang = None
+        self._engines = {}
 
     def _get_engine(self, lang: str):
-        if self._engine is not None and self._engine_lang == lang:
-            return self._engine
+        if lang in self._engines:
+            return self._engines[lang]
         os.environ.setdefault('FLAGS_use_mkldnn', '0')
         from paddleocr import PaddleOCR
         use_gpu = self.device in ('cuda', 'gpu')
-        self._engine = PaddleOCR(
+        self._engines[lang] = PaddleOCR(
             lang=lang,
             use_doc_orientation_classify=False,
             use_doc_unwarping=False,
@@ -47,13 +54,38 @@ class ModelPaddleOCR(OfflineOCR):
             enable_mkldnn=False,            # 規避 paddlepaddle CPU oneDNN bug
             device='gpu' if use_gpu else 'cpu',
         )
-        self._engine_lang = lang
         self.logger.info(f'PaddleOCR engine ready (lang={lang}, device={self.device})')
-        return self._engine
+        return self._engines[lang]
 
-    def _recognize_crop(self, crop: np.ndarray, prob_threshold: float):
+    def _detect_lang(self, image: np.ndarray, quadrilaterals) -> str:
+        """取最大文字區域當探針，各語言模型各跑一次，選平均信心最高者。"""
+        if not quadrilaterals:
+            return 'korean'
+
+        def _area(qd):
+            ab = getattr(qd[0], 'aabb', None)
+            return (ab.w * ab.h) if ab is not None else 0
+
+        q, d = max(quadrilaterals, key=_area)
+        crop = q.get_transformed_region(image, d, 48)
+        best, best_conf = 'korean', -1.0
+        for lang in self._DETECT_LANGS:
+            try:
+                res = self._get_engine(lang).predict(crop)
+                data = res[0].json.get('res', res[0].json)
+                texts = data.get('rec_texts', []) or []
+                scores = data.get('rec_scores', []) or []
+                conf = (sum(scores) / len(scores)) if (scores and any(str(t).strip() for t in texts)) else 0.0
+                if conf > best_conf:
+                    best_conf, best = conf, lang
+            except Exception:
+                continue
+        self.logger.info(f'PaddleOCR auto-detect lang={best} (conf={best_conf:.3f})')
+        return best
+
+    def _recognize_crop(self, engine, crop: np.ndarray, prob_threshold: float):
         try:
-            res = self._engine.predict(crop)
+            res = engine.predict(crop)
         except Exception as e:
             self.logger.warning(f'PaddleOCR predict failed: {e}')
             return '', 0.0
@@ -79,20 +111,22 @@ class ModelPaddleOCR(OfflineOCR):
             return textlines
 
         prob_threshold = config.prob if config.prob is not None else 0.2
-        # 韓漫主用；中/日/英之後可加「來源語言」選項切換 lang。
         lang = getattr(config, 'paddle_lang', None) or 'korean'
-        self._get_engine(lang)
 
         quadrilaterals = list(self._generate_text_direction(textlines))
         if not quadrilaterals:
             return textlines
+
+        if lang == 'auto':
+            lang = self._detect_lang(image, quadrilaterals)
+        engine = self._get_engine(lang)
         is_quadrilaterals = isinstance(quadrilaterals[0][0], Quadrilateral)
 
         text_height = 48
         output_regions = []
         for q, d in quadrilaterals:
             crop = q.get_transformed_region(image, d, text_height)
-            txt, prob = self._recognize_crop(crop, prob_threshold)
+            txt, prob = self._recognize_crop(engine, crop, prob_threshold)
             if config.min_text_length and len(txt) < config.min_text_length:
                 txt, prob = '', 0.0
             if verbose:

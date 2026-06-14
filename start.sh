@@ -15,6 +15,8 @@ fi
 mkdir -p logs
 export PYTHONUTF8=1
 export PYTHONIOENCODING=utf-8
+# 關閉 paddlepaddle 的 oneDNN（CPU 推論會炸），須在 python 啟動前設
+export FLAGS_use_mkldnn=0
 
 # 自動偵測 GPU：Apple Silicon 走 MPS、NVIDIA 走 CUDA，否則 CPU
 GPU_FLAG="--use-gpu"

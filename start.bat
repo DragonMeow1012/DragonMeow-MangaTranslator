@@ -21,6 +21,10 @@ rem Force UTF-8 so Japanese/Chinese text in logs is readable
 set PYTHONUTF8=1
 set PYTHONIOENCODING=utf-8
 
+rem 關閉 paddlepaddle 的 oneDNN（CPU 推論會炸 ConvertPirAttribute2RuntimeAttribute）。
+rem 必須在 python 啟動前就設，否則 paddle 匯入後才設無效。
+set FLAGS_use_mkldnn=0
+
 rem Auto-detect GPU: fall back to CPU mode if CUDA torch is not available
 set GPU_FLAG=--use-gpu
 .venv\Scripts\python.exe -c "import torch,sys;sys.exit(0 if torch.cuda.is_available() else 1)" >nul 2>&1
