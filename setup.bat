@@ -1,7 +1,69 @@
 @echo off
+chcp 65001 >nul
 setlocal
+rem repo root (this file's folder, with trailing backslash)
+set "ROOT=%~dp0"
+title DragonMeow-MangaTranslator setup
+
+rem ================================================================
+rem  Step 0: 先從 GitHub 抓最新程式碼，再進行安裝。
+rem  re-entry (--updated) 或 --no-update 會跳過這段，避免無限迴圈。
+rem ================================================================
+if /i "%~1"=="--updated"   goto :after_update
+if /i "%~1"=="--no-update" goto :after_update
+
+echo ============================================
+echo  DragonMeow-MangaTranslator setup
+echo  [0/4] 從 GitHub 抓最新程式碼 ...  Fetching latest code ...
+echo ============================================
+
+set "REPO=DragonMeow1012/DragonMeow-MangaTranslator"
+set "ZIPURL=https://github.com/%REPO%/archive/refs/heads/main.zip"
+set "TMP=%TEMP%\dmmt_setup_update"
+set "ZIP=%TEMP%\dmmt_setup_update.zip"
+
+curl -L --fail -o "%ZIP%" "%ZIPURL%"
+if errorlevel 1 (
+    echo [WARN] 抓不到最新程式碼（可能離線）；改用現有檔案繼續安裝。
+    echo        Could not fetch latest code; continuing with existing files.
+    goto :after_update
+)
+
+if exist "%TMP%" rmdir /s /q "%TMP%"
+mkdir "%TMP%"
+tar -xf "%ZIP%" -C "%TMP%"
+if errorlevel 1 (
+    echo [WARN] 解壓最新程式碼失敗；改用現有檔案繼續安裝。
+    goto :after_update
+)
+
+set "SRC=%TMP%\DragonMeow-MangaTranslator-main"
+if not exist "%SRC%\setup.bat" (
+    echo [WARN] 下載的壓縮檔結構異常；改用現有檔案繼續安裝。
+    goto :after_update
+)
+
+rem 記錄更新到的版本（盡力而為；與 app 內線上更新比對一致）。robocopy 會 /XF 掉 VERSION，
+rem 所以這裡先寫好就不會被覆蓋。
+powershell -NoProfile -Command "try { $s=(Invoke-RestMethod ('https://api.github.com/repos/%REPO%/commits/main') -Headers @{'User-Agent'='dmmt-setup'}).sha; Set-Content -Path '%ROOT%app\VERSION' -Value $s -NoNewline -Encoding ascii } catch {}"
+
+echo [*] 套用程式更新（保留 模型 / .venv / python / .env / 你的字型）...
+robocopy "%SRC%" "%ROOT%." /E /NFL /NDL /NJH /NJS /NP /R:1 /W:1 /XD "%ROOT%.venv" "%ROOT%app\.venv" "%ROOT%python" "%ROOT%app\models" "%ROOT%app\fonts\user" /XF ".env" "VERSION" >nul
+if errorlevel 8 (
+    echo [WARN] 套用更新時有檔案被占用；改用現有檔案繼續安裝。
+)
+
+rem ---- 收尾並用「剛更新好的」setup.bat 重新進入（--updated 跳過本段）----
+rem 註：到這裡為止 setup.bat 自己可能已被覆蓋，故立刻重新呼叫、不再讀舊內容。
+rmdir /s /q "%TMP%" 2>nul
+del "%ZIP%" 2>nul
+call "%ROOT%setup.bat" --updated
+exit /b %errorlevel%
+
+
+:after_update
 rem all code lives in the app\ subfolder
-cd /d "%~dp0app"
+cd /d "%ROOT%app"
 
 echo ============================================
 echo  DragonMeow-MangaTranslator setup
@@ -11,7 +73,7 @@ rem ---- 1. Pick a Python interpreter --------------------------------
 rem Prefer the bundled portable Python so users don't need to install Python.
 rem (download python-portable-win-py312.zip from the release page and unzip it
 rem  into the project root so that python\python.exe sits next to setup.bat)
-set "PY=%~dp0python\python.exe"
+set "PY=%ROOT%python\python.exe"
 if exist "%PY%" (
     echo [*] Using bundled portable Python.
 ) else (
@@ -44,10 +106,10 @@ if exist .venv if not exist ".venv\Scripts\python.exe" (
 )
 
 if not exist .venv (
-    echo [1/3] Creating virtual environment .venv ...
+    echo [1/4] Creating virtual environment .venv ...
     "%PY%" -m venv .venv
 ) else (
-    echo [1/3] .venv already exists, skipping
+    echo [1/4] .venv already exists, skipping
 )
 
 rem venv MUST contain python.exe -- if not, creation failed; stop here
@@ -69,7 +131,7 @@ if not exist ".venv\Scripts\python.exe" (
     exit /b 1
 )
 
-echo [2/3] Installing dependencies (first run takes several minutes) ...
+echo [2/4] Installing dependencies (first run takes several minutes) ...
 .venv\Scripts\python.exe -m pip install --upgrade pip
 .venv\Scripts\python.exe -m pip install -r requirements.txt
 if errorlevel 1 (
@@ -78,7 +140,15 @@ if errorlevel 1 (
     exit /b 1
 )
 
-echo [3/3] (Recommended) Have an NVIDIA GPU? Double-click setup_gpu.bat
+echo [3/4] 檢查並補齊模型檔（缺損 / 損壞會自動重新下載並校驗）...
+echo        Verifying model files (missing/corrupt ones are re-downloaded) ...
+.venv\Scripts\python.exe download_models.py
+if errorlevel 1 (
+    echo [WARN] 有模型未能補齊；請檢查網路後重跑 setup.bat，或單獨執行：
+    echo        .venv\Scripts\python.exe download_models.py
+)
+
+echo [4/4] (Recommended) Have an NVIDIA GPU? Double-click setup_gpu.bat
 echo        after this finishes to install GPU acceleration.
 echo.
 
