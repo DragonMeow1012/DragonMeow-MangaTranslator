@@ -301,8 +301,8 @@
             <div>
               <label class="side-label">{{ t('labelOcr') }}</label>
               <select class="side-field" v-model="ocrModel" @change="onSettingChange">
-                <option value="mocr">manga-ocr (日漫專用)</option>
-                <option value="paddle/auto">PaddleOCR (中/日/英/韓)</option>
+                <option value="mocr">{{ t('ocrMocr') }}</option>
+                <option value="paddle/auto">{{ t('ocrPaddle') }}</option>
               </select>
             </div>
             <div>
@@ -1240,6 +1240,7 @@
           labelOcr: 'OCR 模型', labelDir: '輸出排版', labelInpaint: '抹字模型',
           dirAuto: '自動', dirH: '橫式', dirV: '直式',
           inpClean: 'lama_large（較乾淨）', inpFast: 'lama_mpe（較快）',
+          ocrMocr: 'manga-ocr（日漫專用）', ocrPaddle: 'PaddleOCR（中/日/英/韓）',
           heroTitle: '把漫畫丟進來，一鍵翻譯',
           darkModeLabel: '深夜模式',
           labelAccent: '主題色',
@@ -1421,6 +1422,7 @@
           labelOcr: 'OCR 模型', labelDir: '输出排版', labelInpaint: '抹字模型',
           dirAuto: '自动', dirH: '横式', dirV: '竖式',
           inpClean: 'lama_large（较干净）', inpFast: 'lama_mpe（较快）',
+          ocrMocr: 'manga-ocr（日漫专用）', ocrPaddle: 'PaddleOCR（中/日/英/韩）',
           heroTitle: '把漫画丢进来，一键翻译',
           darkModeLabel: '深夜模式',
           labelAccent: '主题色',
@@ -1602,6 +1604,7 @@
           labelOcr: 'OCR model', labelDir: 'Text layout', labelInpaint: 'Text removal',
           dirAuto: 'Auto', dirH: 'Horizontal', dirV: 'Vertical',
           inpClean: 'lama_large (cleaner)', inpFast: 'lama_mpe (faster)',
+          ocrMocr: 'manga-ocr (Japanese)', ocrPaddle: 'PaddleOCR (CN/JP/EN/KO)',
           heroTitle: 'Drop your manga, translate in one click',
           darkModeLabel: 'Dark mode',
           labelAccent: 'Accent color',
@@ -1783,6 +1786,7 @@
           labelOcr: 'OCR モデル', labelDir: 'レイアウト', labelInpaint: '文字消去',
           dirAuto: '自動', dirH: '横書き', dirV: '縦書き',
           inpClean: 'lama_large（きれい）', inpFast: 'lama_mpe（速い）',
+          ocrMocr: 'manga-ocr（日本語）', ocrPaddle: 'PaddleOCR（中/日/英/韓）',
           heroTitle: '漫画をドロップ、ワンクリック翻訳',
           darkModeLabel: 'ダークモード',
           labelAccent: 'テーマカラー',
