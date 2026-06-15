@@ -55,7 +55,7 @@ const I18N = {
     serverOn: "伺服器運行中",
     serverOff: "伺服器未啟動",
     serverChecking: "偵測中…",
-    clearCurrent: "🧹 清除翻譯",
+    clearCurrent: "🔄 重新翻譯這一張",
     clearAll: "🗑 清除所有翻譯",
     clearCacheDone: "已清除",
     errChrome: "此頁面無法使用（chrome:// 或商店頁面不支援這個擴充功能）",
@@ -130,7 +130,7 @@ const I18N = {
     serverOn: "服务器运行中",
     serverOff: "服务器未启动",
     serverChecking: "检测中…",
-    clearCurrent: "🧹 清除翻译",
+    clearCurrent: "🔄 重新翻译这一张",
     clearAll: "🗑 清除所有翻译",
     clearCacheDone: "已清除",
     errChrome: "此页面无法使用（chrome:// 或商店页面不支持此扩展）",
@@ -205,7 +205,7 @@ const I18N = {
     serverOn: "Server running",
     serverOff: "Server offline",
     serverChecking: "Checking…",
-    clearCurrent: "🧹 Clear this page",
+    clearCurrent: "🔄 Re-translate one",
     clearAll: "🗑 Clear all translations",
     clearCacheDone: "Cleared",
     errChrome: "Not available on chrome:// or store pages",
@@ -280,7 +280,7 @@ const I18N = {
     serverOn: "サーバー起動中",
     serverOff: "サーバー未起動",
     serverChecking: "確認中…",
-    clearCurrent: "🧹 このページを消去",
+    clearCurrent: "🔄 この一枚を再翻訳",
     clearAll: "🗑 すべての翻訳を消去",
     clearCacheDone: "削除完了",
     errChrome: "このページでは使用できません（chrome:// またはストアページ）",
@@ -891,17 +891,10 @@ document.getElementById("bubble-reset").addEventListener("click", async () => {
   fillPrefsInputs(DEFAULT_BUBBLE_PREFS);
 });
 
-// 清除翻譯：只還原目前頁面的翻譯並刪掉這些圖的快取。
+// 重新翻譯這一張：進入挑圖模式，點要重翻的那張 → 還原原圖+刪舊快取後重翻（單張失敗免清整本）。
 document.getElementById("clear-current").addEventListener("click", async () => {
-  const span = document.getElementById("txt-clear-current");
-  try {
-    const tabId = await activeTabId();
-    if (tabId) await chrome.tabs.sendMessage(tabId, { type: "popup-command", action: "clear-current" });
-    span.textContent = t("clearCacheDone");
-  } catch {
-    span.textContent = "⚠";
-  }
-  setTimeout(() => { span.textContent = t("clearCurrent"); }, 2000);
+  const st = await sendCommand("retranslate-pick");
+  if (st) window.close(); // 關 popup 讓使用者去點要重翻的那張圖
 });
 
 // 清除所有翻譯：清空整個快取儲存，並還原目前頁面。

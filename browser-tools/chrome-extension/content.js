@@ -1135,13 +1135,16 @@ function togglePickMode() {
   }
 }
 
-function startPickMode() {
-  clearOverlays();
+function startPickMode(retranslate = false) {
+  if (!retranslate) clearOverlays();   // 重翻模式：保留其他張翻譯，只動點到的那張
   state.picking = true;
+  state.retranslatePick = !!retranslate;
   state.currentCandidate = null;
   state.button.classList.add("dmmt-ext-active");
   state.button.textContent = "✕";
-  showStatus("移到圖片上會高亮，點一下開始翻譯，按 Esc 取消");
+  showStatus(retranslate
+    ? "點要重新翻譯的那張圖：會還原原圖、刪掉舊快取後重翻，按 Esc 取消"
+    : "移到圖片上會高亮，點一下開始翻譯，按 Esc 取消");
 
   state.layer = document.createElement("div");
   state.layer.className = "dmmt-ext-pick-layer";
@@ -1152,6 +1155,7 @@ function startPickMode() {
 
 function stopPickMode() {
   state.picking = false;
+  state.retranslatePick = false;
   state.currentCandidate = null;
   state.button.classList.remove("dmmt-ext-active");
   state.button.textContent = state.bubblePrefs.label;
@@ -1202,9 +1206,18 @@ function onPickClick(event) {
     return;
   }
 
+  const wantRetranslate = state.retranslatePick;
   stopPickMode();
 
   if (state.replacements.has(candidate.element)) {
+    if (wantRetranslate) {
+      // 重新翻譯這一張：還原原圖 + 刪掉舊快取後，對同一張原圖重新送翻（單張失敗免清整本）。
+      restoreInPlaceReplacement(candidate.element, true);
+      translateRect(rect, candidate.element).catch((error) => {
+        showStatus(`圖片翻譯失敗：${error.message || error}`, 8000);
+      });
+      return;
+    }
     restoreInPlaceReplacement(candidate.element);
     hideStatus();
     return;
@@ -2184,6 +2197,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message?.type !== "popup-command") return;
   try {
     if (message.action === "toggle-pick") togglePickMode();
+    if (message.action === "retranslate-pick") { if (state.picking) stopPickMode(); else startPickMode(true); }
     if (message.action === "box-select") toggleBoxMode();
     if (message.action === "toggle-auto") toggleAutoMode();
     if (message.action === "toggle-view") toggleViewMode();
