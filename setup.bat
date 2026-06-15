@@ -6,8 +6,8 @@ set "ROOT=%~dp0"
 title DragonMeow-MangaTranslator setup
 
 rem ================================================================
-rem  Step 0: 先從 GitHub 抓最新程式碼，再進行安裝。
-rem  re-entry (--updated) 或 --no-update 會跳過這段，避免無限迴圈。
+rem  Step 0: fetch the latest code from GitHub, then install.
+rem  re-entry (--updated) or --no-update skips this to avoid an endless loop.
 rem ================================================================
 if /i "%~1"=="--updated"   goto :after_update
 if /i "%~1"=="--no-update" goto :after_update
@@ -43,8 +43,8 @@ if not exist "%SRC%\setup.bat" (
     goto :after_update
 )
 
-rem 記錄更新到的版本（盡力而為；與 app 內線上更新比對一致）。robocopy 會 /XF 掉 VERSION，
-rem 所以這裡先寫好就不會被覆蓋。
+rem Record the version we updated to (best effort; matches the app's online-update check).
+rem robocopy /XF-excludes VERSION, so writing it here first means it won't be overwritten.
 powershell -NoProfile -Command "try { $s=(Invoke-RestMethod ('https://api.github.com/repos/%REPO%/commits/main') -Headers @{'User-Agent'='dmmt-setup'}).sha; Set-Content -Path '%ROOT%app\VERSION' -Value $s -NoNewline -Encoding ascii } catch {}"
 
 echo [*] 套用程式更新（保留 模型 / .venv / python / .env / 你的字型）...
@@ -53,8 +53,8 @@ if errorlevel 8 (
     echo [WARN] 套用更新時有檔案被占用；改用現有檔案繼續安裝。
 )
 
-rem ---- 收尾並用「剛更新好的」setup.bat 重新進入（--updated 跳過本段）----
-rem 註：到這裡為止 setup.bat 自己可能已被覆蓋，故立刻重新呼叫、不再讀舊內容。
+rem ---- clean up and re-enter via the just-updated setup.bat (--updated skips Step 0) ----
+rem Note: setup.bat may have just been overwritten; re-invoke it now, do not read old content.
 rmdir /s /q "%TMP%" 2>nul
 del "%ZIP%" 2>nul
 call "%ROOT%setup.bat" --updated
@@ -83,7 +83,8 @@ if not errorlevel 1 (
     set "PY=python"
     goto :have_python
 )
-rem 沒有內附、也沒有系統 Python → 自動下載可攜版（不需要先有 Python；用 Windows 內建 curl/tar）
+rem No bundled and no system Python -- auto-download the portable build
+rem (no pre-existing Python needed; uses the curl/tar built into Windows 10/11).
 call :fetch_portable_python
 if exist "%ROOT%python\python.exe" (
     set "PY=%ROOT%python\python.exe"
@@ -98,14 +99,29 @@ rem ---- make sure the interpreter actually runs ---------------------
 rem (the "python" that opens the Microsoft Store passes "where python"
 rem  but cannot run anything, so test it for real here)
 "%PY%" -c "import sys" >nul 2>nul
-if errorlevel 1 (
-    echo [ERROR] Found Python but it cannot run.  /  找到 Python 但無法執行。
-    echo         This is usually the Microsoft Store stub.
-    echo         這通常是「微軟商店捷徑」而不是真正的 Python。
-    echo.
-    call :no_python
-    exit /b 1
-)
+if not errorlevel 1 goto :python_ok
+
+rem The chosen interpreter cannot run -- on a fresh Windows 11 the "python"
+rem on PATH is the Microsoft Store app-execution stub, which passes
+rem "where python" yet cannot execute. Do NOT give up here: if we have not
+rem already got a bundled portable Python, download one now and use it.
+echo.
+echo [*] 系統 Python 無法執行（多半是微軟商店捷徑），改用可攜版 ...
+echo     System Python cannot run (likely the Microsoft Store stub); using portable ...
+if not exist "%ROOT%python\python.exe" call :fetch_portable_python
+if exist "%ROOT%python\python.exe" set "PY=%ROOT%python\python.exe"
+"%PY%" -c "import sys" >nul 2>nul
+if not errorlevel 1 goto :python_ok
+
+echo.
+echo [ERROR] Found Python but it cannot run.  /  找到 Python 但無法執行。
+echo         This is usually the Microsoft Store stub.
+echo         這通常是「微軟商店捷徑」而不是真正的 Python。
+echo.
+call :no_python
+exit /b 1
+
+:python_ok
 
 rem ---- 2. Create / repair the virtual environment ------------------
 rem a leftover broken .venv from a previous failed run has no python.exe
@@ -174,8 +190,8 @@ pause
 exit /b 0
 
 :fetch_portable_python
-rem 自動下載可攜 Python（python-build-standalone，與 release 內附同一來源同一版本）。
-rem Windows 10/11 內建 curl 與 tar，所以「完全沒有 Python」也能 bootstrap 出一份。
+rem Auto-download the portable Python (python-build-standalone; same source/version as the release).
+rem Windows 10/11 ships curl and tar, so even "no Python at all" can bootstrap one.
 echo.
 echo [*] No Python found -- auto-downloading portable Python 3.12 (~22 MB) ...
 echo     找不到 Python，正在自動下載可攜版（約 22 MB）...
@@ -186,7 +202,7 @@ if errorlevel 1 (
     echo [WARN] 可攜 Python 下載失敗（可能離線、或無 curl）。改走手動提示。
     goto :eof
 )
-rem tarball 頂層就是 python\，解到專案根目錄即生效
+rem the tarball's top level is python\, so extracting to the project root just works
 tar -xf "%PYTGZ%" -C "%ROOT%."
 del "%PYTGZ%" 2>nul
 if exist "%ROOT%python\python.exe" (
