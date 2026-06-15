@@ -703,6 +703,10 @@ def _rasterize_path(path: QPainterPath) -> Tuple[np.ndarray, int, int]:
     painter.setPen(Qt.PenStyle.NoPen)
     painter.setBrush(QColor(255, 255, 255, 255))
     painter.translate(-left, -top)
+    # CJK 字形的筆畫多是各自獨立的重疊輪廓，預設 OddEvenFill 會把交叉處（環繞數為偶）
+    # 當成洞挖空 → 筆畫連接處出現白縫（簡繁、任何 CJK 字型皆會）。改用 WindingFill
+    # （非零環繞，字型本就為此設計）讓重疊處實心填滿，同時保留 O/日/回 等字的合法內洞。
+    path.setFillRule(Qt.FillRule.WindingFill)
     painter.drawPath(path)
     painter.end()
     return _qimage_alpha_to_array(image), left, top
