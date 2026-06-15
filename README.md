@@ -14,6 +14,8 @@
 
 ## 兩步開始用（Windows）
 
+> ⚠️ **先把資料夾放在純英文路徑**（如 `C:\MangaTranslator`）—— 路徑含中文或特殊字元會讓 Python 環境建立失敗。
+
 1. **雙擊 `setup.bat`** —— 自動裝好環境（第一次要等幾分鐘）。**免裝 Python**，壓縮包已內附可攜版。
 2. **雙擊 `start.bat`** —— 瀏覽器會自動打開介面，在上面**填一組 API key**，再把漫畫圖拖進去就開始翻。
 
@@ -143,18 +145,22 @@ v1.3 新增**瀏覽器擴充** —— 不必下載圖片，直接在漫畫網站
 
 ---
 
-## 從原始碼安裝（進階）
+## 其他安裝方式（進階）
 
+除了完整 release zip，還有兩種更輕的裝法（缺的東西都會自動補齊）：
+
+**A. 只要一個 `setup.bat`（最輕，需網路）**
+抓 `setup.bat` 一個檔，丟進一個**空的純英文路徑**資料夾，雙擊它。它會自己：從 GitHub 抓最新程式碼 → 下載可攜 Python → 裝套件 → 下載所有模型。等於「一個檔 ＋ 網路」就能無中生有整份。
+
+**B. `git clone`**
 ```bash
 git clone https://github.com/DragonMeow1012/DragonMeow-MangaTranslator.git
 cd DragonMeow-MangaTranslator
 setup.bat
-# 只有 git clone 才需要：下載 manga-ocr 模型
-app\.venv\Scripts\python -c "from huggingface_hub import snapshot_download; snapshot_download(repo_id='kha-white/manga-ocr-base')"
 ```
-其餘模型權重首次執行會自動下載；zip release 版已內附、免下載。
+模型權重首次執行會自動下載並校驗補齊。`git clone` 不含內附 Python，但 `setup.bat` 偵測不到時會**自動下載可攜版**（也可自備系統 Python 3.10–3.12）。
 
-> **zip 版免裝 Python**（已內附可攜版）；`git clone` 因不含內附 Python，需自備 Python 3.10–3.12，`setup.bat` 偵測不到內附版時會自動用系統 Python 建立 `.venv`。
+> ⚠️ 三種裝法都一樣：**資料夾務必放在純英文路徑**（含中文／特殊字元會讓 venv 建立失敗）。
 
 ---
 

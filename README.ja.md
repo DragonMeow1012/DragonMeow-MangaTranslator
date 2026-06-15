@@ -14,6 +14,8 @@
 
 ## 2 ステップで開始（Windows）
 
+> ⚠️ **フォルダは半角英数字（ASCII）のパスに置いてください**（例 `C:\MangaTranslator`）—— パスに日本語や特殊文字が含まれると Python 環境の構築に失敗します。
+
 1. **`setup.bat` をダブルクリック** —— 環境を自動構築（初回は数分かかります）。**Python のインストール不要**、zip にポータブル版を同梱済み。
 2. **`start.bat` をダブルクリック** —— ブラウザが自動で開くので、**API key を入力**して漫画画像をドラッグすれば翻訳開始。
 
@@ -143,18 +145,22 @@ GPU 加速（強く推奨、**全自動**）：
 
 ---
 
-## ソースからインストール（上級者向け）
+## その他のインストール方法（上級者向け）
 
+完全な release zip 以外に、より軽い方法が 2 つあります（足りないものは自動で補われます）：
+
+**A. `setup.bat` 1 個だけ（最軽量・要ネット）**
+`setup.bat` を 1 つだけ取得し、**空の半角英数字パス**のフォルダに置いてダブルクリック。あとは自動：GitHub から最新コード取得 → ポータブル Python をダウンロード → パッケージ導入 → 全モデルをダウンロード。「1 ファイル ＋ ネット」だけで一式そろいます。
+
+**B. `git clone`**
 ```bash
 git clone https://github.com/DragonMeow1012/DragonMeow-MangaTranslator.git
 cd DragonMeow-MangaTranslator
 setup.bat
-# git clone の場合のみ必要：manga-ocr モデルのダウンロード
-app\.venv\Scripts\python -c "from huggingface_hub import snapshot_download; snapshot_download(repo_id='kha-white/manga-ocr-base')"
 ```
-その他のモデルは初回実行時に自動ダウンロード。zip リリース版は同梱済みで不要です。
+モデルは初回実行時に自動ダウンロード・検証されます。`git clone` には同梱 Python が含まれませんが、`setup.bat` は見つからない場合**ポータブル版を自動ダウンロード**します（システムの Python 3.10–3.12 でも可）。
 
-> **zip 版は Python のインストール不要**（ポータブル版を同梱）。`git clone` には同梱 Python が含まれないため、自分で Python 3.10–3.12 が必要です（`setup.bat` は同梱 Python が見つからない場合、システムの Python から `.venv` を自動作成します）。
+> ⚠️ 3 つの方法とも：**フォルダは半角英数字パスに**（日本語・特殊文字は `.venv` 作成に失敗します）。
 
 ---
 

@@ -14,6 +14,8 @@ It detects the dialogue, erases the original text, and typesets the translation 
 
 ## Get started in two steps (Windows)
 
+> ⚠️ **Put the folder in a pure-ASCII (English) path** (e.g. `C:\MangaTranslator`) — non-ASCII or special characters in the path break the Python environment setup.
+
 1. **Double-click `setup.bat`** — sets up the environment automatically (takes a few minutes the first time). **No Python install needed** — a portable build is bundled in the zip.
 2. **Double-click `start.bat`** — your browser opens the UI automatically. **Enter an API key** there, then drag a manga page in and it starts translating.
 
@@ -143,18 +145,22 @@ GPU acceleration (strongly recommended, **fully automatic**):
 
 ---
 
-## Install from source (advanced)
+## Other ways to install (advanced)
 
+Besides the full release zip, there are two lighter options (anything missing is fetched automatically):
+
+**A. Just a single `setup.bat` (lightest, needs internet)**
+Grab the one `setup.bat` file, drop it into an **empty pure-ASCII path** folder, and double-click it. It bootstraps everything itself: fetches the latest code from GitHub → downloads a portable Python → installs packages → downloads all models. One file + internet = the whole thing from nothing.
+
+**B. `git clone`**
 ```bash
 git clone https://github.com/DragonMeow1012/DragonMeow-MangaTranslator.git
 cd DragonMeow-MangaTranslator
 setup.bat
-# Only needed for git clone: download the manga-ocr model
-app\.venv\Scripts\python -c "from huggingface_hub import snapshot_download; snapshot_download(repo_id='kha-white/manga-ocr-base')"
 ```
-Other model weights download automatically on first run; the zip release bundles everything.
+Model weights download (and are verified) automatically on first run. A `git clone` doesn't include the bundled Python, but `setup.bat` **auto-downloads the portable Python** when none is found (or uses your system Python 3.10–3.12).
 
-> **The zip needs no Python install** (a portable build is bundled). A `git clone` does **not** include the bundled Python, so you need your own Python 3.10–3.12 — when `setup.bat` finds no bundled Python it falls back to building a `.venv` from your system Python.
+> ⚠️ All three methods: **keep the folder in a pure-ASCII path** (non-ASCII / special chars break `.venv` creation).
 
 ---
 

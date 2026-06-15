@@ -76,14 +76,23 @@ rem  into the project root so that python\python.exe sits next to setup.bat)
 set "PY=%ROOT%python\python.exe"
 if exist "%PY%" (
     echo [*] Using bundled portable Python.
-) else (
-    where python >nul 2>nul
-    if errorlevel 1 (
-        call :no_python
-        exit /b 1
-    )
-    set "PY=python"
+    goto :have_python
 )
+where python >nul 2>nul
+if not errorlevel 1 (
+    set "PY=python"
+    goto :have_python
+)
+rem 沒有內附、也沒有系統 Python → 自動下載可攜版（不需要先有 Python；用 Windows 內建 curl/tar）
+call :fetch_portable_python
+if exist "%ROOT%python\python.exe" (
+    set "PY=%ROOT%python\python.exe"
+    goto :have_python
+)
+call :no_python
+exit /b 1
+
+:have_python
 
 rem ---- make sure the interpreter actually runs ---------------------
 rem (the "python" that opens the Microsoft Store passes "where python"
@@ -163,6 +172,29 @@ if not exist .env (
 echo Setup complete. Run start.bat to launch.
 pause
 exit /b 0
+
+:fetch_portable_python
+rem 自動下載可攜 Python（python-build-standalone，與 release 內附同一來源同一版本）。
+rem Windows 10/11 內建 curl 與 tar，所以「完全沒有 Python」也能 bootstrap 出一份。
+echo.
+echo [*] No Python found -- auto-downloading portable Python 3.12 (~22 MB) ...
+echo     找不到 Python，正在自動下載可攜版（約 22 MB）...
+set "PYURL=https://github.com/astral-sh/python-build-standalone/releases/download/20260610/cpython-3.12.13%%2B20260610-x86_64-pc-windows-msvc-install_only_stripped.tar.gz"
+set "PYTGZ=%TEMP%\dmmt_portable_py.tar.gz"
+curl -L --fail -o "%PYTGZ%" "%PYURL%"
+if errorlevel 1 (
+    echo [WARN] 可攜 Python 下載失敗（可能離線、或無 curl）。改走手動提示。
+    goto :eof
+)
+rem tarball 頂層就是 python\，解到專案根目錄即生效
+tar -xf "%PYTGZ%" -C "%ROOT%."
+del "%PYTGZ%" 2>nul
+if exist "%ROOT%python\python.exe" (
+    echo [*] Portable Python ready. / 可攜 Python 已就緒。
+) else (
+    echo [WARN] 可攜 Python 解壓失敗（可能無 tar）。改走手動提示。
+)
+goto :eof
 
 :no_python
 echo [ERROR] No usable Python found.  /  找不到可用的 Python。
