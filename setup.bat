@@ -151,8 +151,8 @@ if errorlevel 1 (
     echo        .venv\Scripts\python.exe download_models.py
 )
 
-echo [4/4] (Recommended) Have an NVIDIA GPU? Double-click setup_gpu.bat
-echo        after this finishes to install GPU acceleration.
+echo [4/4] GPU 已於 [2b] 自動偵測並安裝完成（NVIDIA 顯卡→GPU 版，否則 CPU 版）。
+echo        日後驅動更新、或想重裝／修復 GPU 加速時，再執行 setup_gpu.bat 即可。
 echo.
 
 if not exist .env (
