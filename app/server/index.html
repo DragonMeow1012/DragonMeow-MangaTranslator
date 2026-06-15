@@ -3124,6 +3124,7 @@
           this.queuedImages[idx] = { ...this.queuedImages[idx], status: 'finished', result: url };
           this.addToFinishedImages({ name: queuedImage.file.name, result: url });
           this.currentFolder = folder; // 主檢視器顯示最近完成的那張
+          this.result = url;           // 補：每張翻好就立刻更新主檢視器（resultUri 靠 currentFolder 取 final.png）
           // 進階模式 + 沒有其他待處理/進行中 → 自動開編輯器（只在單張流程時）。
           const othersBusy = this.queuedImages.some(it => it.id !== queuedImage.id && it.status !== 'finished' && it.status !== 'error');
           if (this.advancedMode && !othersBusy && !this.editorOpen) {
