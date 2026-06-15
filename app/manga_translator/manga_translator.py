@@ -720,16 +720,29 @@ class MangaTranslator:
         要等到所有 pre 跑完才有機會」的 FIFO pile-up。
         """
         gpu_lock = self._get_gpu_lock()
+        _t = time.perf_counter()
         async with gpu_lock.acquire('pre'):
             ctx = await self._stage_pre_llm(config, ctx)
+        logger.info(f'[timing] pre(detect+ocr+merge) {(time.perf_counter()-_t)*1000:.0f}ms')
         if getattr(ctx, '_pipeline_done', False):
             return ctx
         # LLM 階段不持 GPU 鎖：純網路 await，多個 coroutine 同時打不同 API key。
+        _t = time.perf_counter()
         ctx = await self._stage_llm(config, ctx)
+        logger.info(f'[timing] llm {(time.perf_counter()-_t)*1000:.0f}ms')
         if getattr(ctx, '_pipeline_done', False):
             return ctx
+        # post 拆兩段：GPU 部分（mask+inpaint）持 gpu_lock 序列化；render（純 CPU）移出鎖、
+        # 跑專屬 render 執行緒，讓別張的 GPU 階段能在這張排字時並行 → GPU 不必空等渲染。
+        _t = time.perf_counter()
         async with gpu_lock.acquire('post'):
-            ctx = await self._stage_post_llm(config, ctx)
+            ctx = await self._stage_post_gpu(config, ctx)
+        logger.info(f'[timing] post_gpu(mask+inpaint) {(time.perf_counter()-_t)*1000:.0f}ms')
+        if getattr(ctx, '_pipeline_done', False):
+            return ctx
+        _t = time.perf_counter()
+        ctx = await self._stage_render(config, ctx)
+        logger.info(f'[timing] render {(time.perf_counter()-_t)*1000:.0f}ms')
         return ctx
 
     def _get_gpu_lock(self):
@@ -900,7 +913,17 @@ class MangaTranslator:
 
     async def _stage_post_llm(self, config: Config, ctx: Context) -> Context:
         """
-        Post-LLM: mask refinement / inpainting / rendering。GPU heavy。
+        Post-LLM 完整段（pipeline-mode 入口 translate_post_llm 用）。
+        _translate 走拆開的 _stage_post_gpu（持 gpu_lock）+ _stage_render（不持鎖、專屬執行緒）。
+        """
+        ctx = await self._stage_post_gpu(config, ctx)
+        if getattr(ctx, '_pipeline_done', False):
+            return ctx
+        return await self._stage_render(config, ctx)
+
+    async def _stage_post_gpu(self, config: Config, ctx: Context) -> Context:
+        """
+        mask refinement + inpainting。GPU heavy，需持 gpu_lock 序列化。
         """
         # -- Mask refinement
         # (Delayed to take advantage of the region filtering done after ocr and translation)
@@ -941,6 +964,13 @@ class MangaTranslator:
             except Exception as e:
                 logger.error(f"Error saving inpainted.png debug image: {e}")
                 logger.debug(f"Exception details: {traceback.format_exc()}")
+        return ctx
+
+    async def _stage_render(self, config: Config, ctx: Context) -> Context:
+        """
+        文字渲染 + 合成 + 還原尺寸。純 CPU、不碰 CUDA，不需 gpu_lock；跑專屬 render 執行緒，
+        讓別張的 GPU 階段能在這張排字時並行（GPU 不必空等渲染）。
+        """
         # -- Rendering
         await self._report_progress('rendering')
 
@@ -1015,6 +1045,14 @@ class MangaTranslator:
         if config.upscale.revert_upscaling:
             await self._report_progress('downscaling')
             ctx.result = ctx.result.resize(ctx.input.size)
+
+        # K 並發 + render 移出 gpu_lock：self._current_image_context 是全域，可能已被別張圖的
+        # _set_image_context 覆蓋。還原本張的 per-image 快照（_stage_pre_llm 已存進 ctx.image_context），
+        # 讓底下所有寫檔（final.png / background / source / edit_state）與 SSE final_ready 都解析到
+        # 「這張」的子資料夾。此行之後到寫檔/SSE folder 計算之間沒有 await，不會再被別張覆蓋。
+        _ictx = getattr(ctx, 'image_context', None)
+        if _ictx:
+            self._current_image_context = _ictx
 
         # server 端把小圖放大到 1280 再翻譯（清晰、字級準）；這裡把成品縮回使用者原始尺寸，
         # 一律「原圖進、原圖出」——使用者看到的輸出解析度永遠等於原圖。
@@ -1132,6 +1170,31 @@ class MangaTranslator:
             finally:
                 loop.close()
         return await asyncio.get_event_loop().run_in_executor(cls._ensure_gpu_executor(), _runner)
+
+    # render 專用執行緒（與 GPU 執行緒分開）。render 是純 CPU、不碰 CUDA，且已移出 gpu_lock；
+    # 用獨立執行緒才能與別張的 GPU op 真正並行（不搶 _gpu_executor 那條線）。
+    _render_executor = None
+
+    @classmethod
+    def _ensure_render_executor(cls):
+        if cls._render_executor is None:
+            import concurrent.futures
+            cls._render_executor = concurrent.futures.ThreadPoolExecutor(
+                max_workers=1, thread_name_prefix='manga-render',
+            )
+        return cls._render_executor
+
+    @classmethod
+    async def _run_async_in_render_thread(cls, coro_func, *args, **kwargs):
+        """同 _run_async_in_thread，但用獨立的 render 執行緒。max_workers=1：render 仍序列化，
+        避免共用字型/PIL 全域狀態的並行風險；但因不持 gpu_lock，別張的 GPU 階段可同時進行。"""
+        def _runner():
+            loop = asyncio.new_event_loop()
+            try:
+                return loop.run_until_complete(coro_func(*args, **kwargs))
+            finally:
+                loop.close()
+        return await asyncio.get_event_loop().run_in_executor(cls._ensure_render_executor(), _runner)
 
     async def _run_colorizer(self, config: Config, ctx: Context):
         current_time = time.time()
@@ -1974,7 +2037,7 @@ class MangaTranslator:
                 config.render.layout_mode = 'balloon_fill'
             # 傳 copy：render() 會原地把譯文畫進傳入的陣列。ctx.img_inpainted 語意是
             # 「抹字後無字背景」，必須保持乾淨（進階編輯重渲染、to_json 背景都依賴它）。
-            output = await self._run_async_in_thread(
+            output = await self._run_async_in_render_thread(
                 dispatch_rendering,
                 ctx.img_inpainted.copy() if ctx.img_inpainted is not None else ctx.img_inpainted,
                 ctx.text_regions,
