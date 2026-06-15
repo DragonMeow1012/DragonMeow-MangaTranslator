@@ -12,7 +12,7 @@ const DEFAULT_SETTINGS = {
   fontPath: "",
   // 以下三項對齊網頁 UI（index.html）預設；翻譯時會即時抓 /ui-settings 覆蓋成你在 127.0.0.1:8501 的設定。
   ocrModel: "mocr/gpu",
-  inpainter: "lama_large",
+  inpainter: "lama_mpe",
   renderTextDirection: "auto",
   fontSizeMinimum: "0",
   concurrency: "5"
@@ -56,7 +56,7 @@ function defaultRawSettings() {
     targetLanguage: "CHT",
     customBaseUrl: "",
     ocrModel: "mocr/gpu",
-    inpainter: "lama_large",
+    inpainter: "lama_mpe",
     renderTextDirection: "auto"
   };
 }
@@ -362,7 +362,7 @@ function buildConfig(settings) {
       ignore_bubble: 0
     },
     inpainter: {
-      inpainter: settings.inpainter || "lama_large",
+      inpainter: settings.inpainter || "lama_mpe",
       inpainting_size: 2048,
       inpainting_precision: "bf16"
     },

@@ -652,7 +652,7 @@ function applyViewToFields() {
   else if (_om === "paddle/auto") _om = "paddle/auto/gpu";
   ocrSelect.value = _om;
   dirSelect.value = _view.renderTextDirection || "auto";
-  inpaintSelect.value = _view.inpainter || "lama_large";
+  inpaintSelect.value = _view.inpainter || "lama_mpe";
   sendimageRow.classList.toggle("on", _view.llmSendImage !== false);
 }
 

@@ -337,7 +337,7 @@ class DetectorConfig(BaseModel):
     """How much to extend text skeleton to form bounding box"""
 
 class InpainterConfig(BaseModel):
-    inpainter: Inpainter = Inpainter.lama_large
+    inpainter: Inpainter = Inpainter.lama_mpe
     """Inpainting model to use"""
     inpainting_size: int = 2048
     """Size of image used for inpainting (too large will result in OOM)"""
