@@ -113,9 +113,11 @@ v1.3 新增**浏览器扩展** —— 不必下载图片，直接在漫画网站
 - **原图抓取**：图排版异常或被缩图时，抓原始分辨率重翻。
 - **界面多语**：繁中 / 简中 / English / 日本語。
 
-### 安装（开发者模式，过审前先用）
+### 安装
 
-> 扩展正在 **Chrome 应用商店审核中**，过审后这里会补上一键安装链接。现在可用开发者模式加载：
+**最简单：从 [Chrome 应用商店](https://chromewebstore.google.com/detail/gfoajcgelfgihpnaijmimhhfkioocoej) 一键安装**（已过审上架）。安装后：① 先把 app 跑起来（`start.bat` / `bash start.sh`），确认 `http://127.0.0.1:8501` 已开启 → ② 打开扩展按「🔄 同步网页设置」带入 AI 设置 → ③ 到漫画页点「✨ 启用翻译气泡」开始翻。
+
+也可改用**开发者模式**加载 release 内附的 zip（不想通过商店、或想用打包好的版本时）：
 
 1. **先把 app 跑起来**（`start.bat` 或 `bash start.sh`），确认 `http://127.0.0.1:8501` 已开启 —— 扩展靠它翻译。
 2. 下载 release 的 **`chrome-extension.zip`** 并解压。

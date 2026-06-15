@@ -113,9 +113,11 @@ v1.3 adds a **browser extension** — no need to download images; translate righ
 - **Fetch original**: re-fetch full resolution when the layout looks off or images are downscaled.
 - **Multilingual UI**: 繁中 / 简中 / English / 日本語.
 
-### Install (Developer Mode — usable before store approval)
+### Install
 
-> The extension is **under review on the Chrome Web Store**; a one-click install link will be added here once approved. For now, load it via Developer Mode:
+**Easiest: one-click install from the [Chrome Web Store](https://chromewebstore.google.com/detail/gfoajcgelfgihpnaijmimhhfkioocoej)** (now approved & live). After installing: ① start the app first (`start.bat` / `bash start.sh`) and confirm `http://127.0.0.1:8501` is up → ② open the extension and click **🔄 Pull web settings** → ③ on a manga page, click **✨ Enable bubble** to start.
+
+You can also load the bundled zip via **Developer Mode** (if you'd rather not use the store):
 
 1. **Start the app first** (`start.bat` or `bash start.sh`) and confirm `http://127.0.0.1:8501` is up — the extension relies on it.
 2. Download **`chrome-extension.zip`** from the release and unzip it.

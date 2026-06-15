@@ -113,9 +113,11 @@ v1.3 新增**瀏覽器擴充** —— 不必下載圖片，直接在漫畫網站
 - **原圖抓取**：圖排版異常或被縮圖時，抓原始解析度重翻。
 - **介面多語**：繁中 / 簡中 / English / 日本語。
 
-### 安裝（開發者模式，過審前先用）
+### 安裝
 
-> 擴充正在 **Chrome Web Store 審核中**，過審後這裡會補上一鍵安裝連結。現在可用開發者模式載入：
+**最簡單：從 [Chrome 應用商店](https://chromewebstore.google.com/detail/gfoajcgelfgihpnaijmimhhfkioocoej) 一鍵安裝**（已過審上架）。安裝後：① 先把 app 跑起來（`start.bat` / `bash start.sh`），確認 `http://127.0.0.1:8501` 已開啟 → ② 打開擴充按「🔄 同步網頁設定」帶入 AI 設定 → ③ 到漫畫頁點「✨ 啟用翻譯泡泡」開始翻。
+
+也可改用**開發者模式**載入 release 內附的 zip（不想透過商店、或想用打包好的版本時）：
 
 1. **先把 app 跑起來**（`start.bat` 或 `bash start.sh`），確認 `http://127.0.0.1:8501` 已開啟 —— 擴充靠它翻譯。
 2. 下載 release 的 **`chrome-extension.zip`** 並解壓。
