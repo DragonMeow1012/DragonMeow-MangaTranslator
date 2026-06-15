@@ -392,7 +392,7 @@ function buildConfig(settings) {
       font_size_offset: 0,
       font_size_minimum: 0,
       font_size_min_ratio: ((parseFloat(settings.fontSizeMinimum) || 0) <= 1) ? (parseFloat(settings.fontSizeMinimum) || 0) : 0,
-      no_hyphenation: false,
+      no_hyphenation: true,
       stroke_width: 0.07,
       enable_template_alignment: false,
       paste_mask_dilation_pixels: 10,
