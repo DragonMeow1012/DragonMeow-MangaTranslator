@@ -2586,20 +2586,8 @@
           
           console.log(`Queue now has ${this.queuedImages.length} items`);
           
-          // If nothing is currently processing, start the first one
-          const processingSteps = ['upload', 'pending', 'detection', 'ocr', 'mask-generation', 'inpainting', 'upscaling', 'translating', 'rendering'];
-          const isCurrentlyTranslating = this.queuedImages.some(item =>
-            processingSteps.includes(item.status)
-          );
-          
-          if (!isCurrentlyTranslating && this.queuedImages.length > 0) {
-            // Start processing the first queued item
-            const firstQueuedIndex = this.queuedImages.findIndex(item => item.status === 'queued');
-            if (firstQueuedIndex !== -1) {
-              this.queuedImages[firstQueuedIndex].status = 'processing';
-              this.processTranslation(this.queuedImages[firstQueuedIndex]);
-            }
-          }
+          // 並發：依「並發數」設定填滿空槽（最多同時 conc 張）。
+          this.processNextInQueue();
         },
 
         // Batch upload functions
@@ -2630,26 +2618,18 @@
           if (itemIndex !== -1) {
             const item = this.queuedImages[itemIndex];
             
-            // If it's currently processing, abort the translation
-            if (item.status === 'processing') {
-              this.uploadController?.abort();
-            }
-            
-            // Remove the item from queue
+            // 中止這張（不影響其他並發中的張）；處理中 status 會是 detection/ocr… 故用步驟集合判斷。
+            const steps = ['upload','pending','detection','ocr','mask-generation','inpainting','upscaling','translating','rendering','processing'];
+            const wasActive = steps.includes(item.status);
+            if (wasActive) item._controller?.abort();
             this.queuedImages.splice(itemIndex, 1);
-            
-            // If we removed a processing item, start the next one
-            if (item.status === 'processing') {
-              setTimeout(() => {
-                this.processNextInQueue();
-              }, 500);
-            }
+            if (wasActive) setTimeout(() => this.processNextInQueue(), 300);
           }
         },
 
         // 中斷全部：停掉目前翻譯並清空整個佇列
         abortAllQueue() {
-          this.uploadController?.abort();
+          this.queuedImages.forEach(it => it._controller?.abort());
           this.queuedImages = [];
         },
 
@@ -2778,15 +2758,12 @@
 
         // Process translation for a specific queued image
         async processTranslation(queuedImage) {
-          this.uploadController?.abort();
-          this.uploadController = new AbortController();
-
-          // Reset translation state for new translation
-          this.currentFolder = null;
-          this.finalPngDisplayed = false;
+          // 並發：每張各自的 AbortController（不再 abort 別張）；
+          // folder / finalShown 改 per-stream 區域變數，避免多張並發時互相覆蓋。
+          queuedImage._controller = new AbortController();
           this.useFileResult = true;
-          
-          console.log("Started new translation, reset currentFolder to null");
+          let _myFolder = null;
+          let _finalShown = false;
 
           // Status is already set correctly in startTranslation, no need to change it here
 
@@ -2900,7 +2877,7 @@
               switch (statusCode) {
                 case 0:
                   // 如果已经显示了final.png文件，忽略占位符数据
-                  if (this.finalPngDisplayed) {
+                  if (_finalShown) {
                     console.log("已显示final.png，忽略占位符数据");
                     break;
                   }
@@ -2920,20 +2897,12 @@
 
                   // 检查是否是rendering_folder消息
                   if (newStatus.startsWith("rendering_folder:")) {
-                    this.currentFolder = newStatus.substring(17); // 移除"rendering_folder:"前缀
-                    console.log("收到文件夹信息:", this.currentFolder);
+                    _myFolder = newStatus.substring(17); // 這張自己的資料夾（per-stream，不共用 this.*）
                   } else if (newStatus.startsWith("final_ready:")) {
-                    // final.png已就绪，立即显示
-                    const readyFolder = newStatus.substring(12); // 移除"final_ready:"前缀
-                    console.log("final.png已就绪，文件夹:", readyFolder);
-                    
-                    // Ensure currentFolder is set
-                    if (!this.currentFolder) {
-                      this.currentFolder = readyFolder;
-                      console.log("Set currentFolder from final_ready:", this.currentFolder);
-                    }
-                    
-                    this.showFinalResult();
+                    const readyFolder = newStatus.substring(12);
+                    if (!_myFolder) _myFolder = readyFolder;
+                    this._finishQueuedItem(queuedImage, _myFolder); // 完成「這一張」（靠 queuedImage.id 鎖定）
+                    _finalShown = true;
                   } else if (processingItemIndex !== -1) {
                     // Update the processing item status and progress using Vue reactivity
                     console.log('Updating status for queued image:', queuedImage.id, 'to:', newStatus);
@@ -2987,7 +2956,7 @@
                 {
                   method: "POST",
                   body: formData,
-                  signal: this.uploadController.signal,
+                  signal: queuedImage._controller.signal,
                 }
               );
 
@@ -3031,7 +3000,7 @@
           // ---- 看門狗：180s 無 stream 進度或總時 900s → abort，避免單張卡死整條佇列 ----
           const startedAt = Date.now();
           let lastActivity = Date.now();
-          const controller = this.uploadController;
+          const controller = queuedImage._controller;
           const watchdog = setInterval(() => {
             const item = this.queuedImages.find(i => i.id === queuedImage.id);
             if (!item || item.status === 'finished' || item.status === 'error') {
@@ -3057,10 +3026,8 @@
                 error: this.t('stErrTimeout'),
               };
             }
-            // 失敗一律推進下一張；成功路徑由 final_ready 自己推進
-            if (this.queuedImages[idx].status === 'error') {
-              setTimeout(() => this.processNextInQueue(), 800);
-            }
+            // 不論成功/失敗都嘗試填滿空槽（成功路徑也會在 _finishQueuedItem 再填一次，冪等）。
+            setTimeout(() => this.processNextInQueue(), 300);
           });
         },
 
@@ -3137,112 +3104,51 @@
 
 
 
-        // 显示final.png结果
-        showFinalResult() {
-          console.log("final.png已就绪，立即显示");
-          console.log("Current folder:", this.currentFolder);
-
-          // 标记已显示final.png，后续占位符数据将被忽略
-          this.finalPngDisplayed = true;
-
-          // Find the item that was just processed - it might already be 'finished' or still processing
-          // Look for the first item that's not 'queued' (either 'finished' or still processing)
-          const processingItemIndex = this.queuedImages.findIndex(item => 
-            item.status !== 'queued'
-          );
-          
-          console.log("Looking for processing/finished item, found at index:", processingItemIndex);
-          console.log("Current queue statuses:", this.queuedImages.map(item => ({ id: item.id, status: item.status })));
-          
-          if (processingItemIndex !== -1) {
-            const processingItem = this.queuedImages[processingItemIndex];
-            
-            // Check if currentFolder is available
-            if (!this.currentFolder) {
-              console.warn("currentFolder is null, cannot set result URL");
-              return;
-            }
-            
-            // Update the item using Vue reactivity - ensure it has the correct result URL
-            this.queuedImages[processingItemIndex] = {
-              ...processingItem,
-              status: 'finished',
-              result: `${BASE_URI}result/${this.currentFolder}/final.png`
-            };
-            
-            console.log("Updated queued image:", this.queuedImages[processingItemIndex]);
-            
-            // Add to finished images gallery
-            this.addToFinishedImages({
-              name: processingItem.file.name,
-              result: `${BASE_URI}result/${this.currentFolder}/final.png`
-            });
-
-            // 進階模式 + 佇列沒有其他待處理 → 自動打開編輯器（單張流程）
-            if (this.advancedMode && !this.queuedImages.some(it => it.status === 'queued') && !this.editorOpen) {
-              const f = this.currentFolder;
-              setTimeout(() => this.openEditor(f), 600);
-            }
-
-            // Auto-process next item in queue FIRST
-            setTimeout(() => {
-              console.log("Auto-processing next item in queue");
-              this.processNextInQueue();
-            }, 500); // Wait 500ms before processing next
-            
-            // Clear finished items from queue AFTER processing next
-            setTimeout(() => {
-              this.clearFinishedItems();
-            }, 3000); // Wait 3 seconds before clearing so user can see the finished status
-          } else {
-            console.warn("No processing item found in queue");
+        // 完成「指定那一張」（靠 queuedImage.id 鎖定，並發安全）：設結果 URL + 加入相簿 + 填滿空槽。
+        _finishQueuedItem(queuedImage, folder) {
+          if (!folder) { console.warn('finish: folder is null'); return; }
+          const url = `${BASE_URI}result/${folder}/final.png`;
+          const idx = this.queuedImages.findIndex(it => it.id === queuedImage.id);
+          if (idx !== -1) {
+            this.queuedImages[idx] = { ...this.queuedImages[idx], status: 'finished', result: url };
           }
+          this.addToFinishedImages({ name: queuedImage.file.name, result: url });
+          this.currentFolder = folder; // 主檢視器顯示最近完成的那張
+          // 進階模式 + 沒有其他待處理/處理中 → 自動開編輯器（只在單張流程時）。
+          const steps = ['upload','pending','detection','ocr','mask-generation','inpainting','upscaling','translating','rendering','processing'];
+          const othersBusy = this.queuedImages.some(it => it.id !== queuedImage.id && (it.status === 'queued' || steps.includes(it.status)));
+          if (this.advancedMode && !othersBusy && !this.editorOpen) {
+            setTimeout(() => this.openEditor(folder), 600);
+          }
+          setTimeout(() => this.processNextInQueue(), 200);   // 補下一張
+          setTimeout(() => this.clearFinishedItems(), 3000);  // 延遲清掉已完成項
         },
 
-    // Process next item in queue
+    // 並發排程：把空槽填到「並發數」上限（最多同時 conc 張）。ingest / 完成 / 失敗 / 重試共用。
     processNextInQueue() {
-      console.log("processNextInQueue called");
-      console.log("Current queue:", this.queuedImages.map(item => ({ id: item.id, status: item.status })));
-
-      // 防併發：已有圖在處理中就不再啟動（重試 / 看門狗 / 完成路徑可能同時呼叫）
-      const active = this.queuedImages.some(
-        item => !['queued', 'finished', 'error'].includes(item.status)
-      );
-      if (active) {
-        console.log("An item is already processing, skip advancing");
-        return;
-      }
-
-      let nextItemIndex = this.queuedImages.findIndex(item => item.status === 'queued');
-
-      // 自動重試：勾選後不限次數，把錯誤項一直重排回佇列直到全部完成。
-      // 取消勾選即停（失敗就維持 error，不再自動重排）。
-      if (nextItemIndex === -1 && this.autoRetryFailed) {
-        let requeued = false;
-        this.queuedImages.forEach((item, idx) => {
-          if (item.status === 'error') {
-            this.queuedImages[idx] = {
-              ...item, status: 'queued', error: null, progress: null,
-              queuePos: null, retryCount: (item.retryCount || 0) + 1,
-            };
-            requeued = true;
-          }
-        });
-        if (requeued) {
-          console.log("Auto-retry: re-queued failed items");
-          nextItemIndex = this.queuedImages.findIndex(item => item.status === 'queued');
+      const conc = Math.max(1, Math.min(parseInt(this.concurrency) || 5, 16));
+      const steps = ['upload','pending','detection','ocr','mask-generation','inpainting','upscaling','translating','rendering','processing'];
+      const countActive = () => this.queuedImages.filter(it => steps.includes(it.status)).length;
+      let guard = 0;
+      while (countActive() < conc && guard++ < 64) {
+        let nextItemIndex = this.queuedImages.findIndex(item => item.status === 'queued');
+        // 自動重試：沒有 queued 時，把 error 項重排回佇列（勾選才做，不限次數）。
+        if (nextItemIndex === -1 && this.autoRetryFailed) {
+          let requeued = false;
+          this.queuedImages.forEach((item, idx) => {
+            if (item.status === 'error') {
+              this.queuedImages[idx] = {
+                ...item, status: 'queued', error: null, progress: null,
+                queuePos: null, retryCount: (item.retryCount || 0) + 1,
+              };
+              requeued = true;
+            }
+          });
+          if (requeued) nextItemIndex = this.queuedImages.findIndex(item => item.status === 'queued');
         }
-      }
-
-      if (nextItemIndex !== -1) {
-        const nextItem = this.queuedImages[nextItemIndex];
-        this.queuedImages[nextItemIndex] = {
-          ...nextItem,
-          status: 'processing'
-        };
+        if (nextItemIndex === -1) break;  // 沒有可啟動的了
+        this.queuedImages[nextItemIndex] = { ...this.queuedImages[nextItemIndex], status: 'processing' };
         this.processTranslation(this.queuedImages[nextItemIndex]);
-      } else {
-        console.log("No queued items to process");
       }
     },
 
@@ -4011,32 +3917,21 @@
       console.log('Skip current translation called');
       console.log('Current queued images:', this.queuedImages);
       
-      const processingItemIndex = this.queuedImages.findIndex(item => item.status === 'processing');
-      console.log('Processing item index:', processingItemIndex);
-      
-      if (processingItemIndex !== -1) {
-        const processingItem = this.queuedImages[processingItemIndex];
-        console.log('Found processing item:', processingItem);
-        
-        // Abort current translation
-        this.uploadController?.abort();
-        console.log('Aborted upload controller');
-        
-        // Mark current item as skipped/error
-        this.queuedImages[processingItemIndex] = {
-          ...processingItem,
-          status: 'error',
-          error: 'Skipped by user'
-        };
-        
-        console.log('Marked item as skipped');
-        
-        // Clear finished/error items and move to next
+      // 並發：跳過＝中止目前所有處理中的張，標記 error（勾自動重試會再排回）。
+      const steps = ['upload','pending','detection','ocr','mask-generation','inpainting','upscaling','translating','rendering','processing'];
+      let skipped = 0;
+      this.queuedImages.forEach((item, idx) => {
+        if (steps.includes(item.status)) {
+          item._controller?.abort();
+          this.queuedImages[idx] = { ...item, status: 'error', error: 'Skipped by user' };
+          skipped++;
+        }
+      });
+      if (skipped) {
         setTimeout(() => {
           this.clearFinishedItems();
           this.processNextInQueue();
         }, 1000);
-      } else {
       }
     },
 
@@ -4115,7 +4010,7 @@
         },
 
         clear() {
-          this.uploadController?.abort();
+          this.queuedImages?.forEach(it => it._controller?.abort());
           this.file = null;
           this.result = null;
           this.currentFolder = null;
