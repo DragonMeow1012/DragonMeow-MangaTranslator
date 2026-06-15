@@ -2619,8 +2619,7 @@
             const item = this.queuedImages[itemIndex];
             
             // 中止這張（不影響其他並發中的張）；處理中 status 會是 detection/ocr… 故用步驟集合判斷。
-            const steps = ['upload','pending','detection','ocr','mask-generation','inpainting','upscaling','translating','rendering','processing'];
-            const wasActive = steps.includes(item.status);
+            const wasActive = item.status && !['queued','finished','error'].includes(item.status);
             if (wasActive) item._controller?.abort();
             this.queuedImages.splice(itemIndex, 1);
             if (wasActive) setTimeout(() => this.processNextInQueue(), 300);
@@ -3003,7 +3002,8 @@
           const controller = queuedImage._controller;
           const watchdog = setInterval(() => {
             const item = this.queuedImages.find(i => i.id === queuedImage.id);
-            if (!item || item.status === 'finished' || item.status === 'error') {
+            // item._controller !== controller：這張已被新一輪（重試）接手 → 舊看門狗收掉，避免洩漏。
+            if (!item || item._controller !== controller || item.status === 'finished' || item.status === 'error') {
               clearInterval(watchdog);
               return;
             }
@@ -3107,16 +3107,18 @@
         // 完成「指定那一張」（靠 queuedImage.id 鎖定，並發安全）：設結果 URL + 加入相簿 + 填滿空槽。
         _finishQueuedItem(queuedImage, folder) {
           if (!folder) { console.warn('finish: folder is null'); return; }
-          const url = `${BASE_URI}result/${folder}/final.png`;
           const idx = this.queuedImages.findIndex(it => it.id === queuedImage.id);
-          if (idx !== -1) {
-            this.queuedImages[idx] = { ...this.queuedImages[idx], status: 'finished', result: url };
+          // 冪等 + 防幽靈：項目已被移除（idx<0）或已完成 → 不重覆加入相簿、不重設，只補下一張。
+          if (idx === -1 || this.queuedImages[idx].status === 'finished') {
+            setTimeout(() => this.processNextInQueue(), 200);
+            return;
           }
+          const url = `${BASE_URI}result/${folder}/final.png`;
+          this.queuedImages[idx] = { ...this.queuedImages[idx], status: 'finished', result: url };
           this.addToFinishedImages({ name: queuedImage.file.name, result: url });
           this.currentFolder = folder; // 主檢視器顯示最近完成的那張
-          // 進階模式 + 沒有其他待處理/處理中 → 自動開編輯器（只在單張流程時）。
-          const steps = ['upload','pending','detection','ocr','mask-generation','inpainting','upscaling','translating','rendering','processing'];
-          const othersBusy = this.queuedImages.some(it => it.id !== queuedImage.id && (it.status === 'queued' || steps.includes(it.status)));
+          // 進階模式 + 沒有其他待處理/進行中 → 自動開編輯器（只在單張流程時）。
+          const othersBusy = this.queuedImages.some(it => it.id !== queuedImage.id && it.status !== 'finished' && it.status !== 'error');
           if (this.advancedMode && !othersBusy && !this.editorOpen) {
             setTimeout(() => this.openEditor(folder), 600);
           }
@@ -3127,8 +3129,9 @@
     // 並發排程：把空槽填到「並發數」上限（最多同時 conc 張）。ingest / 完成 / 失敗 / 重試共用。
     processNextInQueue() {
       const conc = Math.max(1, Math.min(parseInt(this.concurrency) || 5, 16));
-      const steps = ['upload','pending','detection','ocr','mask-generation','inpainting','upscaling','translating','rendering','processing'];
-      const countActive = () => this.queuedImages.filter(it => steps.includes(it.status)).length;
+      // 「進行中」= 狀態不是 queued/finished/error。伺服器會串出 textline_merge / after-translating /
+      // downscaling / colorizing 等很多中間狀態，不能用白名單（會誤判成空槽 → 超發超過上限）。
+      const countActive = () => this.queuedImages.filter(it => it.status && !['queued','finished','error'].includes(it.status)).length;
       let guard = 0;
       while (countActive() < conc && guard++ < 64) {
         let nextItemIndex = this.queuedImages.findIndex(item => item.status === 'queued');
@@ -3136,7 +3139,7 @@
         if (nextItemIndex === -1 && this.autoRetryFailed) {
           let requeued = false;
           this.queuedImages.forEach((item, idx) => {
-            if (item.status === 'error') {
+            if (item.status === 'error' && (item.retryCount || 0) < 8) {   // 上限 8 次，避免死錯誤 300ms 無限重試風暴
               this.queuedImages[idx] = {
                 ...item, status: 'queued', error: null, progress: null,
                 queuePos: null, retryCount: (item.retryCount || 0) + 1,
@@ -3918,10 +3921,9 @@
       console.log('Current queued images:', this.queuedImages);
       
       // 並發：跳過＝中止目前所有處理中的張，標記 error（勾自動重試會再排回）。
-      const steps = ['upload','pending','detection','ocr','mask-generation','inpainting','upscaling','translating','rendering','processing'];
       let skipped = 0;
       this.queuedImages.forEach((item, idx) => {
-        if (steps.includes(item.status)) {
+        if (item.status && !['queued','finished','error'].includes(item.status)) {
           item._controller?.abort();
           this.queuedImages[idx] = { ...item, status: 'error', error: 'Skipped by user' };
           skipped++;
@@ -4010,7 +4012,8 @@
         },
 
         clear() {
-          this.queuedImages?.forEach(it => it._controller?.abort());
+          // 只重置單張檢視狀態，不動佇列（中止佇列用「中斷全部」abortAllQueue；
+          // 這裡若 abort 進行中的張，finally 會把它標 error + 自動重試又重啟）。
           this.file = null;
           this.result = null;
           this.currentFolder = null;
