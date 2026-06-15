@@ -59,8 +59,11 @@ _BUNDLED_FONTS = [
     {"value": "NotoSansMonoCJK-TC.otf", "label": "Noto Sans CJK 繁中"},
     {"value": "NotoSansMonoCJK-SC.otf", "label": "Noto Sans CJK 简中"},
     {"value": "TaipeiSansTCBeta-Regular.ttf", "label": "台北黑體"},
-    {"value": "anime_ace.ttf", "label": "Anime Ace（英）"},
+    {"value": "anime_ace.ttf", "label": "Anime Ace（英·Q版）"},
     {"value": "comic shanns 2.ttf", "label": "Comic Shanns（英）"},
+    {"value": "ComicNeue-Bold.ttf", "label": "Comic Neue（英·較正常漫畫體）"},
+    {"value": "Bangers-Regular.ttf", "label": "Bangers（英·粗體大寫，適合 SFX）"},
+    {"value": "PatrickHand-Regular.ttf", "label": "Patrick Hand（英·手寫）"},
 ]
 _FONT_EXTS = {".ttf", ".otf", ".ttc", ".otc"}
 
