@@ -26,6 +26,7 @@ const I18N = {
     syncWebOk: "✓ 已回填網頁設定",
     openWeb: "🌐 開啟翻譯網站",
     cacheInfo: "快取：{n} 張 / {s}",
+    cacheMax: "快取上限（張）",
     viewOriginal: "👁 顯示原圖",
     viewTranslated: "👁 顯示翻譯圖",
     hint: "　",
@@ -100,6 +101,7 @@ const I18N = {
     syncWebOk: "✓ 已回填网页设置",
     openWeb: "🌐 打开翻译网站",
     cacheInfo: "缓存：{n} 张 / {s}",
+    cacheMax: "缓存上限（张）",
     viewOriginal: "👁 显示原图",
     viewTranslated: "👁 显示翻译图",
     hint: "　",
@@ -174,6 +176,7 @@ const I18N = {
     syncWebOk: "✓ Settings pulled from web",
     openWeb: "🌐 Open web translator",
     cacheInfo: "Cache: {n} imgs / {s}",
+    cacheMax: "Cache limit (imgs)",
     viewOriginal: "👁 Show original",
     viewTranslated: "👁 Show translated",
     hint: "　",
@@ -248,6 +251,7 @@ const I18N = {
     syncWebOk: "✓ Web設定を反映しました",
     openWeb: "🌐 翻訳サイトを開く",
     cacheInfo: "キャッシュ：{n} 枚 / {s}",
+    cacheMax: "キャッシュ上限（枚）",
     viewOriginal: "👁 原画像を表示",
     viewTranslated: "👁 翻訳画像を表示",
     hint: "　",
@@ -341,6 +345,7 @@ function applyLang() {
   document.getElementById("bubble-reset").textContent = t("reset");
   document.getElementById("txt-clear-current").textContent = t("clearCurrent");
   document.getElementById("txt-clear-all").textContent = t("clearAll");
+  document.getElementById("txt-cache-max").textContent = t("cacheMax");
   // 設定編輯器標籤
   document.getElementById("txt-sec-ai").textContent = t("secAi");
   document.getElementById("txt-provider").textContent = t("fProvider");
@@ -557,6 +562,22 @@ async function loadWheelDirPref() {
 }
 wheelDirSel.addEventListener("change", async () => {
   await chrome.storage.local.set({ [WHEEL_DIR_KEY]: wheelDirSel.value });
+});
+
+// ---- 快取上限（張）：可自訂 1–9999；放大後整本長條漫都能留快取（值越大越吃磁碟）----
+const CACHE_MAX_KEY = "dmmtCacheMax";
+const cacheMaxInput = document.getElementById("cache-max");
+async function loadCacheMaxPref() {
+  const s = await chrome.storage.local.get(CACHE_MAX_KEY);
+  const n = parseInt(s[CACHE_MAX_KEY]);
+  cacheMaxInput.value = (n >= 1 && n <= 9999) ? n : 120;
+}
+cacheMaxInput.addEventListener("change", async () => {
+  let n = parseInt(cacheMaxInput.value);
+  if (!(n >= 1)) n = 120;
+  n = Math.max(1, Math.min(n, 9999));
+  cacheMaxInput.value = n;
+  await chrome.storage.local.set({ [CACHE_MAX_KEY]: n });
 });
 
 document.getElementById("box-select").addEventListener("click", async () => {
@@ -911,6 +932,7 @@ loadCrawlPref();
 loadPrefetchPrefs();
 loadWheelPref();
 loadWheelDirPref();
+loadCacheMaxPref();
 updateCacheInfo();
 initLang().then(() => {
   loadSettings();

@@ -506,6 +506,9 @@ function notifyPrefetchProgress(tabId) {
 async function prefetchTranslate(items, referer, tabId) {
   const settings = await loadSettings();
   const conc = Math.max(1, Math.min(parseInt(settings.concurrency) || 5, 16)); // 並發數（對齊伺服器 slot）
+  // Over-send：實際同時送 conc+2，讓伺服器佇列永遠有下一張等著 → GPU 一放鎖立刻有活，不必等
+  // client round-trip。對齊 SDMDCBOT「pipeline 深度 + 2 buffer」的餵滿策略（client.py:77）。
+  const inflightCap = Math.min(conc + 2, 18);
   let lastPage = 0; // 已預翻到的最遠頁碼（含這次新翻的）
   let prevOrig = null; // 上一張抓到的原圖，用來偵測「站一直回同一張＝已到底」
   const myGen = _abortGen;
@@ -516,11 +519,11 @@ async function prefetchTranslate(items, referer, tabId) {
   notifyPrefetchProgress(tabId);
 
   // 並發翻譯池：抓圖維持「序列」（fetchOriginalImage 共用 referer 偽造的 session rule，並行會互踩；
-  // 且重複頁偵測 prevOrig 需順序），但「翻譯」（真正的瓶頸）並發。_sem 限制最多 conc 個翻譯同時跑，
-  // 並對抓圖迴圈形成背壓（每張抓圖前先取槽 → 最多領先 conc 張，不會衝太前面吃爆記憶體）。
+  // 且重複頁偵測 prevOrig 需順序），但「翻譯」（真正的瓶頸）並發。_sem 限制最多 inflightCap 個翻譯
+  // 同時送出，並對抓圖迴圈形成背壓（每張抓圖前先取槽 → 最多領先 inflightCap 張，不會吃爆記憶體）。
   let _semActive = 0;
   const _semWaiters = [];
-  const _semAcquire = () => (_semActive < conc
+  const _semAcquire = () => (_semActive < inflightCap
     ? (_semActive++, Promise.resolve())
     : new Promise((r) => _semWaiters.push(r)));
   const _semRelease = () => {
@@ -601,11 +604,15 @@ async function prefetchTranslate(items, referer, tabId) {
 }
 
 async function storePrefetchCache(key, entry) {
-  const stored = await chrome.storage.local.get(PREFETCH_INDEX_KEY);
+  // 預抓與 content.js 翻譯快取共用同一索引（dmmtPageCacheIndex）；上限統一讀使用者自訂的
+  // dmmtCacheMax（popup「快取上限」），未設則沿用 PREFETCH_MAX 預設，兩邊一致不再互相打架。
+  const stored = await chrome.storage.local.get([PREFETCH_INDEX_KEY, "dmmtCacheMax"]);
   let index = Array.isArray(stored[PREFETCH_INDEX_KEY]) ? stored[PREFETCH_INDEX_KEY] : [];
+  const cn = parseInt(stored.dmmtCacheMax);
+  const maxN = (cn >= 1 && cn <= 9999) ? cn : PREFETCH_MAX;
   index = index.filter((e) => e.key !== key);
   index.push({ key, ts: Date.now() });
-  const evicted = index.length > PREFETCH_MAX ? index.splice(0, index.length - PREFETCH_MAX) : [];
+  const evicted = index.length > maxN ? index.splice(0, index.length - maxN) : [];
   await chrome.storage.local.set({ [key]: entry, [PREFETCH_INDEX_KEY]: index });
   if (evicted.length) await chrome.storage.local.remove(evicted.map((e) => e.key));
 }

@@ -30,7 +30,7 @@ const BUBBLE_PREFS_KEY = "dmmtBubblePrefs";
 const DEFAULT_BUBBLE_PREFS = { size: 48, color: "#0f766e", label: "譯" };
 const IMG_CACHE_PREFIX = "dmmtImgCache:";
 const IMG_CACHE_INDEX_KEY = "dmmtPageCacheIndex";
-const IMG_CACHE_MAX_ENTRIES = 60;
+let IMG_CACHE_MAX_ENTRIES = 120;  // 可自訂上限（dmmtCacheMax，1–9999；與預抓共用，預設 120），由 _applyCacheMax 套用
 
 function init() {
   removeExistingUi();
@@ -91,8 +91,13 @@ function _applyConcurrency(synced) {
   const n = parseInt(synced?.concurrency);
   if (n >= 1 && n <= 16) PAGE_TRANSLATE_CONCURRENCY = n;
 }
+// 快取上限（張）：可自訂 1–9999，存 chrome.storage 的 dmmtCacheMax；放大後整本長條漫都能留快取。
+function _applyCacheMax(v) {
+  const n = parseInt(v);
+  if (n >= 1 && n <= 9999) IMG_CACHE_MAX_ENTRIES = n;
+}
 function loadDebugFlag() {
-  chromeSafeGet(["dmmtDebugInput", "dmmtPrefetchNotify", "dmmtBoxMode", "dmmtBoxOrigin", "dmmtBoxRects", "dmmtWheelNav", "dmmtWheelDir", "dmmtSyncedSettings"], (s) => {
+  chromeSafeGet(["dmmtDebugInput", "dmmtPrefetchNotify", "dmmtBoxMode", "dmmtBoxOrigin", "dmmtBoxRects", "dmmtWheelNav", "dmmtWheelDir", "dmmtSyncedSettings", "dmmtCacheMax"], (s) => {
     _debugOn = s?.dmmtDebugInput === true;
     if (typeof s?.dmmtWheelNav === "boolean") _wheelNav = s.dmmtWheelNav;
     if (typeof s?.dmmtWheelDir === "string") _wheelDir = s.dmmtWheelDir;
@@ -101,6 +106,7 @@ function loadDebugFlag() {
     }
     if (typeof s?.dmmtPrefetchNotify === "boolean") _showPrefetch = s.dmmtPrefetchNotify;
     _applyConcurrency(s?.dmmtSyncedSettings);
+    _applyCacheMax(s?.dmmtCacheMax);
   });
   try {
     chrome.storage.onChanged.addListener((changes, area) => {
@@ -113,6 +119,7 @@ function loadDebugFlag() {
         refreshBubbleTitle();
       }
       if (changes.dmmtSyncedSettings) _applyConcurrency(changes.dmmtSyncedSettings.newValue);
+      if (changes.dmmtCacheMax) _applyCacheMax(changes.dmmtCacheMax.newValue);
     });
   } catch {}
 }
@@ -431,6 +438,9 @@ function bubbleSize() {
 // 並發送出數：對齊伺服器預設 5 slot（MT_WORKER_CONCURRENCY=5，=bot 的 5 並發）。
 // 伺服器端 gpu_lock 序列化 GPU 階段、LLM 階段重疊，送滿 5 不會炸 GPU。可由設定覆寫。
 let PAGE_TRANSLATE_CONCURRENCY = 5;
+// Over-send：整頁實際派 conc+2 個工作者，讓伺服器佇列永遠有下一張等著 → GPU 不必等 client
+// round-trip 與逐張抓圖空檔（對齊 SDMDCBOT「pipeline 深度 + 2 buffer」餵滿策略）。
+const PAGE_TRANSLATE_OVERSEND = 2;
 let _pageTranslate = null; // 持續模式狀態物件；null = 未啟用
 
 // 是否為「值得整頁翻譯」的圖：已載入、自然或顯示尺寸夠大（過濾圖示/頭像/廣告），且尚未替換。
@@ -558,7 +568,7 @@ function schedulePageRescan() {
 function pumpPageTranslate() {
   const pt = _pageTranslate;
   if (!pt) return;
-  while (pt.active < PAGE_TRANSLATE_CONCURRENCY && pt.queue.length) {
+  while (pt.active < PAGE_TRANSLATE_CONCURRENCY + PAGE_TRANSLATE_OVERSEND && pt.queue.length) {
     pt.active++;
     pageTranslateWorker(pt).finally(() => {
       pt.active--;

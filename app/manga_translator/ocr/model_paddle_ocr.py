@@ -5,6 +5,7 @@ import os
 # 最保險；start.bat / start.sh 也會在 process 啟動時各設一道（雙保險）。
 os.environ.setdefault("FLAGS_use_mkldnn", "0")
 
+import asyncio
 from typing import List
 
 import numpy as np
@@ -125,11 +126,22 @@ class ModelPaddleOCR(OfflineOCR):
 
         prob_threshold = config.prob if config.prob is not None else 0.2
         lang = getattr(config, 'paddle_lang', None) or 'korean'
+        min_text_length = config.min_text_length
 
         quadrilaterals = list(self._generate_text_direction(textlines))
         if not quadrilaterals:
             return textlines
 
+        # PaddleOCR 的 predict 是同步、CPU 密集；直接在 async 內跑會卡死 worker 唯一的 event loop，
+        # 並發模式下其他圖「不持 GPU 鎖的 LLM 階段」也會一起停住 → 韓漫批次的並發等於白做。
+        # 丟到 thread 讓 event loop 保持可推進。OCR 全程持 gpu_lock('pre')，同一時間只有一張在
+        # OCR → 不會有兩個 thread 同時對同一 engine predict，故共用 engine 仍 thread-safe。
+        return await asyncio.to_thread(
+            self._infer_sync, image, quadrilaterals, lang, prob_threshold,
+            min_text_length, verbose, textlines)
+
+    def _infer_sync(self, image, quadrilaterals, lang, prob_threshold,
+                    min_text_length, verbose, textlines):
         if lang == 'auto':
             lang = self._detect_lang(image, quadrilaterals)
         engine = self._get_engine(lang)
@@ -140,7 +152,7 @@ class ModelPaddleOCR(OfflineOCR):
         for q, d in quadrilaterals:
             crop = q.get_transformed_region(image, d, text_height)
             txt, prob = self._recognize_crop(engine, crop, prob_threshold)
-            if config.min_text_length and len(txt) < config.min_text_length:
+            if min_text_length and len(txt) < min_text_length:
                 txt, prob = '', 0.0
             if verbose:
                 self.logger.info(f'paddle prob:{prob:.3f} text:{txt}')
