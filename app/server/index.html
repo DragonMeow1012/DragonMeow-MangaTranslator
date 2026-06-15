@@ -2856,6 +2856,7 @@
 
           formData.append("config", config);
           formData.append("advanced", this.advancedMode ? "1" : "0");
+          formData.append("priority", queuedImage._priority ? "1" : "0");   // 重新翻譯插隊到伺服器佇列最前面
 
           const processChunk = (value) => {
             const newBuffer = new Uint8Array(buffer.length + value.length);
@@ -3139,8 +3140,14 @@
       // downscaling / colorizing 等很多中間狀態，不能用白名單（會誤判成空槽 → 超發超過上限）。
       const countActive = () => this.queuedImages.filter(it => it.status && !['queued','finished','error'].includes(it.status)).length;
       let guard = 0;
+      // 重新翻譯（重試）標了 _priority → 插隊：先挑帶 _priority 的 queued，沒有再挑一般 queued。
+      const pickNext = () => {
+        let i = this.queuedImages.findIndex(item => item.status === 'queued' && item._priority);
+        if (i === -1) i = this.queuedImages.findIndex(item => item.status === 'queued');
+        return i;
+      };
       while (countActive() < conc && guard++ < 64) {
-        let nextItemIndex = this.queuedImages.findIndex(item => item.status === 'queued');
+        let nextItemIndex = pickNext();
         // 自動重試：沒有 queued 時，把 error 項重排回佇列（勾選才做，不限次數）。
         if (nextItemIndex === -1 && this.autoRetryFailed) {
           let requeued = false;
@@ -3153,7 +3160,7 @@
               requeued = true;
             }
           });
-          if (requeued) nextItemIndex = this.queuedImages.findIndex(item => item.status === 'queued');
+          if (requeued) nextItemIndex = pickNext();
         }
         if (nextItemIndex === -1) break;  // 沒有可啟動的了
         this.queuedImages[nextItemIndex] = { ...this.queuedImages[nextItemIndex], status: 'processing' };
@@ -3900,6 +3907,7 @@
         if (item.status === 'error') {
           this.queuedImages[idx] = {
             ...item, status: 'queued', error: null, progress: null, queuePos: null,
+            _priority: true,   // 手動重新翻譯＝補救，插隊到最前面
           };
           any = true;
         }
@@ -3917,6 +3925,7 @@
         error: null,
         progress: null,
         queuePos: null,
+        _priority: true,   // 手動重新翻譯＝補救，插隊到最前面
       };
       this.processNextInQueue();
     },

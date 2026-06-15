@@ -78,12 +78,12 @@ async def get_ctx(req: Request, config: Config, image: str|bytes):
 
     return await wait_in_queue(task, None)
 
-async def while_streaming(req: Request, transform, config: Config, image: bytes | str):
+async def while_streaming(req: Request, transform, config: Config, image: bytes | str, priority: bool = False):
     image = await to_pil_image(image)
     image = _resize_for_translation(image, config)
 
     task = QueueElement(req, image, config, 0)
-    task_queue.add_task(task)
+    task_queue.add_task(task, priority=priority)
 
     messages = asyncio.Queue()
 

@@ -64,8 +64,13 @@ class TaskQueue:
         self.queue: List[QueueElement | BatchQueueElement] = []
         self.queue_event: asyncio.Event = asyncio.Event()
 
-    def add_task(self, task: QueueElement | BatchQueueElement):
-        self.queue.append(task)
+    def add_task(self, task: QueueElement | BatchQueueElement, priority: bool = False):
+        # priority=True：重新翻譯（補漏翻 / 翻譯失敗回填的補救）插隊到最前面，
+        # 不必排在整批未處理頁後面，否則補救沒意義。
+        if priority:
+            self.queue.insert(0, task)
+        else:
+            self.queue.append(task)
 
     def get_pos(self, task: QueueElement | BatchQueueElement) -> Optional[int]:
         try:

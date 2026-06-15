@@ -247,7 +247,7 @@ async def stream_image_form(req: Request, image: UploadFile = File(...), config:
     return await while_streaming(req, make_transform_to_image(fmt), conf, img)
 
 @app.post("/translate/with-form/image/stream/web", response_class=StreamingResponse, tags=["api", "form"], response_description="Web frontend optimized streaming endpoint - uses placeholder optimization for faster response.")
-async def stream_image_form_web(req: Request, image: UploadFile = File(...), config: str = Form("{}"), advanced: str = Form("0")) -> StreamingResponse:
+async def stream_image_form_web(req: Request, image: UploadFile = File(...), config: str = Form("{}"), advanced: str = Form("0"), priority: str = Form("0")) -> StreamingResponse:
     """Web前端专用端点：使用占位符优化，提供极速体验。輸出格式 = 輸入格式。"""
     img = await image.read()
     conf = Config.parse_raw(config)
@@ -256,7 +256,8 @@ async def stream_image_form_web(req: Request, image: UploadFile = File(...), con
     # 進階編輯模式才存編輯狀態（pkl 較大，避免一般使用者浪費磁碟）
     conf._save_edit = advanced == "1"
     fmt = _detect_image_format(img)
-    return await while_streaming(req, make_transform_to_image(fmt), conf, img)
+    # priority=1：重新翻譯（補救漏翻 / 翻譯失敗）插隊到佇列最前面
+    return await while_streaming(req, make_transform_to_image(fmt), conf, img, priority=priority == "1")
 
 @app.post("/queue-size", response_model=int, tags=["api", "json"])
 async def queue_size() -> int:

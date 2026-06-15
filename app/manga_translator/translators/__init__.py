@@ -1,3 +1,4 @@
+import itertools
 from typing import Optional, List
 
 from .common import *
@@ -10,6 +11,10 @@ TRANSLATORS = {
     Translator.gemini_2stage: Gemini2StageTranslator,
 }
 translator_cache = {}
+
+# 並發起始 key 分散用：帶 per-request config 的 dispatch 每次從不同 key 起跳，
+# 避免 K 頁同時打同一把 key 撞 429。單執行緒 event loop 下 next() 為原子操作。
+_dispatch_seq = itertools.count()
 
 
 def get_translator(key: Translator, *args, **kwargs) -> CommonTranslator:
@@ -40,9 +45,20 @@ async def dispatch(
     if args is not None:
         args['translations'] = {}
     for key, tgt_lang in chain.chain:
-        translator = get_translator(key)
         if translator_config:
+            # 並發安全（修「連續翻譯隨機散點/漏翻」）：帶 per-request config 時用「獨立實例」，
+            # 不用共用單例。否則 K 頁並發下，某頁在無鎖的 LLM await 期間，另一頁的 parse_args
+            # 會覆蓋共用實例的 _api_keys/_provider/_send_image/refine_model 並把 _call_idx 歸零
+            # → 該頁醒來讀到別頁的設定 → 打錯 key/模型、回空 → 整格漏翻 → 渲染成「…」散點。
+            # bot 端的 gemini_2stage 沒有 parse_args override（resolve 到 base no-op）故不踩此雷；
+            # web 端有 override → 必須每頁隔離，行為才對齊 bot。API 翻譯器無模型載入，新建很便宜。
+            translator = TRANSLATORS[key]()
             translator.parse_args(translator_config)
+            _keys = getattr(translator, '_api_keys', None)
+            if _keys:
+                translator._call_idx = next(_dispatch_seq) % len(_keys)
+        else:
+            translator = get_translator(key)
         # gemini_2stage 簽名跟一般 translator 不同（吃 ctx 而非 use_mtpe）
         queries = await translator.translate('auto', tgt_lang, queries, args)
         if args is not None:
