@@ -68,6 +68,8 @@ key.pem
 /_crops/
 /_test*
 /_testcfg.json
+/_gputest*
+/_venv_backup*
 
 # 可攜式 Python（隨 release 另附 zip 讓用戶丟進根目錄，勿入庫）
 /python/
