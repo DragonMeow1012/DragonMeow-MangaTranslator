@@ -3108,8 +3108,10 @@
         _finishQueuedItem(queuedImage, folder) {
           if (!folder) { console.warn('finish: folder is null'); return; }
           const idx = this.queuedImages.findIndex(it => it.id === queuedImage.id);
-          // 冪等 + 防幽靈：項目已被移除（idx<0）或已完成 → 不重覆加入相簿、不重設，只補下一張。
-          if (idx === -1 || this.queuedImages[idx].status === 'finished') {
+          // 冪等 + 防幽靈：項目已被移除（idx<0）或已設過結果（.result）→ 不重覆加入相簿，只補下一張。
+          // 不可用 status==='finished' 判斷：伺服器在 final_ready 前會先串一個 'finished' 狀態，
+          // 那會害這裡誤判已完成而早退、永遠不設 result（畫面顯示完成卻沒有結果圖）。
+          if (idx === -1 || this.queuedImages[idx].result) {
             setTimeout(() => this.processNextInQueue(), 200);
             return;
           }
