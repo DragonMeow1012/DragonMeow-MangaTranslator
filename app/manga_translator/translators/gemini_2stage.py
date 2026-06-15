@@ -874,63 +874,11 @@ class Gemini2StageTranslator(CommonTranslator):
         assert last_err is not None
         raise last_err
 
-    # 內部語言名（_LANGUAGE_CODE_MAP 的 value）→ Google Translate 語碼
-    _GT_LANG_CODES = {
-        'Chinese': 'zh-CN', 'Simplified Chinese': 'zh-CN', 'Traditional Chinese': 'zh-TW',
-        'Czech': 'cs', 'Dutch': 'nl', 'English': 'en', 'French': 'fr', 'German': 'de',
-        'Hungarian': 'hu', 'Italian': 'it', 'Japanese': 'ja', 'Korean': 'ko',
-        'Polish': 'pl', 'Portuguese': 'pt', 'Romanian': 'ro', 'Russian': 'ru',
-        'Spanish': 'es', 'Turkish': 'tr', 'Ukrainian': 'uk', 'Vietnamese': 'vi',
-        'Montenegrin': 'sr-Latn', 'Serbian': 'sr', 'Croatian': 'hr', 'Arabic': 'ar',
-        'Thai': 'th', 'Indonesian': 'id',
-    }
-
     async def _google_translate_fallback(
         self, texts: list[str], from_lang: str, to_lang: str,
     ) -> list[str]:
-        """免金鑰 Google 翻譯機翻（translate.googleapis.com 公開端點）。
-
-        當 Gemini 被安全過濾擋下（PROHIBITED_CONTENT / silent block / 漏格）時拿來補譯，
-        **避免把日文原文回填上圖**。回傳 list[str]，length == len(texts)；
-        單筆失敗回空字串（caller 自行決定後續，仍空者由上層留佔位、不回原文）。
-        """
-        import httpx
-
-        tgt = self._GT_LANG_CODES.get(to_lang)
-        if not tgt:
-            raise RuntimeError(f'Google Translate: unsupported target language {to_lang!r}')
-        src = self._GT_LANG_CODES.get(from_lang, 'auto')
-
-        async def _one(client: 'httpx.AsyncClient', text: str) -> str:
-            if not text.strip():
-                return ''
-            try:
-                resp = await client.get(
-                    'https://translate.googleapis.com/translate_a/single',
-                    params={'client': 'gtx', 'sl': src, 'tl': tgt, 'dt': 't', 'q': text},
-                )
-                if resp.status_code != 200:
-                    self.logger.warning(f'GT HTTP {resp.status_code} for {text[:20]!r}')
-                    return ''
-                data = resp.json()
-                # data[0] = [[translated_segment, source_segment, ...], ...]
-                segs = data[0] or []
-                return ''.join(s[0] for s in segs if s and s[0]).strip()
-            except Exception as e:
-                self.logger.warning(f'GT failed for {text[:20]!r}: {type(e).__name__}: {e}')
-                return ''
-
-        sem = asyncio.Semaphore(5)  # 公開端點別打太兇，限 5 併發
-
-        async def _guarded(client, text):
-            async with sem:
-                return await _one(client, text)
-
-        async with httpx.AsyncClient(
-            timeout=httpx.Timeout(20.0, connect=10.0),
-            headers={'User-Agent': 'Mozilla/5.0'},
-        ) as client:
-            return list(await asyncio.gather(*[_guarded(client, t) for t in texts]))
+        """Online Google Translate fallback is intentionally disabled for manga translation."""
+        raise RuntimeError('Online translation fallback is disabled for manga translation')
 
 
     async def _gt_then_polish(
@@ -1707,44 +1655,19 @@ JSON: bboxes array, each {{bbox_id, corrected_text, translated_text}}. Every bbo
                 if k < len(fill) and fill[k].strip():
                     translations[i] = fill[k]
 
-        # ---- 被擋/漏翻最後防線：仍空（或譯文殘留日文假名＝根本沒翻）的非-skip region 用 Google 機翻補上 ----
-        # Gemini 對成人/敏感內容會 silent block（連純文字重試也擋），或偷懶把日文原文 echo 進 translated_text；
-        # GT 不受 safety 限。重點（使用者要求）：被擋就用 Google 機翻，**寧可機翻也絕不把日文原文回填上圖**。
-        # 假名洩漏判定：目標語不是日文、但譯文仍含平/片假名 → 必是沒翻到的日文（中文/英文等絕不含假名）。
-        def _looks_untranslated(s: str) -> bool:
-            return bool(s) and to_lang != 'Japanese' and bool(_JP_KANA_RE.search(s))
-
-        gt_missing = [
-            i for i in range(n)
-            if i not in explicit_skip
-            and (not translations[i].strip() or _looks_untranslated(translations[i]))
-            and (refine_sentences[i] or query_regions[i].text or '').strip()
-        ]
-        if gt_missing:
-            src = [(refine_sentences[i] or query_regions[i].text or '').strip() for i in gt_missing]
-            self.logger.info(f'[GT fallback] {len(gt_missing)} 個 region Gemini 補不回／殘留日文，改用 Google 翻譯機翻')
-            try:
-                gt_fill = await self._gt_then_polish(src, from_lang, to_lang)
-            except Exception as e:
-                self.logger.warning(f'[GT fallback] 失敗: {type(e).__name__}: {e}')
-                gt_fill = [''] * len(gt_missing)
-            for k, i in enumerate(gt_missing):
-                if k < len(gt_fill) and gt_fill[k].strip() and not _looks_untranslated(gt_fill[k]):
-                    translations[i] = gt_fill[k]
-
-        # ---- 保底：到這裡仍空／仍是日文 = Gemini 與 Google 都補不回。**絕不回填日文原文。** ----
-        # explicit_skip 的 bbox 是 LLM 主動跳過的 SFX → 用 LLM 看圖讀的原字（後處理會 filter 掉，不渲染中文）。
-        # 其他真的補不回的 → 留 '…' 佔位；寧可空白佔位也不要把日文印上圖。
+        # ---- 保底：LLM 沒回的格子回填原文（explicit_skip 例外，保持空翻譯）----
+        # explicit_skip 的 bbox 已是 LLM 主動跳過 → 不要塞 mocr 錯字進來。
+        # 翻譯填 LLM corrected_text（若有，原假名）或留空，讓 post-filter 處理。
         for i, t in enumerate(translations):
+            if t.strip():
+                continue
             if i in explicit_skip:
-                # LLM 主動 skip（SFX）→ 用 LLM 看圖讀的字（無則空），後處理 filter
-                if not t.strip():
-                    translations[i] = refine_sentences[i] or ''
+                # LLM 主動 skip → 用 LLM 看圖讀的字（無則空）
+                translations[i] = refine_sentences[i] or ''
                 continue
-            if t.strip() and not _looks_untranslated(t):
-                continue
-            translations[i] = '…'
-            self.logger.warning(f'  #{i} Gemini+GT 都補不回，留佔位（不回填原文）')
+            fallback = refine_sentences[i] or (query_regions[i].text if i < len(query_regions) else '')
+            translations[i] = fallback or '…'
+            self.logger.warning(f'  #{i} 全部失敗，回填原文: {translations[i][:30]!r}')
 
         # 框外短擬聲詞 Python 啟發式（純假名 ≤6 字 = SFX 不翻）**預設關**：
         # 它會把手寫台詞/喘息（は、ん、ヤダ、もう…）整批清空 → 使用者看到整頁「沒翻譯到」。
