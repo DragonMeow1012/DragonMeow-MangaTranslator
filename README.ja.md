@@ -137,8 +137,8 @@ v1.3 で**ブラウザ拡張**を追加 —— 画像をダウンロードせず
 - **NVIDIA GPU か Apple Silicon（M シリーズ）推奨**（なくても動きますが、検出・修復がかなり遅くなります）
 - AI の API key（Gemini は無料枠あり）
 
-GPU 加速版のインストール（強く推奨）：
-- **Windows**：setup 後に **`setup_gpu.bat` をダブルクリック**するだけ。CUDA 版 PyTorch を自動インストールし、GPU の認識まで確認します
+GPU 加速（強く推奨、**全自動**）：
+- **Windows**：`setup.bat` が GPU を自動検出 —— NVIDIA GPU があれば CUDA 版 PyTorch + PaddleOCR GPU を、なければ CPU 版を導入します。何もしなくて OK。
 - **macOS**：`-mac.zip` をダウンロードし、ターミナルで `bash setup.sh` → `bash start.sh`。Apple Silicon は MPS 加速が自動で有効になり、追加インストール不要です
 
 ---
@@ -164,8 +164,7 @@ app\.venv\Scripts\python -c "from huggingface_hub import snapshot_download; snap
 
 ```
 DragonMeow-MangaTranslator/
-├── setup.bat        ← インストール（最初に 1 回）
-├── setup_gpu.bat    ← GPU 加速（NVIDIA GPU がある場合のみ、1 回）
+├── setup.bat        ← インストール（最初に 1 回。GPU を自動検出して GPU/CPU 版を導入）
 ├── start.bat        ← 起動（毎回これ）
 ├── README.md
 └── app/             ← 本体・モデル・フォント・設定

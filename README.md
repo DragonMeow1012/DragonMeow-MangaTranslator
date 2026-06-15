@@ -137,8 +137,8 @@ v1.3 新增**瀏覽器擴充** —— 不必下載圖片，直接在漫畫網站
 - **建議有 NVIDIA 顯卡或 Apple Silicon（M 系列）**（沒有也能跑，但偵測/抹字會很慢）
 - 一組 AI API key（Gemini 有免費額度）
 
-裝顯卡加速版（強烈建議）：
-- **Windows**：setup 完**雙擊 `setup_gpu.bat`** 即可，會自動安裝 CUDA 版 PyTorch 並驗證顯卡可用
+顯卡加速（強烈建議，**全自動**）：
+- **Windows**：`setup.bat` 會自動偵測顯卡 —— 有 NVIDIA 就裝 CUDA 版 PyTorch + PaddleOCR GPU，沒有就用 CPU 版，你什麼都不用做
 - **macOS**：下載 `-mac.zip`，終端機跑 `bash setup.sh` → `bash start.sh`；Apple Silicon 會自動啟用 MPS 加速，不用另外裝
 
 ---
@@ -164,8 +164,7 @@ app\.venv\Scripts\python -c "from huggingface_hub import snapshot_download; snap
 
 ```
 DragonMeow-MangaTranslator/
-├── setup.bat        ← 安裝（雙擊一次）
-├── setup_gpu.bat    ← 顯卡加速（有 NVIDIA 顯卡再點，雙擊一次）
+├── setup.bat        ← 安裝（雙擊一次，自動偵測顯卡裝 GPU/CPU 版）
 ├── start.bat        ← 啟動（每次用都點這個）
 ├── README.md
 └── app/             ← 程式本體、模型、字型、設定都在這

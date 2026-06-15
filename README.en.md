@@ -137,8 +137,8 @@ You can also load the bundled zip via **Developer Mode** (if you'd rather not us
 - An **NVIDIA GPU or Apple Silicon (M-series) is recommended** (works without one, but detection/inpainting will be slow)
 - An AI API key (Gemini has a free tier)
 
-GPU acceleration (strongly recommended):
-- **Windows**: after setup, just **double-click `setup_gpu.bat`** — it installs the CUDA build of PyTorch and verifies your GPU is detected
+GPU acceleration (strongly recommended, **fully automatic**):
+- **Windows**: `setup.bat` auto-detects your GPU — with an NVIDIA card it installs the CUDA build of PyTorch + PaddleOCR GPU, otherwise the CPU build. Nothing to do.
 - **macOS**: download the `-mac.zip`, then run `bash setup.sh` → `bash start.sh` in Terminal; Apple Silicon enables MPS acceleration automatically — nothing extra to install
 
 ---
@@ -164,8 +164,7 @@ The root keeps just two buttons; everything else lives in `app/`:
 
 ```
 DragonMeow-MangaTranslator/
-├── setup.bat        ← install (double-click once)
-├── setup_gpu.bat    ← GPU acceleration (NVIDIA only, double-click once)
+├── setup.bat        ← install (double-click once; auto-detects GPU → GPU/CPU build)
 ├── start.bat        ← launch (click this every time)
 ├── README.md
 └── app/             ← code, models, fonts, settings

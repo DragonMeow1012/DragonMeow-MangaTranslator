@@ -41,7 +41,7 @@ echo   Starting... browser opens when ready.
 echo   Close this window to stop the server.
 echo  ============================================
 
-start "" /min powershell -NoProfile -WindowStyle Hidden -Command "for($i=0;$i -lt 180;$i++){try{$c=New-Object Net.Sockets.TcpClient;$c.Connect('127.0.0.1',8501);$c.Close();break}catch{Start-Sleep 1}};Start-Process 'http://127.0.0.1:8501'"
+start "" /min powershell -NoProfile -WindowStyle Hidden -Command "$ok=$false;for($i=0;$i -lt 180;$i++){try{$c=New-Object Net.Sockets.TcpClient;$c.Connect('127.0.0.1',8501);$c.Close();$ok=$true;break}catch{Start-Sleep 1}};if($ok){Start-Process 'http://127.0.0.1:8501'}"
 
 .venv\Scripts\python.exe server\main.py %GPU_FLAG% --start-instance --host 127.0.0.1 --port 8501 --nonce None > logs\server.log 2>&1
 

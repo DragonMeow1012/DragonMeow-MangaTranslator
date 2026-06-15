@@ -152,7 +152,7 @@ if errorlevel 1 (
 )
 
 echo [4/4] GPU 已於 [2b] 自動偵測並安裝完成（NVIDIA 顯卡→GPU 版，否則 CPU 版）。
-echo        日後驅動更新、或想重裝／修復 GPU 加速時，再執行 setup_gpu.bat 即可。
+echo        日後驅動更新、或想重裝／修復 GPU 加速時，重跑 setup.bat 即可。
 echo.
 
 if not exist .env (
