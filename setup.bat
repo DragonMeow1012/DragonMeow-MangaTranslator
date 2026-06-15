@@ -140,6 +140,9 @@ if errorlevel 1 (
     exit /b 1
 )
 
+echo [2b/4] 偵測 GPU，自動選擇 GPU 版（torch cu126 + PaddleOCR GPU + cudnn）或 CPU 版 ...
+.venv\Scripts\python.exe setup_gpu.py
+
 echo [3/4] 檢查並補齊模型檔（缺損 / 損壞會自動重新下載並校驗）...
 echo        Verifying model files (missing/corrupt ones are re-downloaded) ...
 .venv\Scripts\python.exe download_models.py
