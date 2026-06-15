@@ -59,6 +59,7 @@ _BUNDLED_FONTS = [
     {"value": "NotoSansMonoCJK-TC.otf", "label": "Noto Sans CJK 繁中"},
     {"value": "NotoSansMonoCJK-SC.otf", "label": "Noto Sans CJK 简中"},
     {"value": "TaipeiSansTCBeta-Regular.ttf", "label": "台北黑體"},
+    {"value": "LXGWWenKaiTC-Regular.ttf", "label": "霞鶩文楷 LXGW（繁中·柔和文書體）"},
     {"value": "anime_ace.ttf", "label": "Anime Ace（英·Q版）"},
     {"value": "comic shanns 2.ttf", "label": "Comic Shanns（英）"},
     {"value": "ComicNeue-Bold.ttf", "label": "Comic Neue（英·較正常漫畫體）"},

@@ -51,8 +51,11 @@ FALLBACK_FONTS = [
 #（直/骨/今/海 等日簡寫法不同）。依目標語言選對地區的獨立字型檔。
 _REGION_FONTS = {
     'CHS': os.path.join(BASE_PATH, 'fonts', 'NotoSansMonoCJK-SC.otf'),
-    'CHT': os.path.join(BASE_PATH, 'fonts', 'NotoSansMonoCJK-TC.otf'),
+    'CHT': os.path.join(BASE_PATH, 'fonts', 'LXGWWenKaiTC-Regular.ttf'),  # 柔和文書體（不方正、不娃娃）
 }
+# 拉丁語系預設：較正常的漫畫體 Comic Neue（取代圓胖的 Anime Ace）
+_LATIN_LANGS = {'ENG', 'FRA', 'DEU', 'ESP', 'ITA', 'PTB', 'NLD', 'POL', 'CSY', 'HUN', 'ROM', 'TRK', 'VIN', 'IND', 'FIL'}
+_LATIN_DEFAULT_FONT = os.path.join(BASE_PATH, 'fonts', 'ComicNeue-Bold.ttf')
 
 
 def region_default_font(target_lang: str) -> str:
@@ -62,9 +65,12 @@ def region_default_font(target_lang: str) -> str:
         cand = env_font if os.path.isabs(env_font) else os.path.join(BASE_PATH, 'fonts', env_font)
         if os.path.exists(cand):
             return cand
-    cand = _REGION_FONTS.get((target_lang or '').upper())
+    lang = (target_lang or '').upper()
+    cand = _REGION_FONTS.get(lang)
     if cand and os.path.exists(cand):
         return cand
+    if lang in _LATIN_LANGS and os.path.exists(_LATIN_DEFAULT_FONT):
+        return _LATIN_DEFAULT_FONT
     return DEFAULT_FONT
 _H_BLOCK_RE = re.compile(r'(<H>.*?</H>)', re.IGNORECASE | re.DOTALL)
 _BR_RE = re.compile(r'\s*(?:\[BR\]|<br\s*/?>|【BR】|\r\n|\r|\n)\s*', re.IGNORECASE)
