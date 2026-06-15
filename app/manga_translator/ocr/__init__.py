@@ -19,20 +19,22 @@ except Exception:
 ocr_cache = {}
 
 
-def get_ocr(key: Ocr, *args, **kwargs) -> CommonOCR:
+def get_ocr(key: Ocr, device: str = 'cpu') -> CommonOCR:
     if key not in OCRS:
         raise ValueError(
             f'Could not find OCR for: "{key}". '
             f'Choose from: {",".join(o.value for o in OCRS)}'
         )
-    if not ocr_cache.get(key):
-        ocr = OCRS[key]
-        ocr_cache[key] = ocr(*args, **kwargs)
-    return ocr_cache[key]
+    # 以 (模型, device) 為鍵：同一 OCR 的 CPU / GPU 各自獨立實例，可並存
+    # （讓使用者在 UI 自由切「manga-ocr/PaddleOCR × CPU/GPU」，按需各自載入）。
+    ck = (key, device)
+    if not ocr_cache.get(ck):
+        ocr_cache[ck] = OCRS[key]()
+    return ocr_cache[ck]
 
 
 async def prepare(ocr_key: Ocr, device: str = 'cpu'):
-    ocr = get_ocr(ocr_key)
+    ocr = get_ocr(ocr_key, device)
     if isinstance(ocr, OfflineOCR):
         await ocr.download()
         await ocr.load(device)
@@ -42,7 +44,7 @@ async def dispatch(
     ocr_key: Ocr, image: np.ndarray, regions: List[Quadrilateral],
     config: Optional[OcrConfig] = None, device: str = 'cpu', verbose: bool = False,
 ) -> List[Quadrilateral]:
-    ocr = get_ocr(ocr_key)
+    ocr = get_ocr(ocr_key, device)
     if isinstance(ocr, OfflineOCR):
         await ocr.load(device)
     config = config or OcrConfig()
@@ -50,4 +52,6 @@ async def dispatch(
 
 
 async def unload(ocr_key: Ocr):
-    ocr_cache.pop(ocr_key, None)
+    # 移除該 OCR 的所有裝置實例（cpu / gpu）
+    for ck in [k for k in ocr_cache if k[0] == ocr_key]:
+        ocr_cache.pop(ck, None)

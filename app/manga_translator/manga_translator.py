@@ -683,7 +683,7 @@ class MangaTranslator:
             if config.upscale.upscale_ratio:
                 await prepare_upscaling(config.upscale.upscaler)
             await prepare_detection(config.detector.detector)
-            await prepare_ocr(config.ocr.ocr, self.device)
+            await prepare_ocr(config.ocr.ocr, self._resolve_ocr_device(config.ocr))
             await prepare_inpainting(config.inpainter.inpainter, self.device)
             await prepare_translation(config.translator.translator_gen)
             if config.colorizer.colorizer != Colorizer.none:
@@ -1016,7 +1016,7 @@ class MangaTranslator:
             if config.upscale.upscale_ratio:
                 await prepare_upscaling(config.upscale.upscaler)
             await prepare_detection(config.detector.detector)
-            await prepare_ocr(config.ocr.ocr, self.device)
+            await prepare_ocr(config.ocr.ocr, self._resolve_ocr_device(config.ocr))
             await prepare_inpainting(config.inpainter.inpainter, self.device)
             await prepare_translation(config.translator.translator_gen)
             if config.colorizer.colorizer != Colorizer.none:
@@ -1263,6 +1263,18 @@ class MangaTranslator:
                     del self._model_usage_timestamps[(tool, model)]
             await asyncio.sleep(1)
 
+    def _resolve_ocr_device(self, ocr_cfg) -> str:
+        """OCR 執行裝置：依 OcrConfig.ocr_device。
+        gpu→cuda（無 GPU 自動退 cpu）/ cpu→cpu / auto→伺服器裝置。讓 UI 能把某個 OCR 切回 CPU。"""
+        want = getattr(ocr_cfg, 'ocr_device', None) or 'auto'
+        if want == 'cpu':
+            return 'cpu'
+        if want == 'gpu':
+            if self.device in ('cuda', 'mps'):
+                return self.device
+            return 'cuda' if torch.cuda.is_available() else 'cpu'
+        return self.device
+
     async def _run_ocr(self, config: Config, ctx: Context):
         current_time = time.time()
         self._model_usage_timestamps[("ocr", config.ocr.ocr)] = current_time
@@ -1291,7 +1303,8 @@ class MangaTranslator:
         try:
             textlines = await self._run_async_in_thread(
                 dispatch_ocr,
-                config.ocr.ocr, ctx.img_rgb, ctx.textlines, config.ocr, self.device, self.verbose,
+                config.ocr.ocr, ctx.img_rgb, ctx.textlines, config.ocr,
+                self._resolve_ocr_device(config.ocr), self.verbose,
             )
         finally:
             # 恢复环境变量
@@ -2352,7 +2365,7 @@ class MangaTranslator:
             if config.upscale.upscale_ratio:
                 await prepare_upscaling(config.upscale.upscaler)
             await prepare_detection(config.detector.detector)
-            await prepare_ocr(config.ocr.ocr, self.device)
+            await prepare_ocr(config.ocr.ocr, self._resolve_ocr_device(config.ocr))
             await prepare_inpainting(config.inpainter.inpainter, self.device)
             await prepare_translation(config.translator.translator_gen)
             if config.colorizer.colorizer != Colorizer.none:

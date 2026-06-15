@@ -54,8 +54,10 @@ class ModelPaddleOCR(OfflineOCR):
         # GPU build（paddlepaddle-gpu）→ 用 GPU 加速；CPU build → 固定 CPU。
         # 注意：傳 'gpu' 給 CPU build 會走「嘗試 GPU 失敗 → 退回 CPU」路徑，那條不吃
         # FLAGS_use_mkldnn → 仍啟用 oneDNN → 踩 ConvertPirAttribute bug；故只在真 GPU build 才傳 gpu。
+        # self.device 由 _load(device) 設定；使用者在 UI 選「PaddleOCR CPU」→ 即使有 GPU 也跑 CPU。
+        want_gpu = str(getattr(self, 'device', 'cpu')) in ('cuda', 'gpu', 'mps')
         try:
-            use_gpu = bool(paddle.is_compiled_with_cuda()) and paddle.device.cuda.device_count() > 0
+            use_gpu = want_gpu and bool(paddle.is_compiled_with_cuda()) and paddle.device.cuda.device_count() > 0
         except Exception:
             use_gpu = False
         device = 'gpu' if use_gpu else 'cpu'

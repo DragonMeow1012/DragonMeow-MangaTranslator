@@ -365,6 +365,9 @@ class OcrConfig(BaseModel):
     """Minimum probability of a text region to be considered valid. If None, uses the model default."""
     paddle_lang: str = "korean"
     """PaddleOCR 後端的語言模型：korean / ch（簡中+英）/ japan / en（僅 ocr=paddle 時有效）"""
+    ocr_device: str = "auto"
+    """OCR 執行裝置：auto（依伺服器裝置）/ gpu（強制 GPU，無 GPU 自動退 CPU）/ cpu（強制 CPU）。
+    讓使用者在 GPU 機器上也能把某個 OCR 切回 CPU（GPU 版出狀況時的逃生口）。"""
 
 class Config(BaseModel):
     # General

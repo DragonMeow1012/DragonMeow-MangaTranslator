@@ -647,7 +647,10 @@ function applyViewToFields() {
   providerSelect.value = _view.llmProvider || "gemini";
   refreshProviderDependentFields();
   langSetSelect.value = _view.targetLanguage || "CHT";
-  ocrSelect.value = _view.ocrModel || "mocr";
+  let _om = _view.ocrModel || "mocr/gpu";
+  if (_om === "mocr") _om = "mocr/gpu";                  // 舊值遷移
+  else if (_om === "paddle/auto") _om = "paddle/auto/gpu";
+  ocrSelect.value = _om;
   dirSelect.value = _view.renderTextDirection || "auto";
   inpaintSelect.value = _view.inpainter || "lama_large";
   sendimageRow.classList.toggle("on", _view.llmSendImage !== false);

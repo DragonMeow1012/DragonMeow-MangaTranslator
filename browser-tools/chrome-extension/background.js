@@ -11,7 +11,7 @@ const DEFAULT_SETTINGS = {
   llmSendImage: true,
   fontPath: "",
   // 以下三項對齊網頁 UI（index.html）預設；翻譯時會即時抓 /ui-settings 覆蓋成你在 127.0.0.1:8501 的設定。
-  ocrModel: "mocr",
+  ocrModel: "mocr/gpu",
   inpainter: "lama_large",
   renderTextDirection: "auto",
   fontSizeMinimum: "0",
@@ -55,7 +55,7 @@ function defaultRawSettings() {
     llmSendImage: true,
     targetLanguage: "CHT",
     customBaseUrl: "",
-    ocrModel: "mocr",
+    ocrModel: "mocr/gpu",
     inpainter: "lama_large",
     renderTextDirection: "auto"
   };
@@ -353,8 +353,9 @@ function buildConfig(settings) {
       det_gamma_correct: false
     },
     ocr: {
-      ocr: (settings.ocrModel || "mocr").split("/")[0],
-      paddle_lang: (settings.ocrModel || "mocr").split("/")[1] || "korean",
+      ocr: (settings.ocrModel || "mocr/gpu").split("/")[0],
+      paddle_lang: (settings.ocrModel || "").startsWith("paddle/") ? ((settings.ocrModel.split("/")[1]) || "auto") : "korean",
+      ocr_device: ["cpu", "gpu"].includes((settings.ocrModel || "").split("/").pop()) ? (settings.ocrModel || "").split("/").pop() : "auto",
       use_mocr_merge: false,
       min_text_length: 1,
       prob: 0.08,

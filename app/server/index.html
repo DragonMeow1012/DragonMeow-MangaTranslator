@@ -301,8 +301,10 @@
             <div>
               <label class="side-label">{{ t('labelOcr') }}</label>
               <select class="side-field" v-model="ocrModel" @change="onSettingChange">
-                <option value="mocr">{{ t('ocrMocr') }}</option>
-                <option value="paddle/auto">{{ t('ocrPaddle') }}</option>
+                <option value="mocr/gpu">{{ t('ocrMocrGpu') }}</option>
+                <option value="mocr/cpu">{{ t('ocrMocrCpu') }}</option>
+                <option value="paddle/auto/gpu">{{ t('ocrPaddleGpu') }}</option>
+                <option value="paddle/auto/cpu">{{ t('ocrPaddleCpu') }}</option>
               </select>
             </div>
             <div>
@@ -1267,7 +1269,7 @@
           labelConcurrency: '並發數', concurrencyTip: '整批／擴充翻譯同時送幾張（對齊伺服器 slot；改了伺服器要重啟才生效）。',
           dirAuto: '自動', dirH: '橫式', dirV: '直式',
           inpClean: 'lama_large（較乾淨）', inpFast: 'lama_mpe（較快）',
-          ocrMocr: 'manga-ocr（日漫專用）', ocrPaddle: 'PaddleOCR（中/日/英/韓）',
+          ocrMocrGpu: 'manga-ocr GPU（日漫專用）', ocrMocrCpu: 'manga-ocr CPU（日漫專用）', ocrPaddleGpu: 'PaddleOCR GPU（中/日/英/韓）', ocrPaddleCpu: 'PaddleOCR CPU（中/日/英/韓）',
           heroTitle: '把漫畫丟進來，一鍵翻譯',
           darkModeLabel: '深夜模式',
           labelAccent: '主題色',
@@ -1452,7 +1454,7 @@
           labelConcurrency: '并发数', concurrencyTip: '整批／扩展翻译同时送几张（对齐服务器 slot；改了服务器要重启才生效）。',
           dirAuto: '自动', dirH: '横式', dirV: '竖式',
           inpClean: 'lama_large（较干净）', inpFast: 'lama_mpe（较快）',
-          ocrMocr: 'manga-ocr（日漫专用）', ocrPaddle: 'PaddleOCR（中/日/英/韩）',
+          ocrMocrGpu: 'manga-ocr GPU（日漫专用）', ocrMocrCpu: 'manga-ocr CPU（日漫专用）', ocrPaddleGpu: 'PaddleOCR GPU（中/日/英/韩）', ocrPaddleCpu: 'PaddleOCR CPU（中/日/英/韩）',
           heroTitle: '把漫画丢进来，一键翻译',
           darkModeLabel: '深夜模式',
           labelAccent: '主题色',
@@ -1637,7 +1639,7 @@
           labelConcurrency: 'Concurrency', concurrencyTip: 'How many images to translate at once (batch / extension). Match the server slots; restart the server to apply.',
           dirAuto: 'Auto', dirH: 'Horizontal', dirV: 'Vertical',
           inpClean: 'lama_large (cleaner)', inpFast: 'lama_mpe (faster)',
-          ocrMocr: 'manga-ocr (Japanese)', ocrPaddle: 'PaddleOCR (CN/JP/EN/KO)',
+          ocrMocrGpu: 'manga-ocr GPU (Japanese)', ocrMocrCpu: 'manga-ocr CPU (Japanese)', ocrPaddleGpu: 'PaddleOCR GPU (CN/JP/EN/KO)', ocrPaddleCpu: 'PaddleOCR CPU (CN/JP/EN/KO)',
           heroTitle: 'Drop your manga, translate in one click',
           darkModeLabel: 'Dark mode',
           labelAccent: 'Accent color',
@@ -1822,7 +1824,7 @@
           labelConcurrency: '並列数', concurrencyTip: '一括／拡張翻訳で同時に送る枚数（サーバーのslotに合わせる。変更後はサーバー再起動）。',
           dirAuto: '自動', dirH: '横書き', dirV: '縦書き',
           inpClean: 'lama_large（きれい）', inpFast: 'lama_mpe（速い）',
-          ocrMocr: 'manga-ocr（日本語）', ocrPaddle: 'PaddleOCR（中/日/英/韓）',
+          ocrMocrGpu: 'manga-ocr GPU（日本語）', ocrMocrCpu: 'manga-ocr CPU（日本語）', ocrPaddleGpu: 'PaddleOCR GPU（中/日/英/韓）', ocrPaddleCpu: 'PaddleOCR CPU（中/日/英/韓）',
           heroTitle: '漫画をドロップ、ワンクリック翻訳',
           darkModeLabel: 'ダークモード',
           labelAccent: 'テーマカラー',
@@ -2148,7 +2150,7 @@
         customBoxThreshold: 0.2,
         maskDilationOffset: 40,
         inpainter: "lama_large",
-        ocrModel: "mocr",
+        ocrModel: "mocr/gpu",
         fontSizeMinimum: "0",
         concurrency: "5",
 
@@ -2410,7 +2412,12 @@
           if (['blue', 'pink', 'amber'].includes(settings.accentColor)) this.accentColor = settings.accentColor;
           if (settings.targetLanguage) this.targetLanguage = settings.targetLanguage;
           if (settings.fontPath) this.fontPath = settings.fontPath;
-          if (settings.ocrModel) this.ocrModel = settings.ocrModel;
+          if (settings.ocrModel) {
+            let om = settings.ocrModel;
+            if (om === "mocr") om = "mocr/gpu";                     // 舊值遷移：原 auto 在 GPU 機=GPU
+            else if (om === "paddle/auto") om = "paddle/auto/gpu";
+            this.ocrModel = om;
+          }
           if (settings.renderTextDirection) this.renderTextDirection = settings.renderTextDirection;
           if (settings.inpainter) this.inpainter = settings.inpainter;
           if (settings.fontSizeMinimum != null) this.fontSizeMinimum = String(settings.fontSizeMinimum);
@@ -2809,8 +2816,9 @@
               det_gamma_correct: false,
             },
             ocr: {
-              ocr: (this.ocrModel || "mocr").split("/")[0],
-              paddle_lang: (this.ocrModel || "mocr").split("/")[1] || "korean",
+              ocr: (this.ocrModel || "mocr/gpu").split("/")[0],
+              paddle_lang: (this.ocrModel || "").startsWith("paddle/") ? ((this.ocrModel.split("/")[1]) || "auto") : "korean",
+              ocr_device: ["cpu", "gpu"].includes((this.ocrModel || "").split("/").pop()) ? (this.ocrModel || "").split("/").pop() : "auto",
               use_mocr_merge: false,
               min_text_length: 1,
               prob: 0.08,

@@ -164,7 +164,9 @@ class ModelMangaOCR(OfflineOCR):
             dictionary = [s[:-1] for s in fp.readlines()]
 
         self.model = OCR(dictionary, 768)
-        self.mocr = MangaOcr(_resolve_manga_ocr_model_path())
+        # force_cpu 依選定裝置：UI 選「manga-ocr CPU」時 mocr 也跑 CPU
+        # （否則 MangaOcr 預設會自動吃 GPU，CPU 選項就名不副實）。
+        self.mocr = MangaOcr(_resolve_manga_ocr_model_path(), force_cpu=(device not in ('cuda', 'mps')))
         sd = torch.load(self._get_file_path('ocr_ar_48px.ckpt'))
         self.model.load_state_dict(sd)
         self.model.eval()
