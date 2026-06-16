@@ -1730,11 +1730,20 @@ JSON: bboxes array, each {{bbox_id, corrected_text, translated_text}}. Every bbo
         if n == 0:
             return []
 
-        # 單一 Gemini vision call（同時 OCR 仲裁 + 翻譯 + SFX 判斷）；
-        # [beta] 長圖/密集頁加速開啟時，region 多會自動切帶平行打多個 call。
-        ocr_texts, translations, explicit_skip = await self._unified_call_banded(
-            rgb_img, query_regions, from_lang, to_lang, w, h,
-        )
+        if not self._send_image:
+            # 「傳圖給 AI」關閉 → 不送圖、不做 vision call，直接把 mocr 的 OCR 文字交 LLM 純文字翻譯
+            #（使用者指定行為）。跳過「看圖讀真字」那套 vision prompt——沒圖時它會空轉/亂讀/500。
+            self.logger.info(f'[no-image] 送圖開關關閉 → 直接純文字翻譯 {n} 個 OCR 文本（不送圖）')
+            src = [(query_regions[i].text or '').strip() for i in range(n)]
+            translations = await self._gemini_text_fill(src, from_lang, to_lang)
+            ocr_texts = {i: src[i] for i in range(n) if src[i]}
+            explicit_skip = set()
+        else:
+            # 單一 Gemini vision call（同時 OCR 仲裁 + 翻譯 + SFX 判斷）；
+            # [beta] 長圖/密集頁加速開啟時，region 多會自動切帶平行打多個 call。
+            ocr_texts, translations, explicit_skip = await self._unified_call_banded(
+                rgb_img, query_regions, from_lang, to_lang, w, h,
+            )
         self.logger.info(f'[Unified] OCR {len(ocr_texts)}/{n} 個 | 譯文 {sum(1 for t in translations if t)}/{n} 個 | skip {len(explicit_skip)}')
         # Debug: LLM OCR vs mocr
         for i in range(n):
