@@ -443,6 +443,16 @@ class Gemini2StageTranslator(CommonTranslator):
         model = (getattr(args, 'llm_model', None) or '').strip()
         if model:
             self.refine_model = self.translate_model = model
+            # 對齊穩定版 bot：unified call 是「看圖」的 vision call，模型必須 vision-capable。
+            # gemini provider 卻選了非 vision 的模型（如 gemma-*）→ 拿去打 vision call（送圖）會讓
+            # Google 回 500 INTERNAL → 整頁 0 翻譯、回填原文。此情況把「看圖階段」改回 vision-capable
+            # 的 GEMINI_VISION_MODEL，使用者選的模型只用於「文字翻譯/補譯階段」（bot 就是這樣分的）。
+            if self._provider == 'gemini' and not model.lower().startswith('gemini'):
+                self.refine_model = GEMINI_VISION_MODEL
+                self.logger.warning(
+                    f'vision 階段不可用非 vision 模型 {model!r} → 看圖改用 {GEMINI_VISION_MODEL!r}，'
+                    f'{model!r} 只用於文字翻譯階段（否則 vision call 會 500 INTERNAL → 漏翻）'
+                )
 
     @staticmethod
     def _collect_api_keys() -> List[str]:
