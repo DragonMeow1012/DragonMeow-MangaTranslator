@@ -3814,27 +3814,34 @@
       this.zipping = true;
       try {
         const zip = new JSZip();
-        const picked = this.finishedImages.filter(im => this.selectedGallery.includes(im.id));
+        // 依「畫面顯示順序」打包（sortedFinishedImages），流水號檔名才跟使用者看到的 1 2 3 4 一致。
+        const picked = this.sortedFinishedImages.filter(im => this.selectedGallery.includes(im.id));
         const used = {};
-        let n = 1;
+        let n = 0;
         for (const im of picked) {
           try {
             const resp = await fetch(im.result);
             if (!resp.ok) continue;
             const pngBlob = await resp.blob();
+            n++;
             // 成品在伺服器存成無損 PNG（final.png）。原樣打包會讓有損 webp 原檔膨脹成 PNG（10MB→89MB）。
             // 改成重編 webp q90 再入 zip：檔案大小回到原檔量級，且副檔名與真實內容一致。
             let outBlob = pngBlob, ext = 'png';
             const webp = await this._reencodeWebp(pngBlob);
             if (webp) { outBlob = webp; ext = 'webp'; }
-            // 檔名一律用「真實格式」的副檔名，杜絕「叫 .webp 內容卻是 PNG」的不一致
-            const stem = (im.originalName || `page_${String(n).padStart(3, '0')}`).replace(/\.[^.]+$/, '');
+            // originalName 對「從硬碟回復的結果」是結果『資料夾名』（醜長的 timestamp-uuid-…-hash，
+            // 使用者回報下載後檔名變這串）。偵測 originalName == 結果資料夾名就改用流水號（補零方便排序）；
+            // 只有「真的上傳檔名」才保留原名。
+            const folder = (String(im.result || '').match(/result\/([^/?#]+)\//) || [])[1] || '';
+            const isFolderName = !im.originalName || im.originalName === folder;
+            const raw = isFolderName ? String(n).padStart(3, '0') : im.originalName;
+            // 只去掉「真的圖片副檔名」，避免把 Vol.1 / 第1.5話 這種含點名字誤切。
+            const stem = String(raw).replace(/\.(jpe?g|png|webp|gif|bmp|avif|tiff?)$/i, '');
             const base = `${stem}.${ext}`;
             let name = base;
             if (used[base]) name = `${stem}_${used[base] + 1}.${ext}`;
             used[base] = (used[base] || 0) + 1;
             zip.file(name, outBlob);
-            n++;
           } catch (e) { console.warn('zip add failed:', e); }
         }
         const content = await zip.generateAsync({ type: 'blob' });
