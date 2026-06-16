@@ -394,6 +394,21 @@ async def batch_images(req: Request, data: BatchTranslateRequest):
             headers={"Content-Disposition": "attachment; filename=translated_images.zip"}
         )
 
+def _canonicalize_settings(data: dict) -> dict:
+    """#7 伺服器統一組 config：不論哪個 client（網頁 / Chrome 擴充）送來，都在伺服器端把
+    跨來源容易漂移的欄位夾到合法範圍 / 遷移舊值，讓 user_settings.json 永遠是一份 canonical
+    config。這樣兩邊 client 只要各自送原始欄位，正規化規則只活在伺服器這一處（不再各自重複）。"""
+    out = dict(data)
+    for key, lo, hi in (('concurrency', 1, 16), ('workers', 1, 4)):
+        if out.get(key) is not None:
+            try:
+                out[key] = str(max(lo, min(int(out[key]), hi)))
+            except (TypeError, ValueError):
+                out.pop(key, None)   # 壞值不寫入，留用既有 / 預設
+    if out.get('inpainter') == 'lama_mpe':
+        out['inpainter'] = 'lama_large'   # db230de 誤設的舊版預設 → 統一升級成乾淨的 lama_large
+    return out
+
 @app.get("/ui-settings", tags=["ui"])
 async def get_ui_settings():
     return load_user_settings()
@@ -403,10 +418,10 @@ async def post_ui_settings(request: Request):
     data = await request.json()
     # 合併而非整包覆蓋：網頁 UI 與 Chrome 擴充共用同一份 user_settings.json，各自只送
     # 自己會編輯的欄位（擴充送翻譯AI/目標語言；網頁另含 OCR/抹字/排版等）。用合併才不會
-    # 互相洗掉對方專屬的設定，達成「兩邊都套用」的雙向同步。
+    # 互相洗掉對方專屬的設定，達成「兩邊都套用」的雙向同步。送進來的欄位先過伺服器正規化。
     if isinstance(data, dict):
         merged = load_user_settings()
-        merged.update(data)
+        merged.update(_canonicalize_settings(data))
         save_user_settings(merged)
     return {"ok": True}
 

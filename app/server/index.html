@@ -1228,6 +1228,38 @@
       // 各家「目前能用」的現役模型（2026-06 查證，含視覺與純文字）。
       // 開啟「傳圖給 AI 校對」時需選支援看圖的視覺模型；
       // 純文字模型（或 DeepSeek 官方 API）請關閉傳圖、走純文字翻譯。
+      // 參數同步的「單一事實來源」：load(_applySettings) 與 save(saveSettings) 都從這份清單推導，
+      // 不再各自手列每個欄位 → 杜絕「存了卻沒讀回 / 讀了卻沒存」這類同步 bug（如先前 maskDilationOffset 漏存）。
+      // 加新設定只要在這裡加一行。t=型別強轉（select 綁字串用 'str'、數字用 'int'、開關 'bool'）；
+      // assign=合併進現有物件（models/apiKeys）；enum=白名單；migrate=舊值遷移。
+      const SETTINGS_FIELDS = [
+        { k: 'uiLang' },
+        { k: 'llmProvider' },
+        { k: 'models', assign: true },
+        { k: 'apiKeys', assign: true },
+        { k: 'customBaseUrl' },
+        { k: 'llmSendImage', t: 'bool' },
+        { k: 'onlyTranslateBubbles', t: 'bool' },
+        { k: 'parallelBands', t: 'bool' },
+        { k: 'darkMode', t: 'bool' },
+        { k: 'accentColor', enum: ['blue', 'pink', 'amber'] },
+        { k: 'targetLanguage' },
+        { k: 'fontPath' },
+        { k: 'ocrModel', migrate: v => v === 'mocr' ? 'mocr/gpu' : (v === 'paddle/auto' ? 'paddle/auto/gpu' : v) },
+        { k: 'renderTextDirection' },
+        // lama_mpe 是 db230de 誤設的舊版預設（平塗泡泡會糊出灰霾）→ 自動升級成乾淨的 lama_large
+        { k: 'inpainter', migrate: v => v === 'lama_mpe' ? 'lama_large' : v },
+        { k: 'fontSizeMinimum', t: 'str' },
+        { k: 'concurrency', t: 'str' },
+        { k: 'workers', t: 'str' },
+        { k: 'maskDilationOffset', t: 'int' },
+        { k: 'inpaintingSize', t: 'str' },
+        { k: 'advancedMode', t: 'bool' },
+        { k: 'autoRetryFailed', t: 'bool' },
+        { k: 'fontBorder', t: 'bool' },
+        { k: 'resultSort' },
+      ];
+
       const MODEL_SUGGESTIONS = {
         gemini: [
           // Gemini 全系列支援看圖；Gemma 為開源模型、經 Gemini API 調用（也支援看圖）
@@ -2558,36 +2590,18 @@
         // Settings persistence
         _applySettings(settings) {
           if (!settings) return;
-          if (settings.uiLang) this.uiLang = settings.uiLang;
-          if (settings.llmProvider) this.llmProvider = settings.llmProvider;
-          if (settings.models) Object.assign(this.models, settings.models);
-          if (settings.apiKeys) Object.assign(this.apiKeys, settings.apiKeys);
-          if (settings.customBaseUrl) this.customBaseUrl = settings.customBaseUrl;
-          if (typeof settings.llmSendImage === 'boolean') this.llmSendImage = settings.llmSendImage;
-          if (typeof settings.onlyTranslateBubbles === 'boolean') this.onlyTranslateBubbles = settings.onlyTranslateBubbles;
-          if (typeof settings.parallelBands === 'boolean') this.parallelBands = settings.parallelBands;
-          if (typeof settings.darkMode === 'boolean') this.darkMode = settings.darkMode;
-          if (['blue', 'pink', 'amber'].includes(settings.accentColor)) this.accentColor = settings.accentColor;
-          if (settings.targetLanguage) this.targetLanguage = settings.targetLanguage;
-          if (settings.fontPath) this.fontPath = settings.fontPath;
-          if (settings.ocrModel) {
-            let om = settings.ocrModel;
-            if (om === "mocr") om = "mocr/gpu";                     // 舊值遷移：原 auto 在 GPU 機=GPU
-            else if (om === "paddle/auto") om = "paddle/auto/gpu";
-            this.ocrModel = om;
+          // 由 SETTINGS_FIELDS 統一驅動（型別強轉 / 物件合併 / enum 白名單 / 舊值遷移皆編碼在清單裡）
+          for (const f of SETTINGS_FIELDS) {
+            let v = settings[f.k];
+            if (v == null) continue;
+            if (f.assign) { Object.assign(this[f.k], v); continue; }
+            if (f.enum) { if (!f.enum.includes(v)) continue; }
+            else if (f.t === 'bool') { if (typeof v !== 'boolean') continue; }
+            else if (f.t === 'str') v = String(v);
+            else if (f.t === 'int') v = parseInt(v);
+            if (f.migrate) v = f.migrate(v);
+            this[f.k] = v;
           }
-          if (settings.renderTextDirection) this.renderTextDirection = settings.renderTextDirection;
-          // lama_mpe 是 db230de 誤設的舊版預設（平塗泡泡會糊出灰霾），自動升級成乾淨的 lama_large。
-          if (settings.inpainter) this.inpainter = settings.inpainter === "lama_mpe" ? "lama_large" : settings.inpainter;
-          if (settings.fontSizeMinimum != null) this.fontSizeMinimum = String(settings.fontSizeMinimum);
-          if (settings.concurrency != null) this.concurrency = String(settings.concurrency);
-          if (settings.workers != null) this.workers = String(settings.workers);
-          if (settings.maskDilationOffset != null) this.maskDilationOffset = parseInt(settings.maskDilationOffset);
-          if (settings.inpaintingSize != null) this.inpaintingSize = String(settings.inpaintingSize);
-          if (typeof settings.advancedMode === 'boolean') this.advancedMode = settings.advancedMode;
-          if (typeof settings.autoRetryFailed === 'boolean') this.autoRetryFailed = settings.autoRetryFailed;
-          if (typeof settings.fontBorder === 'boolean') this.fontBorder = settings.fontBorder;
-          if (settings.resultSort) this.resultSort = settings.resultSort;
           this.loadApiKeyRows();   // 多 key UI：把 apiKeys[provider] 拆成可編輯的多行
         },
 
@@ -2608,32 +2622,9 @@
         },
 
         saveSettings() {
-          const settings = {
-            uiLang: this.uiLang,
-            llmProvider: this.llmProvider,
-            models: this.models,
-            apiKeys: this.apiKeys,
-            customBaseUrl: this.customBaseUrl,
-            llmSendImage: this.llmSendImage,
-            onlyTranslateBubbles: this.onlyTranslateBubbles,
-            parallelBands: this.parallelBands,
-            darkMode: this.darkMode,
-            accentColor: this.accentColor,
-            targetLanguage: this.targetLanguage,
-            fontPath: this.fontPath,
-            ocrModel: this.ocrModel,
-            renderTextDirection: this.renderTextDirection,
-            inpainter: this.inpainter,
-            fontSizeMinimum: this.fontSizeMinimum,
-            concurrency: this.concurrency,
-            workers: this.workers,
-            advancedMode: this.advancedMode,
-            autoRetryFailed: this.autoRetryFailed,
-            fontBorder: this.fontBorder,
-            resultSort: this.resultSort,
-            maskDilationOffset: this.maskDilationOffset,   // 補：原本漏存 → 網頁端改了不持久
-            inpaintingSize: this.inpaintingSize,
-          };
+          // 由 SETTINGS_FIELDS 統一驅動：存的欄位一定 = 讀的欄位，不會再漏存/漏讀
+          const settings = {};
+          for (const f of SETTINGS_FIELDS) settings[f.k] = this[f.k];
           // 同時寫入 localStorage（即時）和伺服器（持久）
           try { localStorage.setItem('manga-translator-settings', JSON.stringify(settings)); } catch {}
           fetch('/ui-settings', {
