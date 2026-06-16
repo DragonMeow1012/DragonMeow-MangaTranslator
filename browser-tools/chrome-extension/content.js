@@ -155,6 +155,7 @@ chrome.runtime.onMessage.addListener((message) => {
     showStatus(`頁碼翻譯：已完成 ${message.done} 頁`, 1600);
   }
   refreshBubbleTitle();
+  updateQueuePanel();
 });
 function imageDims(dataUrl) {
   return new Promise((resolve, reject) => {
@@ -458,6 +459,7 @@ function translatePage() {
   if (_pageTranslate) {
     terminateAllTasks();
     showStatus("已停止整頁翻譯，已終止所有進行中的翻譯", 2000);
+    if (state.progressPanel) state.progressPanel.classList.add("dmmt-ext-hidden");
     return;
   }
   if (state.picking) stopPickMode();
@@ -605,6 +607,37 @@ function updatePageStatus() {
   const pt = _pageTranslate;
   if (pt && pt.done < pt.total) showStatus(`整頁翻譯中… ${pt.done}/${pt.total}`);
   refreshBubbleTitle(); // 進度也寫進「譯」泡泡 tooltip（與頁碼翻譯一致，指著泡泡即可看）
+  updateQueuePanel();
+}
+
+// 翻譯進度面板：常駐浮窗，內容比照網頁 UI 佇列（整頁：完成/總數/待翻/失敗/防盜；頁碼：已抓頁），
+// 讓人一看就知道進度。沒有進行中的翻譯時自動隱藏。
+function updateQueuePanel() {
+  const p = state.progressPanel;
+  if (!p) return;
+  const pt = _pageTranslate;
+  let html = "";
+  if (pt && pt.total > 0) {
+    const pending = Math.max(0, pt.total - pt.done);
+    const pct = pt.total ? Math.round((pt.done / pt.total) * 100) : 0;
+    html =
+      `<div class="dmmt-q-title">📄 整頁翻譯　${pct}%</div>` +
+      `<div class="dmmt-q-row"><span>進度</span><b>${pt.done}/${pt.total}</b></div>` +
+      `<div class="dmmt-q-row"><span>✓ 完成</span><b>${pt.ok}</b></div>` +
+      (pending ? `<div class="dmmt-q-row"><span>… 待翻</span><b>${pending}</b></div>` : "") +
+      (pt.failed ? `<div class="dmmt-q-row dmmt-q-bad"><span>✗ 失敗</span><b>${pt.failed}</b></div>` : "") +
+      (pt.blocked ? `<div class="dmmt-q-row"><span>🛡 防盜圖</span><b>${pt.blocked}</b></div>` : "");
+  } else if (_pfProg && _pfProg.total > 0) {
+    html =
+      `<div class="dmmt-q-title">🔁 頁碼翻譯</div>` +
+      `<div class="dmmt-q-row"><span>已抓頁</span><b>${_pfProg.done}/${_pfProg.total}</b></div>`;
+  }
+  if (html) {
+    p.innerHTML = html;
+    p.classList.remove("dmmt-ext-hidden");
+  } else {
+    p.classList.add("dmmt-ext-hidden");
+  }
 }
 
 // 佇列清空（暫時沒有待翻圖）→ 顯示成果並提示仍在監看，不關閉，等新內容載入後自動接續。
@@ -617,6 +650,7 @@ function onPageQueueDrained() {
   msg += "；持續監看中，捲動載入新內容會自動翻譯（再點一次可停止）";
   showStatus(msg, 4000);
   refreshBubbleTitle();
+  updateQueuePanel();
 }
 
 function stopPageTranslate() {
@@ -881,7 +915,11 @@ function createUi() {
   state.label = document.createElement("div");
   state.label.className = "dmmt-ext-label dmmt-ext-hidden";
 
-  state.root.append(state.button, state.status, state.progress, state.highlight, state.label);
+  // 翻譯進度面板（常駐浮窗，內容比照網頁 UI 佇列）
+  state.progressPanel = document.createElement("div");
+  state.progressPanel.className = "dmmt-ext-queue dmmt-ext-hidden";
+
+  state.root.append(state.button, state.status, state.progress, state.highlight, state.label, state.progressPanel);
   document.documentElement.append(state.root);
 }
 

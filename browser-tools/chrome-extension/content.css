@@ -64,6 +64,26 @@
   box-shadow: 0 12px 30px rgba(15, 23, 42, 0.28);
 }
 
+.dmmt-ext-queue {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  z-index: 2147483647;
+  pointer-events: none;
+  min-width: 156px;
+  border-radius: 10px;
+  padding: 10px 12px;
+  background: rgba(17, 24, 39, 0.92);
+  color: #fff;
+  font-size: 13px;
+  line-height: 1.55;
+  box-shadow: 0 12px 30px rgba(15, 23, 42, 0.35);
+}
+.dmmt-ext-queue .dmmt-q-title { font-weight: 800; color: #5eead4; margin-bottom: 4px; }
+.dmmt-ext-queue .dmmt-q-row { display: flex; justify-content: space-between; gap: 18px; }
+.dmmt-ext-queue .dmmt-q-row b { font-weight: 700; }
+.dmmt-ext-queue .dmmt-q-bad b { color: #fda4af; }
+
 .dmmt-ext-progress {
   position: fixed;
   left: 0;
