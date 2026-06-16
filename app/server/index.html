@@ -305,6 +305,9 @@
                 <option value="mocr/gpu">{{ t('ocrMocrGpu') }}</option>
                 <option value="mocr/cpu">{{ t('ocrMocrCpu') }}</option>
                 <option value="paddle/auto/gpu">{{ t('ocrPaddleGpu') }}</option>
+                <option value="paddle/korean/gpu">PaddleOCR 한국어 / 韓文 (GPU)</option>
+                <option value="paddle/ch/gpu">PaddleOCR 中文 (GPU)</option>
+                <option value="paddle/japan/gpu">PaddleOCR 日本語 (GPU)</option>
                 <option value="paddle/auto/cpu">{{ t('ocrPaddleCpu') }}</option>
               </select>
               <div style="font-size:11px;opacity:.55;margin-top:3px;line-height:1.35">{{ t('ocrHint') }}</div>
@@ -1279,7 +1282,7 @@
           labelConcurrency: '並發數', concurrencyTip: '整批／擴充翻譯同時送幾張（對齊伺服器 slot；改了伺服器要重啟才生效）。',
           dirAuto: '自動', dirH: '橫式', dirV: '直式',
           inpClean: 'lama_large（通用）', inpFast: 'lama_mpe（漫畫專用·推薦）',
-          ocrMocrGpu: 'manga-ocr GPU（日漫專用）', ocrMocrCpu: 'manga-ocr CPU（日漫專用）', ocrPaddleGpu: 'PaddleOCR GPU（中/日/英/韓）', ocrPaddleCpu: 'PaddleOCR CPU（中/日/英/韓）', ocrHint: '💡 GPU 較快；CPU 較慢但相容性好（GPU 出狀況時的逃生口）。日漫選 manga-ocr、韓漫選 PaddleOCR。',
+          ocrMocrGpu: 'manga-ocr GPU（日漫專用）', ocrMocrCpu: 'manga-ocr CPU（日漫專用）', ocrPaddleGpu: 'PaddleOCR GPU（中/日/英/韓）', ocrPaddleCpu: 'PaddleOCR CPU（中/日/英/韓）', ocrHint: '💡 GPU 較快；CPU 較慢但相容性好（GPU 出狀況時的逃生口）。日漫選 manga-ocr、韓漫選 PaddleOCR。單一語言建議直接手選對應語言（韓/中/日）——自動模式首次要偵測語言、會載多個引擎，冷啟動較慢。',
           fontHint: '留空＝依語言自動挑字型；可上傳 .ttf/.otf 自訂', dirHint: '自動＝依語言判斷；可強制橫書或直書', inpaintHint: 'lama_mpe 漫畫專用、抹字最乾淨又快（推薦）；lama_large 是通用大模型，漫畫網點／對話框反而較差', fontMinHint: '縮字下限，避免字太小看不清（會略允許超出框）', concurrencyHint: '同時翻幾張；越高越快，但越吃 VRAM 與 API 額度',
           heroTitle: '把漫畫丟進來，一鍵翻譯',
           darkModeLabel: '深夜模式',

@@ -1913,6 +1913,15 @@ class MangaTranslator:
         # 讓編輯器能列出、讓使用者自行決定要不要翻。
         ctx._skipped_regions = []
         new_text_regions = []
+        # 大型裝飾 SFX 判定用：頁內各框高度中位數＝對話字高；SFX（如「碎片」）字高遠大於此。
+        def _box_h(r):
+            try:
+                x1, y1, x2, y2 = r.xyxy
+                return abs(float(y2) - float(y1))
+            except Exception:
+                return 0.0
+        _heights = sorted(h for h in (_box_h(r) for r in ctx.text_regions) if h > 0)
+        _median_h = _heights[len(_heights) // 2] if _heights else 0.0
         for region in ctx.text_regions:
             should_filter = False
             filter_reason = ""
@@ -1954,6 +1963,18 @@ class MangaTranslator:
                     # → 不翻、挖洞保留原作。斜角對話泡極罕見且有 _bubble_rect 護著。
                     should_filter = True
                     filter_reason = "Steep-angle handwriting outside bubble (keep original art)"
+                elif (
+                    getattr(region, '_layout_role', '') != 'dialogue'
+                    and getattr(region, '_bubble_rect', None) is None
+                    and _median_h > 0
+                    and _box_h(region) >= 2.2 * _median_h
+                    and len(re.sub(r'\s', '', region.translation)) <= 6
+                ):
+                    # 框外 + 字高遠大於頁內中位數 + 短字 = 大型裝飾/音效字（如「碎片」）。
+                    # 韓文等非假名 SFX 不會被 _looks_like_pure_sfx_source 抓到 → 在這裡補抓；
+                    # 翻譯後渲染會蓋掉原作美術字 → 不翻、挖洞保留原圖。
+                    should_filter = True
+                    filter_reason = "Large short text outside bubble = decorative SFX (keep original art)"
                 # 已移除「translation identical to original」過濾：
                 # gemini_2stage 在 LLM 失敗時會「回填原文」(translation=Japanese=原文)，
                 # 過濾掉這些 region 會導致它們被 inpaint 塗白卻沒新字 → 空白氣泡。
