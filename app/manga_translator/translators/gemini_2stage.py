@@ -822,14 +822,14 @@ class Gemini2StageTranslator(CommonTranslator):
         # 直接換下個 key 試。所有 key 都 503 → 全 Google 端問題，sleep 5s 整批再試一輪就放棄。
         # 整體最差 ~50s 而非 200s+，外層 unified_call 才能及時 fallback 到 GT。
         last_err: Exception | None = None
-        for round_n in range(2):  # 最多 2 輪：第一輪試所有 key、503 全擋 → sleep 5s 再試一輪
-            if round_n > 0:
-                self.logger.warning(
-                    f'Gemini 第 1 輪所有 key 都 503 (model={model})，sleep 5s 後試最後一輪'
-                )
-                await asyncio.sleep(5.0)
-
+        _503_rounds = 0
+        _429_rounds = 0
+        _MAX_503_ROUNDS = 1                                            # 全 503 → sleep 5s 再試一輪
+        _MAX_429_ROUNDS = int(os.getenv('GEMINI_429_RETRIES', '4'))    # 配額(429) → 等 retry-delay 再重試的輪數
+        while True:
             all_503_this_round = True
+            any_429_this_round = False
+            max_429_delay = 0.0
             for offset in range(n_keys):
                 this_idx = (start + offset) % n_keys
                 key = self._api_keys[this_idx]
@@ -866,6 +866,7 @@ class Gemini2StageTranslator(CommonTranslator):
                         '429' in msg
                         or 'quota' in msg_lower
                         or 'rate limit' in msg_lower
+                        or 'resource_exhausted' in msg_lower
                     )
                     if is_503:
                         self.logger.warning(
@@ -874,16 +875,41 @@ class Gemini2StageTranslator(CommonTranslator):
                         continue  # 立即換下個 key
                     if is_429:
                         all_503_this_round = False  # 不是 503 storm，是 quota
+                        any_429_this_round = True
+                        # 解析伺服器要求的等待秒數（"Please retry in 25.3s" / "retryDelay': '25s'"）
+                        m = (re.search(r'retry in ([\d.]+)\s*s', msg, re.I)
+                             or re.search(r"retryDelay['\"]?\s*[:=]\s*['\"]?(\d+)", msg))
+                        if m:
+                            try:
+                                max_429_delay = max(max_429_delay, float(m.group(1)))
+                            except ValueError:
+                                pass
                         self.logger.warning(
-                            f'Gemini 429 on key #{this_idx + 1}/{n_keys}, trying next key'
+                            f'Gemini 429 (配額) on key #{this_idx + 1}/{n_keys}'
                         )
                         continue
                     # 其他錯誤（包含 empty content）→ 不重試，直接 raise
                     raise
 
-            # 整輪都 503 → 進下一輪（sleep 5s 再試）。一輪混 503/429 也算試完，不繼續。
-            if not all_503_this_round:
-                break
+            # 全 key 503 → sleep 5s 再試一輪（Google 端暫時問題）
+            if all_503_this_round and _503_rounds < _MAX_503_ROUNDS:
+                _503_rounds += 1
+                self.logger.warning(
+                    f'Gemini 全 key 503 (model={model})，sleep 5s 後再試一輪'
+                )
+                await asyncio.sleep(5.0)
+                continue
+            # 全 key 配額 429 → 等伺服器要求的秒數（或退避）再重試，而非直接漏翻。
+            # 配 並發=1 一張一張處理時，這個等待讓「每分鐘配額」回復後該頁仍翻得出來。
+            if any_429_this_round and _429_rounds < _MAX_429_ROUNDS:
+                _429_rounds += 1
+                wait = min(max(max_429_delay, 2.0 * _429_rounds), 30.0)
+                self.logger.warning(
+                    f'Gemini 配額用盡 → 等 {wait:.0f}s 後重試（{_429_rounds}/{_MAX_429_ROUNDS}），避免漏翻'
+                )
+                await asyncio.sleep(wait)
+                continue
+            break
 
         assert last_err is not None
         raise last_err
@@ -1393,13 +1419,19 @@ class Gemini2StageTranslator(CommonTranslator):
                 # 單頁直送（既有行為）
                 bboxes = await self._call_llm_single(payload)
         except Exception as e:
-            # Gemini 整批失敗（PROHIBITED_CONTENT silent block / quota 用完 / 空 content 等）
-            # → 走 GT + polish 一條龍補救（_gt_then_polish helper）。
-            # batch 模式下 buffer 已試過「拆單頁 retry」，這層只接「單頁 retry 也死」的情況 →
-            # 影響範圍仍只有這頁，不會牽連 batch 內其他頁。
+            # Gemini 整批失敗（PROHIBITED_CONTENT silent block / quota 用完 / 空 content 等）。
+            es = str(e).lower()
+            is_quota = '429' in es or 'quota' in es or 'rate limit' in es or 'resource_exhausted' in es
             self.logger.warning(
                 f'Unified call 失敗: {type(e).__name__}: {e}; online fallback disabled'
             )
+            if is_quota:
+                # 配額爆掉(429)是「暫時性」的：別回填原文（會變成靜默漏翻、整頁看起來像原文）。
+                # 已先在 _gemini_json_call 等過 retry-delay 還是 429 → 直接 raise，讓整頁標記失敗、
+                # 進佇列的「重翻列表」之後重試（等每分鐘配額回復），使用者也看得到哪頁沒翻成功。
+                self.logger.warning('Unified call 429/配額用盡 → 整頁標記失敗、加入重翻列表（不回填原文）')
+                raise
+            # 非配額失敗（內容被擋等）非暫時性，retry 也沒用 → 維持原本 polish/回填補救。
             src_texts = [(query_regions[i].text or '').strip() for i in range(n)]
             polished = await self._gt_then_polish(src_texts, from_lang, to_lang)
             ocr_texts = {i: src_texts[i] for i in range(n) if src_texts[i]}

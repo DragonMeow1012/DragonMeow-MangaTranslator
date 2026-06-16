@@ -469,8 +469,9 @@ function bubbleSize() {
 // 持續模式：完成首批後仍持續監看，網頁延遲載入（lazy-load）或無限捲動載入的新圖會接著
 // 自動翻譯，直到使用者再次點「整頁翻譯」關閉，或執行清除／離開頁面。
 // 並發送出數：對齊伺服器預設 5 slot（MT_WORKER_CONCURRENCY=5，=bot 的 5 並發）。
-// 伺服器端 gpu_lock 序列化 GPU 階段、LLM 階段重疊，送滿 5 不會炸 GPU。可由設定覆寫。
-let PAGE_TRANSLATE_CONCURRENCY = 5;
+// 預設一張一張處理（1）：單一免費 API key 配額低，並發會撞每分鐘速率限制 → 大量 429 漏翻。
+// 由 /ui-settings 的「並發數」覆寫（多 key 時可調高）。
+let PAGE_TRANSLATE_CONCURRENCY = 1;
 // Over-send 關閉（0）：原本派 conc+2 是「多 key / pipeline buffer」時代的餵滿策略，但單一 API key
 // 時只會加深 429 堆積、並讓單執行緒 GPU 一直滿載（提高 PaddleOCR 卡死機率）。單 key 下 API 才是瓶頸，
 // 關掉 over-send 不影響實際吞吐，卻能降 429 與卡死壓力。要回到多 key 餵滿可再調回 2。

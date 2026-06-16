@@ -460,9 +460,10 @@ def start_translator_client_proc(host: str, port: int, nonce: str, params: Names
     # 同一個 worker 進程註冊 K 次（每次獨立 ExecutorInstance，各有自己 busy flag），
     # 讓 orchestrator 的 find_executor() / free_executors() 看到 K 個邏輯 slot，
     # 全部指到同 ip:port → worker 端用 _PriorityGpuLock 自己處理並發。
-    # K 預設 3（單一 API key 時 5 會 429 storm → 漏翻/卡死，3 較安全）。優先吃網頁 UI 的「並發數」設定
+    # K 預設 1（一張一張處理：單一免費 API key 配額低，並發會撞每分鐘速率限制 → 大量 429 漏翻/卡死）。
+    # 想加速且不漏翻：多加幾把 key 再把「並發數」調高。優先吃網頁 UI 的「並發數」設定
     # （user_settings.json.concurrency），其次環境變數 MT_WORKER_CONCURRENCY。改了要重啟才生效。
-    _slots = int(os.getenv('MT_WORKER_CONCURRENCY', '3'))
+    _slots = int(os.getenv('MT_WORKER_CONCURRENCY', '1'))
     try:
         _cfg_conc = load_user_settings().get('concurrency')
         if _cfg_conc is not None:

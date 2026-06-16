@@ -17,7 +17,7 @@ const DEFAULT_SETTINGS = {
   inpainter: "lama_large",       // 漫畫微調版，平塗泡泡抹得乾淨；lama_mpe 是舊版會糊出灰霾
   renderTextDirection: "auto",
   fontSizeMinimum: "0",
-  concurrency: "3",
+  concurrency: "1",
   maskDilationOffset: 20,        // 抹字遮罩外擴像素：大蓋殘字但會抹到框/糊邊，小乾淨但會殘字
   inpaintingSize: "2048"
 };

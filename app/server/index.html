@@ -368,13 +368,16 @@
             <div :title="t('concurrencyTip')">
               <label class="side-label">{{ t('labelConcurrency') }}</label>
               <select class="side-field" v-model="concurrency" @change="onSettingChange">
-                <option value="1">1</option>
+                <option value="1">1（一張一張，最不會漏翻）</option>
                 <option value="2">2</option>
                 <option value="3">3</option>
                 <option value="5">5</option>
                 <option value="8">8</option>
               </select>
               <div style="font-size:11px;opacity:.55;margin-top:3px;line-height:1.35">{{ t('concurrencyHint') }}</div>
+              <div v-if="Number(concurrency) > 1" style="font-size:11px;margin-top:4px;line-height:1.35;color:#ea580c;font-weight:600">
+                ⚠ 並發 &gt; 1：單一免費 API key 配額低（如 15 次/分鐘），並發會撞每分鐘速率限制 → 大量 429、整批漏翻。多加幾把 API key 再調高才安全。
+              </div>
             </div>
           </div>
         </div>
@@ -2198,7 +2201,7 @@
         inpainter: "lama_large",
         ocrModel: "mocr/gpu",
         fontSizeMinimum: "0",
-        concurrency: "3",
+        concurrency: "1",
 
         uploadController: null,
 
