@@ -84,6 +84,7 @@ let _autoPersistEnabled = false; // 頁碼翻譯啟用中（持久化；換頁/�
 let _pagePersistEnabled = false; // 整頁翻譯啟用中（持久化）
 const PREFETCH_TO_END_CAP = 200; // 預抓往後猜的上限（一律翻到完；背景遇 404 自然停）
 let _showPrefetch = true;   // 顯示預抓進度（指泡泡時的 tooltip）
+let _showQueuePanel = true; // 顯示翻譯進度浮窗（縮圖佇列）；popup 開關控制（dmmtShowQueuePanel）
 let _lastPrefetchPage = 0;
 let _pfProg = null;         // 頁碼翻譯預抓即時進度 {done,total}，顯示在泡泡 tooltip
 // 並發送出數：從同步設定讀（網頁 UI「並發數」→ user_settings.json → background 存進 dmmtSyncedSettings）。
@@ -97,7 +98,7 @@ function _applyCacheMax(v) {
   if (n >= 1 && n <= 9999) IMG_CACHE_MAX_ENTRIES = n;
 }
 function loadDebugFlag() {
-  chromeSafeGet(["dmmtDebugInput", "dmmtPrefetchNotify", "dmmtBoxMode", "dmmtBoxOrigin", "dmmtBoxRects", "dmmtWheelNav", "dmmtWheelDir", "dmmtSyncedSettings", "dmmtCacheMax"], (s) => {
+  chromeSafeGet(["dmmtDebugInput", "dmmtPrefetchNotify", "dmmtBoxMode", "dmmtBoxOrigin", "dmmtBoxRects", "dmmtWheelNav", "dmmtWheelDir", "dmmtSyncedSettings", "dmmtCacheMax", "dmmtShowQueuePanel"], (s) => {
     _debugOn = s?.dmmtDebugInput === true;
     if (typeof s?.dmmtWheelNav === "boolean") _wheelNav = s.dmmtWheelNav;
     if (typeof s?.dmmtWheelDir === "string") _wheelDir = s.dmmtWheelDir;
@@ -105,6 +106,7 @@ function loadDebugFlag() {
       _boxMode = true; _boxRects = s.dmmtBoxRects;
     }
     if (typeof s?.dmmtPrefetchNotify === "boolean") _showPrefetch = s.dmmtPrefetchNotify;
+    if (typeof s?.dmmtShowQueuePanel === "boolean") _showQueuePanel = s.dmmtShowQueuePanel;
     _applyConcurrency(s?.dmmtSyncedSettings);
     _applyCacheMax(s?.dmmtCacheMax);
   });
@@ -117,6 +119,10 @@ function loadDebugFlag() {
       if (changes.dmmtPrefetchNotify && typeof changes.dmmtPrefetchNotify.newValue === "boolean") {
         _showPrefetch = changes.dmmtPrefetchNotify.newValue;
         refreshBubbleTitle();
+      }
+      if (changes.dmmtShowQueuePanel && typeof changes.dmmtShowQueuePanel.newValue === "boolean") {
+        _showQueuePanel = changes.dmmtShowQueuePanel.newValue;
+        updateQueuePanel();
       }
       if (changes.dmmtSyncedSettings) _applyConcurrency(changes.dmmtSyncedSettings.newValue);
       if (changes.dmmtCacheMax) _applyCacheMax(changes.dmmtCacheMax.newValue);
@@ -469,6 +475,7 @@ function translatePage() {
     queue: [],
     active: 0,
     total: 0, done: 0, ok: 0, blocked: 0, failed: 0,
+    items: new Map(), // el -> {src, status}（給縮圖進度面板）
     observer: null, onScroll: null, rescanTimer: 0
   };
   _pageTranslate = pt;
@@ -550,6 +557,7 @@ function collectNewPageImages() {
   // 由上而下排序，符合閱讀順序。
   fresh.sort((a, b) => a.getBoundingClientRect().top - b.getBoundingClientRect().top);
   pt.queue.push(...fresh);
+  for (const el of fresh) pt.items.set(el, { src: el.currentSrc || el.src || "", status: "queued" });
   pt.total += fresh.length;
   updatePageStatus();
   pumpPageTranslate();
@@ -584,10 +592,12 @@ function pumpPageTranslate() {
 async function pageTranslateWorker(pt) {
   while (_pageTranslate === pt && pt.queue.length) {
     const el = pt.queue.shift();
-    if (!el || state.replacements.has(el) || !document.contains(el)) { pt.done++; updatePageStatus(); continue; }
+    const it = pt.items && pt.items.get(el);
+    if (it) { it.status = "processing"; updatePageStatus(); }
+    if (!el || state.replacements.has(el) || !document.contains(el)) { if (it) it.status = "done"; pt.done++; updatePageStatus(); continue; }
     const dataUrl = await getFullResImageDataUrl(el);
     if (_pageTranslate !== pt) return;          // 期間已關閉
-    if (!dataUrl) { pt.blocked++; pt.done++; updatePageStatus(); continue; } // 防盜圖，無法讀取像素
+    if (!dataUrl) { if (it) it.status = "blocked"; pt.blocked++; pt.done++; updatePageStatus(); continue; } // 防盜圖，無法讀取像素
     try {
       const resp = await sendMessage({ type: "translate-data-url", image: dataUrl });
       if (_pageTranslate !== pt) return;        // 期間已關閉，別套用
@@ -595,8 +605,10 @@ async function pageTranslateWorker(pt) {
         replaceImgElement(el, resp.image);
         pt.ok++;
       }
+      if (it) it.status = "done";
     } catch {
       pt.failed++;
+      if (it) it.status = "failed";
     }
     pt.done++;
     updatePageStatus();
@@ -615,25 +627,32 @@ function updatePageStatus() {
 function updateQueuePanel() {
   const p = state.progressPanel;
   if (!p) return;
+  if (!_showQueuePanel) { p.classList.add("dmmt-ext-hidden"); return; }
   const pt = _pageTranslate;
-  let html = "";
-  if (pt && pt.total > 0) {
-    const pending = Math.max(0, pt.total - pt.done);
+  const LABELS = {
+    processing: ["處理中", "p"], queued: ["排隊中", "q"],
+    done: ["✓ 完成", "d"], failed: ["✗ 失敗", "f"], blocked: ["🛡 防盜", "b"],
+  };
+  if (pt && pt.items && pt.items.size) {
     const pct = pt.total ? Math.round((pt.done / pt.total) * 100) : 0;
-    html =
-      `<div class="dmmt-q-title">📄 整頁翻譯　${pct}%</div>` +
-      `<div class="dmmt-q-row"><span>進度</span><b>${pt.done}/${pt.total}</b></div>` +
-      `<div class="dmmt-q-row"><span>✓ 完成</span><b>${pt.ok}</b></div>` +
-      (pending ? `<div class="dmmt-q-row"><span>… 待翻</span><b>${pending}</b></div>` : "") +
-      (pt.failed ? `<div class="dmmt-q-row dmmt-q-bad"><span>✗ 失敗</span><b>${pt.failed}</b></div>` : "") +
-      (pt.blocked ? `<div class="dmmt-q-row"><span>🛡 防盜圖</span><b>${pt.blocked}</b></div>` : "");
+    let rows = "", shown = 0;
+    for (const [, it] of pt.items) {
+      if (shown >= 80) { rows += `<div class="dmmt-q-more">…還有 ${pt.items.size - shown} 張</div>`; break; }
+      const [label, cls] = LABELS[it.status] || LABELS.queued;
+      const thumb = it.src
+        ? `<img class="dmmt-q-thumb" src="${String(it.src).replace(/"/g, "&quot;")}" loading="lazy">`
+        : `<span class="dmmt-q-thumb"></span>`;
+      rows += `<div class="dmmt-q-item">${thumb}<span class="dmmt-q-badge dmmt-q-${cls}">${label}</span></div>`;
+      shown++;
+    }
+    p.innerHTML =
+      `<div class="dmmt-q-title">📄 整頁翻譯　${pct}%（${pt.done}/${pt.total}）</div>` +
+      `<div class="dmmt-q-list">${rows}</div>`;
+    p.classList.remove("dmmt-ext-hidden");
   } else if (_pfProg && _pfProg.total > 0) {
-    html =
+    p.innerHTML =
       `<div class="dmmt-q-title">🔁 頁碼翻譯</div>` +
       `<div class="dmmt-q-row"><span>已抓頁</span><b>${_pfProg.done}/${_pfProg.total}</b></div>`;
-  }
-  if (html) {
-    p.innerHTML = html;
     p.classList.remove("dmmt-ext-hidden");
   } else {
     p.classList.add("dmmt-ext-hidden");

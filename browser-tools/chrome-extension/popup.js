@@ -755,6 +755,19 @@ retryRow.addEventListener("click", async () => {
   await chrome.storage.local.set({ [AUTO_RETRY_KEY]: on });
 });
 
+// ---- 翻譯進度面板（縮圖佇列）顯示開關 ----
+const SHOW_QUEUE_KEY = "dmmtShowQueuePanel";
+const queuePanelRow = document.getElementById("set-queuepanel");
+async function loadQueuePanelPref() {
+  const stored = await chrome.storage.local.get(SHOW_QUEUE_KEY);
+  queuePanelRow.classList.toggle("on", stored[SHOW_QUEUE_KEY] !== false); // 預設開
+}
+queuePanelRow.addEventListener("click", async () => {
+  const on = !queuePanelRow.classList.contains("on");
+  queuePanelRow.classList.toggle("on", on);
+  await chrome.storage.local.set({ [SHOW_QUEUE_KEY]: on });
+});
+
 // ---- Crawler: 請求「所有網站」存取權去抓跨域原圖 ----
 // 許多站的圖片放在與頁面「不同網域」的 CDN（例：Naver 頁面在 comic.naver.com，圖卻在
 // image-comic.pstatic.net），只授權頁面網域抓不到原圖。故統一請求 *://*/*（manifest 的
@@ -931,6 +944,7 @@ document.getElementById("clear-all").addEventListener("click", async () => {
 
 loadPrefs().then(fillPrefsInputs);
 loadRetryPref();
+loadQueuePanelPref();
 loadDebugPref();
 loadCrawlPref();
 loadPrefetchPrefs();
