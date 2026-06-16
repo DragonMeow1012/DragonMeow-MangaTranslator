@@ -443,11 +443,12 @@ class Gemini2StageTranslator(CommonTranslator):
         model = (getattr(args, 'llm_model', None) or '').strip()
         if model:
             self.refine_model = self.translate_model = model
-            # 對齊穩定版 bot：unified call 是「看圖」的 vision call，模型必須 vision-capable。
-            # gemini provider 卻選了非 vision 的模型（如 gemma-*）→ 拿去打 vision call（送圖）會讓
-            # Google 回 500 INTERNAL → 整頁 0 翻譯、回填原文。此情況把「看圖階段」改回 vision-capable
-            # 的 GEMINI_VISION_MODEL，使用者選的模型只用於「文字翻譯/補譯階段」（bot 就是這樣分的）。
-            if self._provider == 'gemini' and not model.lower().startswith('gemini'):
+            # 對齊穩定版 bot：unified call 「有送圖」時是 vision call，模型必須 vision-capable。
+            # gemini provider 卻選了非 vision 的模型（如 gemma-*）+ 送圖開關開著 → 送圖給非 vision 的
+            # Gemma 會讓 Google 回 500 INTERNAL → 整頁漏翻。此情況把「看圖階段」改回 GEMINI_VISION_MODEL。
+            # 注意：若使用者關掉「傳圖給 AI」開關（self._send_image=False），unified call 本來就 text-only
+            # （line 607 把 image 設 None），Gemma 純文字沒問題 → 不需強制換 vision 模型，尊重該開關。
+            if self._send_image and self._provider == 'gemini' and not model.lower().startswith('gemini'):
                 self.refine_model = GEMINI_VISION_MODEL
                 self.logger.warning(
                     f'vision 階段不可用非 vision 模型 {model!r} → 看圖改用 {GEMINI_VISION_MODEL!r}，'
