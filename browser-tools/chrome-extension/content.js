@@ -471,9 +471,10 @@ function bubbleSize() {
 // 並發送出數：對齊伺服器預設 5 slot（MT_WORKER_CONCURRENCY=5，=bot 的 5 並發）。
 // 伺服器端 gpu_lock 序列化 GPU 階段、LLM 階段重疊，送滿 5 不會炸 GPU。可由設定覆寫。
 let PAGE_TRANSLATE_CONCURRENCY = 5;
-// Over-send：整頁實際派 conc+2 個工作者，讓伺服器佇列永遠有下一張等著 → GPU 不必等 client
-// round-trip 與逐張抓圖空檔（對齊 SDMDCBOT「pipeline 深度 + 2 buffer」餵滿策略）。
-const PAGE_TRANSLATE_OVERSEND = 2;
+// Over-send 關閉（0）：原本派 conc+2 是「多 key / pipeline buffer」時代的餵滿策略，但單一 API key
+// 時只會加深 429 堆積、並讓單執行緒 GPU 一直滿載（提高 PaddleOCR 卡死機率）。單 key 下 API 才是瓶頸，
+// 關掉 over-send 不影響實際吞吐，卻能降 429 與卡死壓力。要回到多 key 餵滿可再調回 2。
+const PAGE_TRANSLATE_OVERSEND = 0;
 let _pageTranslate = null; // 持續模式狀態物件；null = 未啟用
 let _taskSeq = 0; // 每次送翻譯給背景的唯一編號，用來把伺服器回報的分階段進度對回正確的縮圖
 let _singleStageTask = null; // 單張/框選翻譯目前的 taskId（階段進度顯示在滑動進度條上）

@@ -1709,6 +1709,10 @@ JSON: bboxes array, each {{bbox_id, corrected_text, translated_text}}. Every bbo
                 fill = await self._gemini_text_fill(src, from_lang, to_lang)
             except Exception as e:
                 self.logger.warning(f'[retry] 補譯失敗: {type(e).__name__}: {e}')
+                # 配額/429 已耗盡 → 別再用同一把 key 空轉重打 ×3（拖慢釋放、洗版 log）→ 直接跳出走回填。
+                es = str(e).lower()
+                if '429' in es or 'quota' in es or 'rate limit' in es or 'resource_exhausted' in es:
+                    break
                 continue
             for k, i in enumerate(missing):
                 if k < len(fill) and fill[k].strip():

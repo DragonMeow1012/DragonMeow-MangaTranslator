@@ -222,8 +222,11 @@ def _is_likely_preserve_sfx(region) -> bool:
     expressive_marks = bool(re.search(r'[ーｰ～〜…‥・っッ!！?？]', src))
 
     # Outside bubbles, short kana-like low-confidence text is usually SFX.
+    # 只有「低信心 AND 有 SFX 特徵」才保留原文不翻。原本是 OR → 任何含 ー/！/… 的乾淨大字喊聲
+    # （例「すごーい」）只因有長音 ー 就被當 SFX 丟掉不翻（漏翻、連 editor 都看不到）。真 SFX 是手繪
+    # 低信心，照樣被 (prob<=thresh) 攔下；高信心的印刷字（對白/喊聲）不再誤砍。
     if not in_bubble:
-        return prob <= _PRESERVE_SFX_PROB_THRESH or motif_hit or expressive_marks
+        return (prob <= _PRESERVE_SFX_PROB_THRESH) and (motif_hit or expressive_marks)
 
     # Inside a speech-bubble detector box, be stricter so short dialogue such as
     # "うん" is not accidentally preserved.
@@ -1311,11 +1314,20 @@ class MangaTranslator:
             os.environ['MANGA_OCR_RESULT_DIR'] = ocr_result_dir
         
         try:
-            textlines = await self._run_async_in_thread(
-                dispatch_ocr,
-                config.ocr.ocr, ctx.img_rgb, ctx.textlines, config.ocr,
-                self._resolve_ocr_device(config.ocr), self.verbose,
+            # 加逾時：PaddleOCR predict 偶爾卡住單執行緒 GPU pipeline（持著 gpu_lock 不放→整批卡死，
+            # log 停在 "Running ocr"）。逾時就放棄本頁 OCR、釋放鎖，避免凍結整批。日文建議用 manga-ocr
+            # （不會卡），韓文才用 paddle。可用 env MANGA_OCR_TIMEOUT 調整秒數。
+            textlines = await asyncio.wait_for(
+                self._run_async_in_thread(
+                    dispatch_ocr,
+                    config.ocr.ocr, ctx.img_rgb, ctx.textlines, config.ocr,
+                    self._resolve_ocr_device(config.ocr), self.verbose,
+                ),
+                timeout=float(os.getenv('MANGA_OCR_TIMEOUT', '120')),
             )
+        except asyncio.TimeoutError:
+            self.logger.error('OCR 逾時（疑似 PaddleOCR predict 卡住）→ 跳過本頁 OCR 並釋放 GPU 鎖；日文建議改用 manga-ocr')
+            textlines = []
         finally:
             # 恢复环境变量
             if old_ocr_dir is not None:
