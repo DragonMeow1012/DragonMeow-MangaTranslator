@@ -589,12 +589,27 @@ function pumpPageTranslate() {
   }
 }
 
+// 完成的縮圖列在 5 秒後自動移出佇列面板，避免整排卡著（失敗/防盜保留，方便看）。
+function scheduleQueueDoneRemoval(pt, el) {
+  setTimeout(() => {
+    if (_pageTranslate === pt && pt.items && pt.items.get(el)?.status === "done") {
+      pt.items.delete(el);
+      updateQueuePanel();
+    }
+  }, 5000);
+}
+
+function markQueueDone(pt, el, it) {
+  if (it) it.status = "done";
+  scheduleQueueDoneRemoval(pt, el);
+}
+
 async function pageTranslateWorker(pt) {
   while (_pageTranslate === pt && pt.queue.length) {
     const el = pt.queue.shift();
     const it = pt.items && pt.items.get(el);
     if (it) { it.status = "processing"; updatePageStatus(); }
-    if (!el || state.replacements.has(el) || !document.contains(el)) { if (it) it.status = "done"; pt.done++; updatePageStatus(); continue; }
+    if (!el || state.replacements.has(el) || !document.contains(el)) { markQueueDone(pt, el, it); pt.done++; updatePageStatus(); continue; }
     const dataUrl = await getFullResImageDataUrl(el);
     if (_pageTranslate !== pt) return;          // 期間已關閉
     if (!dataUrl) { if (it) it.status = "blocked"; pt.blocked++; pt.done++; updatePageStatus(); continue; } // 防盜圖，無法讀取像素
@@ -605,7 +620,7 @@ async function pageTranslateWorker(pt) {
         replaceImgElement(el, resp.image);
         pt.ok++;
       }
-      if (it) it.status = "done";
+      markQueueDone(pt, el, it);
     } catch {
       pt.failed++;
       if (it) it.status = "failed";
