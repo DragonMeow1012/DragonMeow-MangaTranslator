@@ -2688,13 +2688,30 @@
           return n.endsWith('.zip') || n.endsWith('.cbz') ||
                  ['application/zip', 'application/x-zip-compressed', 'application/x-cbz'].includes(file.type);
         },
+        // zip 內檔名編碼：很多漫畫 zip 是用本地碼頁（Big5/GBK/Shift-JIS/EUC-KR）壓的、且沒設 UTF-8 旗標，
+        // JSZip 預設一律當 UTF-8 解 → 中日韓檔名變亂碼，連帶排序＝頁序也跟著亂。這裡：先嚴格試 UTF-8
+        //（純 ASCII / 真 UTF-8 走這條），不是才依序試常見 CJK 碼頁，挑「替代字元(U+FFFD)最少」的那個。
+        // 頁碼是 ASCII 數字、不受編碼影響，所以即使非 ASCII 字猜不準，數字排序的頁序仍正確。
+        _decodeZipName(bytes) {
+          if (!bytes || !bytes.length) return '';
+          try { return new TextDecoder('utf-8', { fatal: true }).decode(bytes); } catch (_) {}
+          let best = null, bestBad = Infinity;
+          for (const enc of ['big5', 'gbk', 'shift_jis', 'euc-kr']) {
+            try {
+              const s = new TextDecoder(enc).decode(bytes);
+              const bad = (s.match(/�/g) || []).length;
+              if (bad < bestBad) { best = s; bestBad = bad; if (!bad) break; }
+            } catch (_) {}
+          }
+          return best != null ? best : new TextDecoder('utf-8').decode(bytes);
+        },
         // 把 zip/cbz 展開成裡面的圖片（依檔名自然排序＝頁序）；一般圖片原樣保留
         async _expandZips(rawFiles) {
           const out = [];
           for (const f of rawFiles) {
             if (this._isZip(f)) {
               try {
-                const zip = await JSZip.loadAsync(f);
+                const zip = await JSZip.loadAsync(f, { decodeFileName: (b) => this._decodeZipName(b) });
                 const entries = [];
                 zip.forEach((path, entry) => {
                   if (entry.dir) return;
