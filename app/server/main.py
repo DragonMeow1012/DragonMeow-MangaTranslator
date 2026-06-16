@@ -256,6 +256,8 @@ async def stream_image_form_web(req: Request, image: UploadFile = File(...), con
     conf._web_frontend_optimized = True
     # 進階編輯模式才存編輯狀態（pkl 較大，避免一般使用者浪費磁碟）
     conf._save_edit = advanced == "1"
+    # 原始上傳檔名 → 結果夾寫 orig_name.txt，圖庫重整才還原成使用者檔名而非醜資料夾名
+    conf._orig_name = image.filename or ""
     fmt = _detect_image_format(img)
     # priority=1：重新翻譯（補救漏翻 / 翻譯失敗）插隊到佇列最前面
     return await while_streaming(req, make_transform_to_image(fmt), conf, img, priority=priority == "1")
@@ -271,6 +273,7 @@ async def async_image_form_web(req: Request, image: UploadFile = File(...), conf
     conf = Config.parse_raw(config)
     conf._web_frontend_optimized = True
     conf._save_edit = advanced == "1"
+    conf._orig_name = image.filename or ""  # 原始上傳檔名 → 結果夾寫 orig_name.txt 供圖庫還原
 
     image_obj = await to_pil_image(img)
     image_obj = _resize_for_translation(image_obj, conf)
@@ -673,13 +676,22 @@ async def list_results():
     
     try:
         directories = []
+        names = {}  # 資料夾名 -> 原始上傳檔名（翻譯時寫的 orig_name.txt）；給圖庫還原成使用者檔名
         for item_path in result_dir.iterdir():
             if item_path.is_dir():
                 # Check if final.png exists in this directory
                 final_png_path = item_path / "final.png"
                 if final_png_path.exists():
                     directories.append(item_path.name)
-        return {"directories": directories}
+                    onp = item_path / "orig_name.txt"
+                    if onp.exists():
+                        try:
+                            nm = onp.read_text(encoding='utf-8').strip()
+                            if nm:
+                                names[item_path.name] = nm
+                        except Exception:
+                            pass
+        return {"directories": directories, "names": names}
     except Exception as e:
         raise HTTPException(500, detail=f"Error listing results: {str(e)}")
 

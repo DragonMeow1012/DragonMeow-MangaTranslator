@@ -2884,9 +2884,9 @@
           };
           this.finishedImages.unshift(finishedImage);
           
-          // Save to localStorage (keep only last 20)
+          // Save to localStorage (keep only last 50；整本漫畫常 >20 頁，太小會害重整時靠資料夾名退化)
           try {
-            const limited = this.finishedImages.slice(0, 20);
+            const limited = this.finishedImages.slice(0, 50);
             localStorage.setItem('manga-translator-finished-images', JSON.stringify(limited));
           } catch (error) {
             console.warn('Failed to save finished images:', error);
@@ -3477,6 +3477,7 @@
           const data = await response.json();
           // 底線開頭 = 暫存/測試資料夾，不進圖庫
           const folders = (data.directories || []).filter(f => !f.startsWith('_'));
+          const names = data.names || {}; // 伺服器存的原始上傳檔名（orig_name.txt）：資料夾名 -> 真檔名
 
           // 清掉伺服器上已不存在的項目（避免殘留破圖卡片）
           const folderSet = new Set(folders);
@@ -3487,23 +3488,26 @@
 
           // Add any new results that aren't in our gallery
           for (const folder of folders) {
-            const existingImage = this.finishedImages.find(img => 
+            const existingImage = this.finishedImages.find(img =>
               img.result && img.result.includes(folder)
             );
-            
+
             if (!existingImage) {
               // Check if final.png exists in this folder
               const finalResponse = await fetch(`${BASE_URI}result/${folder}/final.png`);
               if (finalResponse.ok) {
                 const newImage = {
                   id: Date.now() + Math.random(),
-                  originalName: folder, // Use folder name as original name
+                  originalName: names[folder] || folder, // 伺服器有原始檔名就用它，沒有(舊結果)才退回資料夾名
                   result: `${BASE_URI}result/${folder}/final.png`,
                   finishedAt: new Date(),
                   settings: this.getCurrentSettings()
                 };
                 this.finishedImages.unshift(newImage);
               }
+            } else if (names[folder] && existingImage.originalName === folder) {
+              // 本次修正前存成醜資料夾名的舊項目，伺服器現在有 orig_name.txt 了 → 就地修正回真檔名
+              existingImage.originalName = names[folder];
             }
           }
           

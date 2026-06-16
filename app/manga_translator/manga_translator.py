@@ -616,7 +616,10 @@ class MangaTranslator:
         self._current_image_context = {
             'subfolder': subfolder_name,
             'file_md5': file_md5,
-            'config': config
+            'config': config,
+            # 原始上傳檔名（如 "1.jpg"）：存進 per-image context，隨快照流到 final.png 收尾時寫成
+            # orig_name.txt sidecar，圖庫重整(syncGalleryWithResults)才還原成使用者的檔名而非醜資料夾名。
+            'orig_name': (getattr(config, '_orig_name', '') or '')
         }
         
     def _get_image_subfolder(self) -> str:
@@ -1098,6 +1101,17 @@ class MangaTranslator:
             if len(final_img.shape) == 3:  # 彩色图片，转换BGR顺序
                 final_img = cv2.cvtColor(final_img, cv2.COLOR_RGB2BGR)
             cv2.imwrite(self._result_path('final.png'), final_img)
+
+            # 存原始上傳檔名 → 圖庫重整(syncGalleryWithResults)時還原成使用者的檔名，而非醜長的結果資料夾名。
+            # 讀 per-image 快照（ctx.image_context），不讀會被別張覆蓋的 self._current_image_context。
+            try:
+                _octx = getattr(ctx, 'image_context', None) or self._current_image_context or {}
+                _oname = (_octx.get('orig_name') or '').strip()
+                if _oname:
+                    with open(self._result_path('orig_name.txt'), 'w', encoding='utf-8') as _f:
+                        _f.write(_oname)
+            except Exception as _e:
+                logger.warning(f"Failed to save orig_name: {_e}")
 
             # 進階編輯模式：存編輯狀態（抹字背景 + 文字框 + config），供之後只重跑 render。
             # 只在前端開啟進階模式時存（pkl 較大）；任何失敗都不擋主流程。
