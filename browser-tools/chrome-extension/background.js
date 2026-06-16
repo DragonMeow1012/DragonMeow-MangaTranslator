@@ -453,8 +453,42 @@ function sleep(ms) {
 }
 
 // 「爬蟲」抓原圖：背景 fetch 可繞過 CORS（canvas 跨域被污染讀不到時的解法）。
-// 對防盜圖站（pixiv 等會檢查 Referer）用 declarativeNetRequest 暫時偽造 Referer 才抓得到。
-const FETCH_IMG_RULE_ID = 9911;
+// 對防盜圖站（pixiv 等會檢查 Referer）用 declarativeNetRequest 偽造 Referer 才抓得到。
+// 並行抓圖：同一 host 共用「一條」referer rule + 引用計數，不再每張抓完就裝/拆——以前固定 rule id 9911
+// 每抓一張就 add/remove 一次，並行會互踩同一條 rule（這正是過去抓圖只能序列的主因）。現在第一張抓圖
+// 裝 rule、最後一張抓完才拆，期間同 host 的並行下載全部共用同一條。
+const _refererRules = new Map(); // host -> { count, ruleId, referer, ready }
+let _refererRuleSeq = 9911;
+async function _acquireRefererRule(host, referer) {
+  if (!host || !referer) return null;
+  let e = _refererRules.get(host);
+  if (!e) {
+    const ruleId = _refererRuleSeq++;
+    if (_refererRuleSeq > 19000) _refererRuleSeq = 9911; // 循環用，避免 id 無限長
+    e = { count: 0, ruleId, referer, ready: null };
+    _refererRules.set(host, e); // 同步先佔位，避免兩個並發 acquire 同時 !e 而重複建 rule（id leak）
+    e.ready = chrome.declarativeNetRequest.updateSessionRules({
+      removeRuleIds: [ruleId],
+      addRules: [{
+        id: ruleId, priority: 1,
+        action: { type: "modifyHeaders", requestHeaders: [{ header: "referer", operation: "set", value: referer }] },
+        condition: { requestDomains: [host], resourceTypes: ["xmlhttprequest"] }
+      }]
+    }).catch(() => {});
+  }
+  e.count++;
+  await e.ready; // 等 rule 真的裝好再回，後續 fetch 才帶得到偽造 referer
+  return e;
+}
+async function _releaseRefererRule(host) {
+  const e = _refererRules.get(host);
+  if (!e) return;
+  e.count--;
+  if (e.count <= 0) {
+    _refererRules.delete(host);
+    try { await chrome.declarativeNetRequest.updateSessionRules({ removeRuleIds: [e.ruleId] }); } catch {}
+  }
+}
 async function fetchOriginalImage(url, referer) {
   if (!url) throw new Error("缺少圖片網址");
   // 必須先取得「該圖片網域」的主機權限（使用者在 popup 對目前網站授權「原圖抓取」）。
@@ -468,35 +502,15 @@ async function fetchOriginalImage(url, referer) {
   let host = "";
   try { host = new URL(url).hostname; } catch {}
 
-  let ruleAdded = false;
+  let acquired = null;
   try {
-    if (referer && host) {
-      await chrome.declarativeNetRequest.updateSessionRules({
-        removeRuleIds: [FETCH_IMG_RULE_ID],
-        addRules: [{
-          id: FETCH_IMG_RULE_ID,
-          priority: 1,
-          action: {
-            type: "modifyHeaders",
-            requestHeaders: [{ header: "referer", operation: "set", value: referer }]
-          },
-          condition: {
-            // 比對該圖片網域的請求（pixiv 的 i.pximg.net 等），這段期間內把 Referer 設成來源頁。
-            requestDomains: [host],
-            resourceTypes: ["xmlhttprequest"]
-          }
-        }]
-      });
-      ruleAdded = true;
-    }
+    if (referer && host) acquired = await _acquireRefererRule(host, referer);
     const resp = await fetch(url, { credentials: "include" });
     if (!resp.ok) throw new Error(`圖片回應 ${resp.status}`);
     const dataUrl = await blobToDataUrl(await resp.blob());
     return { image: dataUrl };
   } finally {
-    if (ruleAdded) {
-      try { await chrome.declarativeNetRequest.updateSessionRules({ removeRuleIds: [FETCH_IMG_RULE_ID] }); } catch {}
-    }
+    if (acquired && host) await _releaseRefererRule(host);
   }
 }
 
@@ -561,7 +575,6 @@ async function prefetchTranslate(items, referer, tabId) {
   // client round-trip。對齊 SDMDCBOT「pipeline 深度 + 2 buffer」的餵滿策略（client.py:77）。
   const inflightCap = Math.min(conc + 2, 66);
   let lastPage = 0; // 已預翻到的最遠頁碼（含這次新翻的）
-  let prevOrig = null; // 上一張抓到的原圖，用來偵測「站一直回同一張＝已到底」
   const myGen = _abortGen;
   const valid = items.filter((it) => it?.cacheKey && it?.imageUrl);
   if (_pfActive === 0) { _pfDone = 0; _pfTotal = 0; } // 上一輪已全部結束 → 重新計數
@@ -569,9 +582,9 @@ async function prefetchTranslate(items, referer, tabId) {
   _pfTotal += valid.length;
   notifyPrefetchProgress(tabId);
 
-  // 並發翻譯池：抓圖維持「序列」（fetchOriginalImage 共用 referer 偽造的 session rule，並行會互踩；
-  // 且重複頁偵測 prevOrig 需順序），但「翻譯」（真正的瓶頸）並發。_sem 限制最多 inflightCap 個翻譯
-  // 同時送出，並對抓圖迴圈形成背壓（每張抓圖前先取槽 → 最多領先 inflightCap 張，不會吃爆記憶體）。
+  // 並發池：「抓圖 + 翻譯」整包並發（以前抓圖在迴圈內 await ＝序列瓶頸，翻譯 worker 餓著等圖）。
+  // fetchOriginalImage 已改成 per-host 共用 referer rule，可安全並行。_sem 限制最多 inflightCap 個
+  // 工作（下載或翻譯）同時進行，並對排頁迴圈形成背壓（最多領先 inflightCap 張，不會吃爆記憶體）。
   let _semActive = 0;
   const _semWaiters = [];
   const _semAcquire = () => (_semActive < inflightCap
@@ -584,69 +597,70 @@ async function prefetchTranslate(items, referer, tabId) {
   };
   const _pending = []; // 進行中的翻譯 promise
 
+  // 偵測「站一直回同一張原圖＝已到底」：並行抓圖無法用「上一張」比對，改存指紋集合
+  // （長度+頭尾片段，足以分辨不同圖、又不必存整張 base64 吃記憶體）。命中＝重複頁 → 停排後面。
+  const _seenFp = new Set();
+  const _fp = (img) => img ? (img.length + ":" + img.slice(0, 64) + ":" + img.slice(-64)) : "";
+  let stop = false;          // 偵測到 404 / 重複頁 → 不再排後面的頁（已排出去的並行工作照常收尾）
+  let brokeAt = valid.length;
+
   try {
     for (let i = 0; i < valid.length; i++) {
-      if (_abortGen !== myGen) break; // 使用者中止 → 停止後續預抓
-      // 手動補翻譯插隊：有手動翻譯進行中時暫停預抓，等它做完再繼續（不搶伺服器）。
+      if (_abortGen !== myGen || stop) { brokeAt = i; break; }
+      // 手動補翻譯插隊：有手動翻譯進行中時暫停「排新頁」，等它做完再繼續（不搶伺服器）。
       while (_manualActive > 0 && _abortGen === myGen) {
         await new Promise((r) => setTimeout(r, 120));
       }
-      if (_abortGen !== myGen) break;
+      if (_abortGen !== myGen || stop) { brokeAt = i; break; }
       const item = valid[i];
       // 先同步搶占 in-flight，避免兩批同時搶同一張重複翻。
       if (_prefetchInFlight.has(item.cacheKey)) { _pfDone += 1; notifyPrefetchProgress(tabId); continue; }
       _prefetchInFlight.add(item.cacheKey);
-      // 取並發槽（背壓）：conc 個翻譯都在跑時，這裡會等到有翻譯完成釋放槽才繼續抓下一張。
+      // 取並發槽（背壓）：conc 個「下載或翻譯」都在跑時，這裡等到有一張收尾釋放槽才排下一張。
       await _semAcquire();
-      if (_abortGen !== myGen) { _prefetchInFlight.delete(item.cacheKey); _semRelease(); break; }
-      let stop = false, fired = false;
-      try {
-        const existing = await chrome.storage.local.get(item.cacheKey);
-        if (existing[item.cacheKey]) continue; // 已翻過（finally 釋放槽 + in-flight + done）
-        const fetched = await fetchOriginalImage(item.imageUrl, referer);
-        // 重複頁偵測：有些站對「不存在的頁」不回 404，而一直回同一張 → 已到底，停止後續預抓。
-        if (prevOrig !== null && fetched.image === prevOrig) {
-          stop = true;
-        } else {
-          prevOrig = fetched.image;
-          // 非同步翻譯：沿用上面取得的槽，完成時釋放槽 + in-flight + done（不在此 await）。
-          fired = true;
-          _pending.push((async () => {
-            try {
-              // 手動補翻譯插隊中：尚未送出的預抓先讓位（已送出的無法收回），把伺服器讓給手動。
-              while (_manualActive > 0 && _abortGen === myGen) {
-                await new Promise((r) => setTimeout(r, 120));
-              }
-              if (_abortGen !== myGen) return; // 已中止 → 不再送出（finally 仍會收尾）
-              const r = await translateWithRetry(fetched.image, settings);
-              if (item.page) lastPage = Math.max(lastPage, item.page);
-              const translated = await blobToDataUrl(r.blob);
-              await storePrefetchCache(item.cacheKey, { src: item.imageUrl, image: translated });
-            } catch (e) {
-              // 翻譯失敗略過
-            } finally {
-              _prefetchInFlight.delete(item.cacheKey);
-              _pfDone += 1;
-              notifyPrefetchProgress(tabId);
-              _semRelease();
-            }
-          })());
-        }
-      } catch (e) {
-        // 404 = 沒有下一頁了，停止後續預抓；其他錯誤也停（避免空轉）。
-        if (/40\d|沒有|not.?found/i.test(e?.message || "")) stop = true;
-      } finally {
-        // 沒有 fire 翻譯的（已翻快取／重複頁／404／錯誤）：在此釋放槽 + in-flight + done。
-        if (!fired) {
+      if (_abortGen !== myGen || stop) { _prefetchInFlight.delete(item.cacheKey); _semRelease(); brokeAt = i; break; }
+      // 整個「抓圖 + 翻譯」都包進並發工作 → 抓圖也並行（這是這次提速的核心）。
+      _pending.push((async () => {
+        try {
+          const existing = await chrome.storage.local.get(item.cacheKey);
+          if (existing[item.cacheKey]) return; // 已翻過
+          // 手動補翻譯插隊中：尚未送出的先讓位，把伺服器讓給手動。
+          while (_manualActive > 0 && _abortGen === myGen) {
+            await new Promise((r) => setTimeout(r, 120));
+          }
+          if (_abortGen !== myGen) return;
+          let fetched;
+          try {
+            fetched = await fetchOriginalImage(item.imageUrl, referer); // 並行下載
+          } catch (e) {
+            // 404 = 沒有下一頁了 → 標記停排（其他抓圖錯誤也停，避免空轉）
+            if (/40\d|沒有|not.?found/i.test(e?.message || "")) stop = true;
+            return;
+          }
+          const fp = _fp(fetched.image);
+          if (fp && _seenFp.has(fp)) { stop = true; return; } // 站回同一張＝到底
+          if (fp) _seenFp.add(fp);
+          if (_abortGen !== myGen) return;
+          const r = await translateWithRetry(fetched.image, settings);
+          if (item.page) lastPage = Math.max(lastPage, item.page);
+          const translated = await blobToDataUrl(r.blob);
+          await storePrefetchCache(item.cacheKey, { src: item.imageUrl, image: translated });
+        } catch (e) {
+          // 抓圖/翻譯/儲存失敗略過
+        } finally {
           _prefetchInFlight.delete(item.cacheKey);
           _pfDone += 1;
           notifyPrefetchProgress(tabId);
           _semRelease();
         }
-      }
-      if (stop) { _pfTotal -= (valid.length - 1 - i); break; } // 後面的頁不存在，扣掉還沒做的
+      })());
     }
-    await Promise.all(_pending); // 等所有已 fire 的並發翻譯收尾
+    // 到底/中止：把「還沒排出去」的頁從 total 扣掉（已排的不論成功/404/重複都會 _pfDone++）。
+    if (brokeAt < valid.length) {
+      _pfTotal -= (valid.length - brokeAt);
+      if (_pfTotal < _pfDone) _pfTotal = _pfDone;
+    }
+    await Promise.all(_pending); // 等所有並發「抓圖+翻譯」收尾
   } finally {
     _pfActive -= 1;
     // 整輪預抓全部結束 → 帶 idle 旗標讓前端把進度面板收尾。不能只靠 done==total，因為遇 404/
