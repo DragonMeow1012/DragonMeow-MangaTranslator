@@ -267,6 +267,8 @@ class TranslatorConfig(BaseModel):
     """Base URL for custom OpenAI-compatible providers (e.g. http://localhost:11434/v1)."""
     llm_send_image: Optional[bool] = None
     """Send the manga image to the LLM for proofreading (better accuracy, needs a vision model). None = keep current/default (on)."""
+    parallel_bands: Optional[bool] = None
+    """[beta] Tall/dense-page accel: split a page's regions into vertical bands and translate them in PARALLEL LLM calls instead of one big call. None/False = single call."""
     no_text_lang_skip: bool = False
     """Dont skip text that is seemingly already in the target language."""
     skip_lang: Optional[str] = None
@@ -394,6 +396,8 @@ class Config(BaseModel):
     """Set the convolution kernel size of the text erasure area to completely clean up text residues"""
     mask_dilation_offset: int = 20
     """By how much to extend the text mask to remove left-over text pixels of the original image."""
+    translate_only_in_bubbles: bool = False
+    """Only translate text inside detected speech bubbles; keep all out-of-bubble text (SFX / signs / mis-detections) as original art. Good for art-heavy webtoons."""
     _filter_text = None
 
     @property

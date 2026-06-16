@@ -372,6 +372,8 @@ class Gemini2StageTranslator(CommonTranslator):
         # 是否把漫畫圖傳給 LLM 校對（網頁端開關）。關閉 = 純文字翻譯，
         # 文字模型也能用、省流量，但 OCR 仲裁少了看圖依據，準確度略低。
         self._send_image = True
+        # [beta] 長圖/密集頁加速：region 多時切 y 帶平行打多個 LLM call（parse_args 由網頁/擴充覆寫）
+        self._parallel_bands = False
         # 每次 _gemini_json_call 進來 round-robin 一個起始 key index。
         # 並發 K 張同時打 LLM 時，第 1 張用 key #0、第 2 張 key #1、...，分散 quota 壓力。
         # 單 thread asyncio 下整數遞增是原子的，不需 lock。
@@ -435,6 +437,9 @@ class Gemini2StageTranslator(CommonTranslator):
         send_image = getattr(args, 'llm_send_image', None)
         if send_image is not None:
             self._send_image = bool(send_image)
+        pb = getattr(args, 'parallel_bands', None)
+        if pb is not None:
+            self._parallel_bands = bool(pb)
         model = (getattr(args, 'llm_model', None) or '').strip()
         if model:
             self.refine_model = self.translate_model = model
@@ -1290,6 +1295,46 @@ class Gemini2StageTranslator(CommonTranslator):
                 results[page.page_id] = page.bboxes
         return results
 
+    async def _unified_call_banded(self, rgb_img, query_regions, from_lang, to_lang, w, h):
+        """[beta] 長圖/密集頁加速：region 多時依垂直位置切成數個帶，平行打多個 _unified_call，
+        再按原索引合併，攤平「一次 LLM 吃 N 格」的延遲。關閉或 region 少 → 走原本單一 call。"""
+        n = len(query_regions)
+        _BAND_MAX = 8  # 每帶最多幾個 region
+        if not self._parallel_bands or n <= _BAND_MAX:
+            return await self._unified_call(rgb_img, query_regions, from_lang, to_lang, w, h)
+
+        def _cy(i):
+            try:
+                x1, y1, x2, y2 = query_regions[i].xyxy
+                return (float(y1) + float(y2)) / 2
+            except Exception:
+                return 0.0
+        order = sorted(range(n), key=_cy)
+        bands = [order[i:i + _BAND_MAX] for i in range(0, n, _BAND_MAX)]
+
+        async def _one(idx_list):
+            sub = [query_regions[i] for i in idx_list]
+            return await self._unified_call(rgb_img, sub, from_lang, to_lang, w, h)
+
+        results = await asyncio.gather(*[_one(b) for b in bands], return_exceptions=True)
+        ocr_texts: dict[int, str] = {}
+        translations: list[str] = [''] * n
+        explicit_skip: set[int] = set()
+        for idx_list, res in zip(bands, results):
+            if isinstance(res, Exception) or res is None:
+                self.logger.warning(f'[banded] 一帶失敗，該帶留空: {res!r}')
+                continue
+            b_ocr, b_trans, b_skip = res
+            for local_i, orig_i in enumerate(idx_list):
+                if local_i < len(b_trans):
+                    translations[orig_i] = b_trans[local_i]
+                if local_i in b_ocr:
+                    ocr_texts[orig_i] = b_ocr[local_i]
+                if local_i in b_skip:
+                    explicit_skip.add(orig_i)
+        self.logger.info(f'[banded] {n} regions → {len(bands)} 帶並行 LLM')
+        return ocr_texts, translations, explicit_skip
+
     async def _unified_call(
         self, rgb_img: Image.Image, query_regions,
         from_lang: str, to_lang: str, w: int, h: int,
@@ -1627,8 +1672,9 @@ JSON: bboxes array, each {{bbox_id, corrected_text, translated_text}}. Every bbo
         if n == 0:
             return []
 
-        # 單一 Gemini vision call：同時 OCR 仲裁 + 翻譯 + SFX 判斷
-        ocr_texts, translations, explicit_skip = await self._unified_call(
+        # 單一 Gemini vision call（同時 OCR 仲裁 + 翻譯 + SFX 判斷）；
+        # [beta] 長圖/密集頁加速開啟時，region 多會自動切帶平行打多個 call。
+        ocr_texts, translations, explicit_skip = await self._unified_call_banded(
             rgb_img, query_regions, from_lang, to_lang, w, h,
         )
         self.logger.info(f'[Unified] OCR {len(ocr_texts)}/{n} 個 | 譯文 {sum(1 for t in translations if t)}/{n} 個 | skip {len(explicit_skip)}')

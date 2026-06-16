@@ -1925,7 +1925,8 @@ class MangaTranslator:
         # 只翻泡泡內模式（webtoon 用，env MANGA_ONLY_TRANSLATE_BUBBLES=1）：框外文字
         # （SFX / 旁白 / 誤偵測的臉）一律不翻、保留原圖。一條規則同時解掉「SFX 被翻」
         # 「臉上冒假句」「inpaint 抹出髒邊」——skip ＝ 不挖洞 ＝ 原圖。
-        _only_bubbles = os.getenv('MANGA_ONLY_TRANSLATE_BUBBLES', '0') in ('1', 'true', 'True')
+        _only_bubbles = bool(getattr(config, 'translate_only_in_bubbles', False)) \
+            or os.getenv('MANGA_ONLY_TRANSLATE_BUBBLES', '0') in ('1', 'true', 'True')
         for region in ctx.text_regions:
             should_filter = False
             filter_reason = ""
