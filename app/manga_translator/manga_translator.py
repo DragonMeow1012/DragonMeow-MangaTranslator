@@ -1922,6 +1922,10 @@ class MangaTranslator:
                 return 0.0
         _heights = sorted(h for h in (_box_h(r) for r in ctx.text_regions) if h > 0)
         _median_h = _heights[len(_heights) // 2] if _heights else 0.0
+        # 只翻泡泡內模式（webtoon 用，env MANGA_ONLY_TRANSLATE_BUBBLES=1）：框外文字
+        # （SFX / 旁白 / 誤偵測的臉）一律不翻、保留原圖。一條規則同時解掉「SFX 被翻」
+        # 「臉上冒假句」「inpaint 抹出髒邊」——skip ＝ 不挖洞 ＝ 原圖。
+        _only_bubbles = os.getenv('MANGA_ONLY_TRANSLATE_BUBBLES', '0') in ('1', 'true', 'True')
         for region in ctx.text_regions:
             should_filter = False
             filter_reason = ""
@@ -1930,7 +1934,11 @@ class MangaTranslator:
                 should_filter = True
                 filter_reason = "Translation contain blank areas"
             elif config.translator.translator != Translator.none:
-                if region.translation.isnumeric():
+                if _only_bubbles and getattr(region, '_layout_role', '') != 'dialogue' \
+                        and getattr(region, '_bubble_rect', None) is None:
+                    should_filter = True
+                    filter_reason = "Outside-bubble skipped (only-translate-bubbles mode)"
+                elif region.translation.isnumeric():
                     should_filter = True
                     filter_reason = "Numeric translation"
                 elif config.filter_text and re.search(config.re_filter_text, region.translation):
