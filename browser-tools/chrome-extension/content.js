@@ -740,11 +740,11 @@ function updateQueuePanel() {
     // 面板固定大小、用滾輪捲動（CSS 控制高度）。列表「依插入順序」顯示、不依狀態重排，
     // 縮圖才不會跳來跳去——只就地更新各列徽章。完成逾 5 秒就地清掉，避免累積。
     // 標題只放小數字（目前處理中張數），不顯示會漲到上千的待翻/完成總數。
-    const now = Date.now();
     let proc = 0, failN = 0, blockN = 0, shown = 0, rows = "";
     for (const [el, it] of pt.items) {
       const s = it.status;
-      if (s === "done" && (!it.doneAt || now - it.doneAt > 5000)) { pt.items.delete(el); continue; }
+      // 完成的立即隱藏不顯示（使用者要求）：從清單移除、不佔位、不顯示「✓ 完成」徽章。
+      if (s === "done") { pt.items.delete(el); continue; }
       if (s === "processing") proc++;
       else if (s === "failed") failN++;
       else if (s === "blocked") blockN++;
