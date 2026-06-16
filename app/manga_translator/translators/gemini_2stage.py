@@ -848,9 +848,13 @@ class Gemini2StageTranslator(CommonTranslator):
         _429_rounds = 0
         _MAX_503_ROUNDS = 1                                            # 全 503 → sleep 5s 再試一輪
         _MAX_429_ROUNDS = int(os.getenv('GEMINI_429_RETRIES', '4'))    # 配額(429) → 等 retry-delay 再重試的輪數
+        _500_rounds = 0
+        _500_wait = float(os.getenv('GEMINI_500_WAIT', '10'))         # 500 INTERNAL 後等幾秒重試（使用者指定 10s）
+        _MAX_500_ROUNDS = int(os.getenv('GEMINI_500_RETRIES', '2'))   # 500 INTERNAL（Google 暫時性）→ 等 10s 再重試的輪數
         while True:
             all_503_this_round = True
             any_429_this_round = False
+            any_500_this_round = False
             max_429_delay = 0.0
             for offset in range(n_keys):
                 this_idx = (start + offset) % n_keys
@@ -910,6 +914,13 @@ class Gemini2StageTranslator(CommonTranslator):
                             f'Gemini 429 (配額) on key #{this_idx + 1}/{n_keys}'
                         )
                         continue
+                    if '500' in msg and 'internal' in msg_lower:
+                        all_503_this_round = False
+                        any_500_this_round = True
+                        self.logger.warning(
+                            f'Gemini 500 INTERNAL on key #{this_idx + 1}/{n_keys}（暫時性，稍後重試）'
+                        )
+                        continue
                     # 其他錯誤（包含 empty content）→ 不重試，直接 raise
                     raise
 
@@ -930,6 +941,15 @@ class Gemini2StageTranslator(CommonTranslator):
                     f'Gemini 配額用盡 → 等 {wait:.0f}s 後重試（{_429_rounds}/{_MAX_429_ROUNDS}），避免漏翻'
                 )
                 await asyncio.sleep(wait)
+                continue
+            # 全 key 500 INTERNAL（Google 端暫時性）→ 等 10s 後重試（使用者指定：收到 500 隔 10s 重翻），
+            # 不直接漏翻。耗盡仍 500 → raise → 整頁標失敗進重翻列表（前端再插隊重試）。
+            if any_500_this_round and _500_rounds < _MAX_500_ROUNDS:
+                _500_rounds += 1
+                self.logger.warning(
+                    f'Gemini 500 INTERNAL → 等 {_500_wait:.0f}s 後重試（{_500_rounds}/{_MAX_500_ROUNDS}）'
+                )
+                await asyncio.sleep(_500_wait)
                 continue
             break
 

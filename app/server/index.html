@@ -3104,7 +3104,7 @@
             }
           };
 
-          // ---- 看門狗：180s 無 stream 進度或總時 900s → abort，避免單張卡死整條佇列 ----
+          // ---- 看門狗：90s 無 stream 進度或總時 600s → abort，避免單張卡死整條佇列（abort 後由自動重試接手）----
           const startedAt = Date.now();
           let lastActivity = Date.now();
           const controller = queuedImage._controller;
@@ -3115,8 +3115,8 @@
               clearInterval(watchdog);
               return;
             }
-            if (Date.now() - lastActivity > 180000 || Date.now() - startedAt > 900000) {
-              console.warn('Watchdog: translation stalled, aborting');
+            if (Date.now() - lastActivity > 90000 || Date.now() - startedAt > 600000) {
+              console.warn('Watchdog: translation stalled (90s no progress), aborting → 自動重試接手');
               controller.abort();
             }
           }, 5000);
@@ -3253,11 +3253,11 @@
       };
       while (countActive() < conc && guard++ < 64) {
         let nextItemIndex = pickNext();
-        // 自動重試：沒有 queued 時，把 error 項重排回佇列（勾選才做，不限次數）。
+        // 自動重試：沒有 queued 時，把 error 項重排回佇列（勾選才做；上限 3 次後留在錯誤＝重翻列表）。
         if (nextItemIndex === -1 && this.autoRetryFailed) {
           let requeued = false;
           this.queuedImages.forEach((item, idx) => {
-            if (item.status === 'error' && (item.retryCount || 0) < 8) {   // 上限 8 次，避免死錯誤 300ms 無限重試風暴
+            if (item.status === 'error' && (item.retryCount || 0) < 3) {   // 上限 3 次：壞掉的頁別無限重試，留在錯誤清單供手動處理
               this.queuedImages[idx] = {
                 ...item, status: 'queued', error: null, progress: null,
                 queuePos: null, retryCount: (item.retryCount || 0) + 1,
