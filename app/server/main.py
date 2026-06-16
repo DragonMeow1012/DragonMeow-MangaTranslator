@@ -21,8 +21,8 @@ from pydantic import BaseModel as PydanticBaseModel
 
 from manga_translator import Config
 from server.instance import ExecutorInstance, executor_instances
-from server.myqueue import task_queue
-from server.request_extraction import get_ctx, while_streaming, TranslateRequest, BatchTranslateRequest, get_batch_ctx
+from server.myqueue import task_queue, wait_in_queue, QueueElement
+from server.request_extraction import get_ctx, while_streaming, TranslateRequest, BatchTranslateRequest, get_batch_ctx, to_pil_image, _resize_for_translation
 from server.to_json import to_translation, TranslationResponse
 from server.edit import RerenderRequest
 
@@ -32,6 +32,7 @@ nonce = None
 # 所有 spawn 出來的 worker 子進程清單；signal handler 會一次 terminate 全部。
 # 之前 per-worker 的 signal.signal 會覆寫，N>1 時只殺最後一個 → 其他 leak。
 _SPAWNED_WORKER_PROCS: list = []
+_WEB_JOBS: dict = {}
 
 BASE_DIR = Path(__file__).resolve().parent
 RESULT_ROOT = (BASE_DIR.parent / "result").resolve()
@@ -123,9 +124,9 @@ def _save_result(result, fmt: str) -> bytes:
     if fmt in ("JPEG", "BMP") and result.mode in ("RGBA", "LA", "P"):
         result = result.convert("RGB")
     if fmt == "JPEG":
-        result.save(img_byte_arr, format="JPEG", quality=90, optimize=True)
+        result.save(img_byte_arr, format="JPEG", quality=90)  # 不用 optimize：多一道 Huffman 最佳化幾乎不縮檔，卻在 event loop 上拖慢成品交付（「完成」徽章後等好久才換圖）
     elif fmt == "PNG":
-        result.save(img_byte_arr, format="PNG", optimize=True)
+        result.save(img_byte_arr, format="PNG")  # 同上：PNG optimize 更貴（/web 佔位流程的成品圖走這條），拿掉省下大圖編碼時間
     elif fmt == "WEBP":
         result.save(img_byte_arr, format="WEBP", quality=90)
     elif fmt == "GIF":
@@ -136,7 +137,7 @@ def _save_result(result, fmt: str) -> bytes:
         # fallback JPEG
         if result.mode in ("RGBA", "LA", "P"):
             result = result.convert("RGB")
-        result.save(img_byte_arr, format="JPEG", quality=90, optimize=True)
+        result.save(img_byte_arr, format="JPEG", quality=90)  # 不用 optimize：多一道 Huffman 最佳化幾乎不縮檔，卻在 event loop 上拖慢成品交付（「完成」徽章後等好久才換圖）
     return img_byte_arr.getvalue()
 
 
@@ -258,6 +259,90 @@ async def stream_image_form_web(req: Request, image: UploadFile = File(...), con
     fmt = _detect_image_format(img)
     # priority=1：重新翻譯（補救漏翻 / 翻譯失敗）插隊到佇列最前面
     return await while_streaming(req, make_transform_to_image(fmt), conf, img, priority=priority == "1")
+
+@app.post("/translate/with-form/image/async-web", tags=["api", "form"])
+async def async_image_form_web(req: Request, image: UploadFile = File(...), config: str = Form("{}"), advanced: str = Form("0"), priority: str = Form("0")):
+    """Web UI batch endpoint: upload closes quickly, progress is polled by job id.
+
+    This avoids Chrome's per-origin limit for long-lived streaming fetches, so the
+    server-side queue can actually feed all registered worker slots.
+    """
+    img = await image.read()
+    conf = Config.parse_raw(config)
+    conf._web_frontend_optimized = True
+    conf._save_edit = advanced == "1"
+
+    image_obj = await to_pil_image(img)
+    image_obj = _resize_for_translation(image_obj, conf)
+
+    task = QueueElement(req, image_obj, conf, 0)
+    task.ignore_disconnect = True
+
+    job_id = secrets.token_hex(12)
+    job = {
+        "id": job_id,
+        "status": "queued",
+        "code": 3,
+        "message": "0",
+        "queuePos": "0",
+        "folder": None,
+        "error": None,
+        "done": False,
+    }
+    _WEB_JOBS[job_id] = job
+    task_queue.add_task(task, priority=priority == "1")
+
+    def notify_internal(code: int, data: bytes) -> None:
+        text = ""
+        if data:
+            try:
+                text = data.decode("utf-8", errors="replace")
+            except Exception:
+                text = ""
+        job["code"] = code
+        job["message"] = text
+        if code == 3:
+            job["status"] = "queued"
+            job["queuePos"] = text
+        elif code == 4:
+            job["status"] = "processing"
+            job["queuePos"] = None
+        elif code == 1:
+            job["status"] = text or "processing"
+            if text.startswith("rendering_folder:"):
+                job["folder"] = text[17:]
+            elif text.startswith("final_ready:"):
+                job["folder"] = text[12:]
+                job["status"] = "finished"
+                job["done"] = True
+        elif code == 2:
+            job["status"] = "error"
+            job["error"] = text
+            job["done"] = True
+        elif code == 0:
+            if not job.get("done"):
+                job["status"] = "finished"
+                job["done"] = True
+
+    async def runner():
+        try:
+            await wait_in_queue(task, notify_internal)
+        except Exception as e:
+            job["status"] = "error"
+            job["error"] = str(e)
+            job["code"] = 2
+            job["message"] = str(e)
+            job["done"] = True
+
+    asyncio.create_task(runner())
+    return {"jobId": job_id}
+
+@app.get("/translate/jobs/{job_id}", tags=["api"])
+async def get_translate_job(job_id: str):
+    job = _WEB_JOBS.get(job_id)
+    if not job:
+        raise HTTPException(404, detail="Job not found")
+    return job
 
 @app.post("/queue-size", response_model=int, tags=["api", "json"])
 async def queue_size() -> int:
@@ -407,11 +492,21 @@ def _canonicalize_settings(data: dict) -> dict:
                 out.pop(key, None)   # 壞值不寫入，留用既有 / 預設
     if out.get('inpainter') == 'lama_mpe':
         out['inpainter'] = 'lama_large'   # db230de 誤設的舊版預設 → 統一升級成乾淨的 lama_large
+    for key in ('serverSlots', 'serverFreeSlots', 'serverWorkers', 'serverConcurrency'):
+        out.pop(key, None)
     return out
 
 @app.get("/ui-settings", tags=["ui"])
 async def get_ui_settings():
-    return load_user_settings()
+    settings = load_user_settings()
+    ports = {item.port for item in executor_instances.list}
+    return {
+        **settings,
+        "serverSlots": len(executor_instances.list),
+        "serverFreeSlots": executor_instances.free_executors(),
+        "serverWorkers": len(ports),
+        "serverConcurrency": len(executor_instances.list) // max(1, len(ports)) if ports else 0,
+    }
 
 @app.post("/ui-settings", tags=["ui"])
 async def post_ui_settings(request: Request):
@@ -487,6 +582,7 @@ def start_translator_client_proc(host: str, port: int, nonce: str, params: Names
         pass
     for _ in range(max(1, _slots)):
         executor_instances.register(ExecutorInstance(ip=host, port=port))
+    print(f"Registered worker {host}:{port} with {max(1, _slots)} slots; total slots={len(executor_instances.list)}", flush=True)
 
     # 累積到 module-level list，signal handler 一次殺所有 worker proc。
     # 之前用 closure 只記住自己的 proc，每呼叫一次 start_translator_client_proc

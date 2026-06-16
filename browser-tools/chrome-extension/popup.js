@@ -11,6 +11,8 @@ const I18N = {
     enableHint: "每次進入新網站需重新啟用",
     pick: "🖼 選取圖片翻譯替換",
     translatePage: "📄 整頁翻譯",
+    terminateAll: "⏹ 終止所有任務",
+    terminateAllDone: "已終止所有任務",
     downloadCurrent: "⬇ 下載此頁翻譯圖",
     downloadAll: "⬇ 下載所有翻譯圖（zip）",
     retry: "翻譯失敗自動重試",
@@ -86,6 +88,8 @@ const I18N = {
     enableHint: "每次进入新网站需重新启用",
     pick: "🖼 选取图片翻译替换",
     translatePage: "📄 整页翻译",
+    terminateAll: "⏹ 终止所有任务",
+    terminateAllDone: "已终止所有任务",
     downloadCurrent: "⬇ 下载此页翻译图",
     downloadAll: "⬇ 下载所有翻译图（zip）",
     retry: "翻译失败自动重试",
@@ -161,6 +165,8 @@ const I18N = {
     enableHint: "Re-enable on each new site",
     pick: "🖼 Pick image to translate",
     translatePage: "📄 Translate whole page",
+    terminateAll: "⏹ Abort all tasks",
+    terminateAllDone: "Aborted all tasks",
     downloadCurrent: "⬇ Download this page",
     downloadAll: "⬇ Download all (zip)",
     retry: "Auto-retry on failure",
@@ -236,6 +242,8 @@ const I18N = {
     enableHint: "新しいサイトごとに再有効化が必要",
     pick: "🖼 画像を選んで翻訳",
     translatePage: "📄 ページ全体を翻訳",
+    terminateAll: "⏹ すべてのタスクを中止",
+    terminateAllDone: "すべてのタスクを中止しました",
     downloadCurrent: "⬇ このページをDL",
     downloadAll: "⬇ すべてDL（zip）",
     retry: "失敗時に自動リトライ",
@@ -324,6 +332,7 @@ function applyLang() {
   document.getElementById("txt-enable-hint").textContent = t("enableHint");
   document.getElementById("txt-pick").textContent = t("pick");
   document.getElementById("txt-translate-page").textContent = t("translatePage");
+  document.getElementById("txt-terminate-all").textContent = t("terminateAll");
   document.getElementById("txt-tp-hint").textContent = t("tpHint");
   document.getElementById("txt-auto-hint").textContent = t("autoHint");
   document.getElementById("txt-pf-notify").textContent = t("pfNotify");
@@ -514,6 +523,18 @@ document.getElementById("page").addEventListener("click", async () => {
   const st = await sendCommand("toggle-page");
   updateButtons(st);
   if (st && st.pageActive) window.close(); // 開啟時關 popup 讓使用者看進度；關閉時留著
+});
+
+document.getElementById("terminate-all").addEventListener("click", async () => {
+  const span = document.getElementById("txt-terminate-all");
+  const st = await sendCommand("terminate-all");
+  try {
+    await bg({ type: "abort-all-tasks" });
+    errBox.textContent = "";
+  } catch {}
+  if (st) updateButtons(st);
+  span.textContent = t("terminateAllDone");
+  setTimeout(() => { span.textContent = t("terminateAll"); }, 1800);
 });
 
 document.getElementById("download-current").addEventListener("click", () => {
@@ -964,19 +985,25 @@ document.getElementById("clear-current").addEventListener("click", async () => {
   if (st) window.close(); // 關 popup 讓使用者去點要重翻的那張圖
 });
 
-// 清除所有翻譯：清空整個快取儲存，並還原目前頁面。
+// 清除所有翻譯：先停背景（預抓爬圖＋進行中翻譯）→ 再清空整個快取儲存 → 還原目前頁面。
+// 順序很重要：若先清儲存再停背景，正在跑的預抓 worker 會在清完之後又把爬到的圖寫回快取
+//（storePrefetchCache）→ 使用者看到「清不乾淨、又冒出來」。先 abort 才不會被重新寫回。
 document.getElementById("clear-all").addEventListener("click", async () => {
   const span = document.getElementById("txt-clear-all");
   try {
-    const all = await chrome.storage.local.get(null);
-    const keys = Object.keys(all).filter(k => k.startsWith("dmmtImgCache:") || k === "dmmtPageCacheIndex");
-    if (keys.length) await chrome.storage.local.remove(keys);
+    // 1) 直接叫背景中止所有任務（預抓迴圈 + 進行中翻譯 + 清 in-flight）；內容腳本沒注入時也保證停得了。
+    try { await chrome.runtime.sendMessage({ type: "abort-all-tasks" }); } catch {}
+    // 2) 通知內容腳本：還原頁面替換 + terminateAllTasks（停持久化監看、清面板/預抓狀態）。
     try {
       const tabId = await activeTabId();
       if (tabId) await chrome.tabs.sendMessage(tabId, { type: "popup-command", action: "clear-current" });
     } catch {
       // 內容腳本未注入的頁面忽略即可。
     }
+    // 3) 背景已停，現在清掉所有快取（含爬的圖）才不會被重新寫回。重新讀一次 storage 取最新鍵。
+    const all = await chrome.storage.local.get(null);
+    const keys = Object.keys(all).filter(k => k.startsWith("dmmtImgCache:") || k === "dmmtPageCacheIndex");
+    if (keys.length) await chrome.storage.local.remove(keys);
     span.textContent = `${t("clearCacheDone")} (${keys.length})`;
     updateCacheInfo();
   } catch {

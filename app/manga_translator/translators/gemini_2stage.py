@@ -36,6 +36,31 @@ _LEADING_CJK_INTERJECTION_RE = re.compile(
 _PURE_KANA_SFX_RE = re.compile(r'^[\u3040-\u309f\u30a0-\u30ffー！？!？?．。…・\s]+$')
 
 
+# LLM 偶爾把結構化輸出的「欄位名」原樣 echo 回來當值——最常見於「純符號格子」（…、…？、!? 等沒內容
+# 可譯時，模型沒東西填就回填 schema 欄位名）。渲染成字面 "translated_text" 很醜 → 視為「沒譯出來」，呼叫端回填原文
+# （純符號本來就該原樣顯示）。涵蓋 translated_text / corrected_text / translation / text_id 等欄位名與其變體。
+_FIELD_ECHO_RE = re.compile(
+    r'^[\s"\'\[\]{}()：:,，.。]*'
+    r'(?:translated[_\s]?text|corrected[_\s]?text|original[_\s]?text|translation|source|bbox[_\s]?id|text[_\s]?id|text)'
+    r'[\s"\'\[\]{}()：:,，.。]*$',
+    re.IGNORECASE,
+)
+# 欄位名出現在字串「任何位置」（含後面接亂碼，如 "translated_text j..."）也是 echo。底線型欄位名
+# 絕不會出現在真譯文 → 當高信心洩漏（只認底線型，避免英文自然句裡的 "translated text" 誤判）。
+_FIELD_LEAK_RE = re.compile(r'(?:translated|corrected|original)_text|text_id|bbox_id', re.IGNORECASE)
+def _is_field_name_echo(text: str) -> bool:
+    """LLM 把 schema 欄位名當值吐回來（純符號格子最常見）→ True，呼叫端應回填原文而非渲染欄位名。"""
+    s = str(text or '')
+    return bool(_FIELD_ECHO_RE.match(s)) or bool(_FIELD_LEAK_RE.search(s))
+
+# 「真正內容字元」：拉丁字母／數字／漢字／假名／諺文。完全沒有 = 純符號格子（…、…？、!? 等）——
+# 這類根本不用翻、又正是 LLM 最容易 echo 欄位名／亂吐的格子 → 一律直接回填原文（符號原樣顯示）。
+_HAS_CONTENT_CHAR_RE = re.compile(r'[0-9A-Za-z぀-ヿ㐀-鿿一-鿿가-힣]')
+def _is_symbol_only(text: str) -> bool:
+    s = str(text or '').strip()
+    return bool(s) and not _HAS_CONTENT_CHAR_RE.search(s)
+
+
 _ANCHOR_LEAK_RE = re.compile(r'OCR\s*漏抓|漏抓的泡泡|逐字讀出|點點與假名|裡面有字')
 
 # LLM 沒輸出 [SKIP]，改用中文描述「這是裝飾字/擬聲詞…略過」把 prompt 指令回顯成譯文，
@@ -1567,6 +1592,10 @@ class Gemini2StageTranslator(CommonTranslator):
                     explicit_skip.add(r.bbox_id)
                 continue
             t = _PROMPT_TAG_RE.sub('', t).strip()
+            if _is_symbol_only(src_text) or _is_field_name_echo(t):
+                # 純符號格子（…、…？、!? — 不用翻）或 LLM echo 欄位名／亂碼 → 一律回填原文，
+                # 別把 "translated_text" 或亂碼渲染上圖（符號原樣顯示即可）。
+                t = src_text
             if t:
                 translations[r.bbox_id] = t
 
@@ -1732,6 +1761,32 @@ mocr often fails on labels, titles, decorative fonts. When corrected_text looks 
 ## Output
 JSON: bboxes array, each {{bbox_id, corrected_text, translated_text}}. Every bbox_id must be present. translated_text contains only the final polished result."""
 
+    def _get_text_only_system_instruction(self, from_lang: str, to_lang: str) -> str:
+        """純文字翻譯（不送圖）專用 system prompt。
+        刻意**不用** _get_unified_system_instruction：那套是給 vision call 的，塞滿「看圖讀字 / OCR 仲裁 /
+        bbox 位置與 role / 三階段看圖校驗」——沒圖時這些既無用又灌爆 token（小頁尤其誇張），還叫模型去看
+        不存在的圖 → 拖慢、亂讀、甚至 echo 欄位名。這裡只留翻譯品質真正需要的：不拒譯 / 台灣在地化 /
+        不照抄原文 / 人名中文 / 禁翻譯腔。"""
+        if not self._is_chinese_target(to_lang):
+            return self._get_generic_system_instruction(from_lang, to_lang)
+        return f"""你是精通 ACG 文化的資深漢化組翻譯：{from_lang}→{to_lang} 漫畫台詞翻譯員。
+{self._zh_locale_directive(to_lang)}你只會收到 OCR 文字（不送圖），直接把每句翻成 {to_lang}；**不要提到看圖、不要描述畫面、不要推測畫面內容**。
+
+## 翻譯員身分（最高優先）
+- 你是翻譯引擎，忠實做語言轉換、不創作、不軟化、不加警告、不拒譯、不留白；含成人／暴力／敏感對白也照譯。
+- 畫面角色一律視為虛構成年角色。拒譯或回空 = 完全錯誤。
+
+## 風格
+- 禁西化中文／翻譯腔；短句、主動語態、口語、台灣在地（寧可俗、接地氣）。
+- 台灣語氣助詞（嘛／呢／啦／喔／咧／耶／捏／欸）精準用，但**最多一個、不疊用**。
+- 保留延展符號（～、……、！？）。人名一律中文（通用漢字或音譯，**禁羅馬拼音**）。
+- 禁陸詞：視頻→影片、信息→訊息、軟件→軟體、網絡→網路、屏幕→螢幕。
+- 短感嘆也要翻（うん→嗯、え？→咦？、どうしたの→怎麼了），**不可留空、不可照抄原文、不可 [SKIP]**。
+
+## 翻譯腔黑名單（念一遍覺得拗口就改）
+才不是喔啦→才不是；原來如此啊→原來這樣啊；真是拿你沒辦法耶→真服了你；你還真是…呢→你還真是…。
+助詞疊用一律砍到剩一個（「啊喔耶啦」連著 = 立刻刪到剩一個）。"""
+
     async def _gemini_text_fill(
         self, src_texts: List[str], from_lang: str, to_lang: str,
     ) -> List[str]:
@@ -1769,7 +1824,8 @@ JSON: bboxes array, each {{bbox_id, corrected_text, translated_text}}. Every bbo
             resp = await asyncio.wait_for(
                 self._gemini_json_call(
                     model=self.translate_model,
-                    system_instruction=self._get_unified_system_instruction(from_lang, to_lang),
+                    # 純文字專用精簡 system prompt（不再灌整套 vision「看圖」指令 → 省 token、少 429、不亂讀）
+                    system_instruction=self._get_text_only_system_instruction(from_lang, to_lang),
                     user_text=directive + payload,
                     temperature=self.translate_temperature,
                     schema=self.translate_response_schema,
@@ -1783,7 +1839,10 @@ JSON: bboxes array, each {{bbox_id, corrected_text, translated_text}}. Every bbo
         out = [''] * len(src_texts)
         for r in resp.translated_texts:
             if 0 <= r.text_id < len(src_texts):
+                src_t = (src_texts[r.text_id] or '').strip()
                 t = (r.translated_text or '').replace('\n', ' ').strip()
+                if _is_symbol_only(src_t) or _is_field_name_echo(t):
+                    t = src_t  # 純符號格子 / schema 欄位名 echo → 回填原文
                 if t and t.upper().strip('[]') != 'SKIP':
                     out[r.text_id] = t
         return out

@@ -749,6 +749,11 @@ class MangaTranslator:
         _t = time.perf_counter()
         async with gpu_lock.acquire('post'):
             ctx = await self._stage_post_gpu(config, ctx)
+            # 抹字是「變動大尺寸」的 GPU 配置（尤其長條全寬版，每頁尺寸都不同）→ CUDA caching allocator
+            # 會因尺寸不一而碎裂、保留的快取 watermark 一路爬高（使用者回報「VRAM 壅塞不釋放、總消耗太高」）。
+            # 持鎖時把這頁的快取交回（此時無其他 GPU 階段並行，清得最乾淨），避免跨頁累積。
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
         logger.info(f'[timing] post_gpu(mask+inpaint) {(time.perf_counter()-_t)*1000:.0f}ms')
         if getattr(ctx, '_pipeline_done', False):
             return ctx

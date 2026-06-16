@@ -90,6 +90,7 @@
 .dmmt-ext-queue .dmmt-q-item { display: flex; align-items: center; gap: 8px; }
 .dmmt-ext-queue .dmmt-q-thumb { width: 42px; height: 30px; object-fit: cover; border-radius: 4px; background: rgba(255, 255, 255, 0.12); flex: none; display: block; }
 .dmmt-ext-queue .dmmt-q-badge { font-size: 11px; font-weight: 700; padding: 1px 7px; border-radius: 999px; white-space: nowrap; margin-left: auto; }
+.dmmt-ext-queue .dmmt-q-page { font-size: 12px; font-weight: 700; color: #cbd5e1; white-space: nowrap; } /* 頁碼翻譯每列的「第 N 頁」標籤 */
 .dmmt-ext-queue .dmmt-q-p { background: #1e3a8a; color: #bfdbfe; }
 .dmmt-ext-queue .dmmt-q-q { background: rgba(146, 64, 14, 0.4); color: #fcd34d; }
 .dmmt-ext-queue .dmmt-q-d { background: #14532d; color: #86efac; }

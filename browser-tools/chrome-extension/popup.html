@@ -77,6 +77,8 @@
   button.on{ background:linear-gradient(135deg,var(--rose),#c8113f); }
   button.secondary{ background:var(--card); color:var(--text); font-weight:600; }
   button.secondary:hover{ background:var(--card2); filter:none; }
+  button.danger{ background:linear-gradient(135deg,#b91c1c,#7f1d1d); color:#fff; }
+  button.danger:hover{ filter:brightness(1.12); }
 
   .hint{ color:var(--muted); font-size:11px; margin:-3px 0 10px; padding:0 2px; line-height:1.45; }
 
@@ -161,6 +163,7 @@
       <span class="switch"><span class="knob"></span></span>
     </div>
     <div class="hint" id="txt-auto-hint">適用於每頁一個連續網址</div>
+    <button id="terminate-all" class="danger"><span id="txt-terminate-all">⏹ 終止所有任務</span></button>
     <div class="hint" id="auto-lock-hint" style="display:none;color:#fca5a5">⚠ 需先開啟下方「🕷 原圖抓取」才能用頁碼翻譯（它要爬後面幾頁的圖）</div>
     <div id="prefetch-opts" style="display:none">
       <div class="switch-row small" id="pf-notify" style="margin-top:4px">

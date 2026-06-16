@@ -99,9 +99,22 @@ class LamaMPEInpainter(OfflineInpainter):
             mask_original = residual[:, :, None]
 
         height, width, c = image.shape
-        if max(image.shape[0: 2]) > inpainting_size:
-            image = resize_keep_aspect(image, inpainting_size)
-            mask = resize_keep_aspect(mask, inpainting_size)
+        # webtoon 長條修正：原本一律把「最長邊」壓到 inpainting_size，會把直條的「寬度」壓垮
+        # （例：700x4000 → 358x2048）→ LaMa 在 ~358px 寬上填補、再放大回原寬 → 糊/灰霾（只在韓漫長條出現）。
+        # 改成以「短邊」保住解析度，並用像素量上限（≈inpainting_size² 的記憶體量級，與原本最長邊=2048 的方圖
+        # 相當）夾住，避免超長條爆顯存。兩條件取較小縮放比。
+        short_side = min(height, width)
+        max_pixels = inpainting_size * inpainting_size
+        scale = 1.0
+        if short_side > inpainting_size:
+            scale = inpainting_size / short_side
+        if height * width * scale * scale > max_pixels:
+            scale = min(scale, (max_pixels / (height * width)) ** 0.5)
+        if scale < 1.0:
+            new_w0 = max(1, int(round(width * scale)))
+            new_h0 = max(1, int(round(height * scale)))
+            image = cv2.resize(image, (new_w0, new_h0), interpolation=cv2.INTER_AREA)
+            mask = cv2.resize(mask, (new_w0, new_h0), interpolation=cv2.INTER_AREA)
         pad_size = 8
         h, w, c = image.shape
         if h % pad_size != 0:
@@ -151,7 +164,8 @@ class LamaMPEInpainter(OfflineInpainter):
             img_inpainted_torch = img_inpainted_torch.to(torch.float32)
             img_inpainted = ((img_inpainted_torch.cpu().squeeze_(0).permute(1, 2, 0).numpy() + 1.0) * 127.5).astype(np.uint8)
         if new_h != height or new_w != width:
-            img_inpainted = cv2.resize(img_inpainted, (width, height), interpolation = cv2.INTER_LINEAR)
+            # INTER_CUBIC 比 INTER_LINEAR 放大時銳利些，減少抹除區放大回原尺寸時的糊邊/灰霾。
+            img_inpainted = cv2.resize(img_inpainted, (width, height), interpolation = cv2.INTER_CUBIC)
         # 合成時把遮罩往內縮 1px：LaMa 成品是從 inpainting 解析度用 INTER_LINEAR 放大回來的，邊界那
         # 一圈是模糊／不可靠的填補（和對話框底色「格格不入」的暗邊/光暈來源）。用原圖（乾淨背景）接手
         # 這 1px 即可消掉抹字邊緣。遮罩本來就過度膨脹（mask_dilation_offset），內縮 1px 不會露出原文。

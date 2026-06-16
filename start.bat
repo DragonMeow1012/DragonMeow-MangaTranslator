@@ -25,6 +25,10 @@ rem 關閉 paddlepaddle 的 oneDNN（CPU 推論會炸 ConvertPirAttribute2Runtim
 rem 必須在 python 啟動前就設，否則 paddle 匯入後才設無效。
 set FLAGS_use_mkldnn=0
 
+rem 抹字長條全寬版每頁尺寸不一，CUDA caching allocator 容易碎裂、VRAM 一路爬高不釋放。
+rem expandable_segments 讓配置器可伸縮段落、大幅降低碎裂（PyTorch 2.x；不支援的舊版/平台會自動忽略，無害）。
+set PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+
 rem Auto-detect GPU: fall back to CPU mode if CUDA torch is not available
 set GPU_FLAG=--use-gpu
 .venv\Scripts\python.exe -c "import torch,sys;sys.exit(0 if torch.cuda.is_available() else 1)" >nul 2>&1

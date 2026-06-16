@@ -17,6 +17,9 @@ export PYTHONUTF8=1
 export PYTHONIOENCODING=utf-8
 # 關閉 paddlepaddle 的 oneDNN（CPU 推論會炸），須在 python 啟動前設
 export FLAGS_use_mkldnn=0
+# 抹字長條全寬版每頁尺寸不一 → CUDA caching allocator 碎裂、VRAM 不釋放；expandable_segments 大幅降碎裂
+# （僅 CUDA 有效；mac MPS / 舊版自動忽略，無害）
+export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 
 # 自動偵測 GPU：Apple Silicon 走 MPS、NVIDIA 走 CUDA，否則 CPU
 GPU_FLAG="--use-gpu"

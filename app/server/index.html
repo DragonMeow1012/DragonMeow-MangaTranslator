@@ -1209,6 +1209,34 @@
 
     <script>
       const BASE_URI = "./";
+      const TRANSLATE_BASE_URIS = (() => {
+        const protocol = location.protocol || "http:";
+        const port = location.port ? `:${location.port}` : "";
+        const candidates = [
+          location.origin,
+          `${protocol}//127.0.0.1${port}`,
+          `${protocol}//localhost${port}`,
+          `${protocol}//lvh.me${port}`,
+          `${protocol}//localtest.me${port}`,
+          `${protocol}//127-0-0-1.nip.io${port}`,
+          `${protocol}//127.0.0.1.nip.io${port}`,
+        ];
+        const seen = new Set();
+        return candidates
+          .map((u) => {
+            try { return new URL(u).origin; } catch { return ""; }
+          })
+          .filter((u) => u && !seen.has(u) && seen.add(u))
+          .map((u) => `${u}/`);
+      })();
+      let translateOriginSeq = 0;
+
+      function nextTranslateBaseUri() {
+        if (!TRANSLATE_BASE_URIS.length) return BASE_URI;
+        const uri = TRANSLATE_BASE_URIS[translateOriginSeq % TRANSLATE_BASE_URIS.length];
+        translateOriginSeq += 1;
+        return uri;
+      }
       const acceptTypes = [
         "image/png",
         "image/jpeg",
@@ -2301,6 +2329,8 @@
         // 伺服器同時處理張數 = worker 進程數 × 並發數（= 伺服器註冊的 slot 總數）。
         // client 餵圖、佇列排程都以此為上限，多 worker 才不會空等 slot。
         get effectiveConcurrency() {
+          const slots = parseInt(this.serverSlots);
+          if (slots >= 1) return slots;
           const w = Math.max(1, Math.min(parseInt(this.workers) || 1, 4));
           const c = Math.max(1, Math.min(parseInt(this.concurrency) || 5, 16));
           return w * c;
@@ -2326,6 +2356,7 @@
         fontSizeMinimum: "0",
         concurrency: "5",
         workers: "1",   // Worker 進程數（server 啟動時 spawn N 個，各載一份模型；改了要重啟伺服器）
+        serverSlots: 0,  // 後端實際註冊 slot 數；啟動後以它為準，避免設定與 runtime 不一致
         apiKeyRows: [''],   // 多 key UI：每把一行，存回 apiKeys[provider] 以換行分隔（後端會 split 輪換）
         fontBorder: false,  // 文字加底色（描邊）：on → disable_font_border=false，譯文加對比描邊較好讀
 
@@ -2624,9 +2655,17 @@
           } catch {}
           fetch('/ui-settings').then(r => r.json()).then(settings => {
             if (settings && Object.keys(settings).length) {
+              this.serverSlots = parseInt(settings.serverSlots) || 0;
               this._applySettings(settings);
               // 回寫 localStorage 讓下次刷新立即可用
-              try { localStorage.setItem('manga-translator-settings', JSON.stringify(settings)); } catch {}
+              try {
+                const cachedSettings = { ...settings };
+                delete cachedSettings.serverSlots;
+                delete cachedSettings.serverFreeSlots;
+                delete cachedSettings.serverWorkers;
+                delete cachedSettings.serverConcurrency;
+                localStorage.setItem('manga-translator-settings', JSON.stringify(cachedSettings));
+              } catch {}
             }
           }).catch(() => {});
         },
@@ -3018,6 +3057,7 @@
           formData.append("config", config);
           formData.append("advanced", this.advancedMode ? "1" : "0");
           formData.append("priority", queuedImage._priority ? "1" : "0");   // 重新翻譯插隊到伺服器佇列最前面
+          const translateBaseUri = nextTranslateBaseUri();
 
           const processChunk = (value) => {
             const newBuffer = new Uint8Array(buffer.length + value.length);
@@ -3114,10 +3154,62 @@
             }
           };
 
-          const uploadWithProgress = async (formData) => {
+          const applyJobStatus = (job) => {
+            if (!job) return;
+            const statusCode = Number(job.code);
+            const processingItemIndex = this.queuedImages.findIndex(item => item.id === queuedImage.id);
+            if (job.folder && !_myFolder) _myFolder = job.folder;
+
+            if (statusCode === 1) {
+              const newStatus = job.message || job.status || "processing";
+              if (newStatus.startsWith("rendering_folder:")) {
+                _myFolder = newStatus.substring(17);
+              } else if (newStatus.startsWith("final_ready:")) {
+                const readyFolder = newStatus.substring(12);
+                if (!_myFolder) _myFolder = readyFolder;
+                this._finishQueuedItem(queuedImage, _myFolder);
+                _finalShown = true;
+              } else if (processingItemIndex !== -1) {
+                this.queuedImages[processingItemIndex] = {
+                  ...this.queuedImages[processingItemIndex],
+                  status: newStatus,
+                  progress: newStatus
+                };
+              }
+            } else if (statusCode === 2 || job.status === "error") {
+              if (processingItemIndex !== -1) {
+                this.queuedImages[processingItemIndex] = {
+                  ...this.queuedImages[processingItemIndex],
+                  status: "error",
+                  error: job.error || job.message || "Translation failed"
+                };
+              }
+            } else if (statusCode === 3) {
+              if (processingItemIndex !== -1) {
+                this.queuedImages[processingItemIndex] = {
+                  ...this.queuedImages[processingItemIndex],
+                  queuePos: job.queuePos || job.message || "0"
+                };
+              }
+            } else if (statusCode === 4) {
+              if (processingItemIndex !== -1) {
+                this.queuedImages[processingItemIndex] = {
+                  ...this.queuedImages[processingItemIndex],
+                  queuePos: null
+                };
+              }
+            }
+
+            if (job.done && job.folder && !_finalShown) {
+              this._finishQueuedItem(queuedImage, job.folder);
+              _finalShown = true;
+            }
+          };
+
+          const uploadWithProgress = async (formData, baseUri = translateBaseUri, retriedBase = false) => {
             try {
               const response = await fetch(
-                `${BASE_URI}translate/with-form/image/stream/web`,
+                `${baseUri}translate/with-form/image/async-web`,
                 {
                   method: "POST",
                   body: formData,
@@ -3137,18 +3229,29 @@
                 return;
               }
 
-              const reader = response.body.getReader();
+              const data = await response.json();
+              const jobId = data && data.jobId;
+              if (!jobId) throw new Error("Missing job id");
               while (true) {
-                const { done, value } = await reader.read();
-                if (done) break;
+                await new Promise(resolve => setTimeout(resolve, 650));
+                const poll = await fetch(`${BASE_URI}translate/jobs/${jobId}`, {
+                  signal: queuedImage._controller.signal,
+                });
+                if (!poll.ok) throw new Error(`Job status HTTP ${poll.status}`);
+                const job = await poll.json();
                 lastActivity = Date.now();
-                processChunk(value);
+                applyJobStatus(job);
+                if (job.done) break;
               }
 
             } catch (error) {
               if (error.name === 'AbortError') {
                 console.log('Fetch aborted');
                 return;
+              }
+              if (!retriedBase && baseUri !== BASE_URI) {
+                console.warn(`Translation upload failed via ${baseUri}; retrying ${BASE_URI}`, error);
+                return uploadWithProgress(formData, BASE_URI, true);
               }
               console.error(error);
               const processingItemIndex = this.queuedImages.findIndex(item => item.id === queuedImage.id);

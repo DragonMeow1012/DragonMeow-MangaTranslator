@@ -17,6 +17,7 @@ class QueueElement:
 
     def __init__(self, req: Request, image: Image.Image, config: Config, length):
         self.req = req
+        self.ignore_disconnect = False
         if length > 10:
             #todo: store image in "upload-cache" folder
             self.image = image
@@ -36,6 +37,8 @@ class QueueElement:
             os.remove(self.image)
 
     async def is_client_disconnected(self) -> bool:
+        if self.ignore_disconnect:
+            return False
         if await self.req.is_disconnected():
             return True
         return False
@@ -64,6 +67,7 @@ class BatchQueueElement:
 class TaskQueue:
     def __init__(self):
         self.queue: List[QueueElement | BatchQueueElement] = []
+        self._lock = asyncio.Lock()
         self.queue_event: asyncio.Event = asyncio.Event()
 
     def add_task(self, task: QueueElement | BatchQueueElement, priority: bool = False):
@@ -80,13 +84,26 @@ class TaskQueue:
         except ValueError:
             return None
     async def update_event(self):
-        self.queue = [task for task in self.queue if not await task.is_client_disconnected()]
+        current = list(self.queue)
+        disconnected = []
+        for task in current:
+            if await task.is_client_disconnected():
+                disconnected.append(task)
+        if disconnected:
+            async with self._lock:
+                self.queue = [task for task in self.queue if task not in disconnected]
         self.queue_event.set()
         self.queue_event.clear()
 
-    async def remove(self, task: QueueElement | BatchQueueElement):
-        self.queue.remove(task)
-        await self.update_event()
+    async def remove(self, task: QueueElement | BatchQueueElement) -> bool:
+        async with self._lock:
+            try:
+                self.queue.remove(task)
+            except ValueError:
+                return False
+        self.queue_event.set()
+        self.queue_event.clear()
+        return True
 
     async def wait_for_event(self):
         await self.queue_event.wait()
@@ -113,7 +130,11 @@ async def wait_in_queue(task: QueueElement | BatchQueueElement, notify: NotifyTy
                     raise HTTPException(500, detail="User is no longer connected") #just for the logs
 
             instance = await executor_instances.find_executor()
-            await task_queue.remove(task)
+            if not await task_queue.remove(task):
+                await executor_instances.free_executor(instance)
+                if notify:
+                    return
+                raise HTTPException(500, detail="User is no longer connected")
             if notify:
                 notify(4, b"")
 

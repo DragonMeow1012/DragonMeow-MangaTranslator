@@ -346,9 +346,12 @@ class InpainterConfig(BaseModel):
     """Size of image used for inpainting (too large will result in OOM)"""
     inpainting_precision: InpaintPrecision = InpaintPrecision.bf16
     """Inpainting precision for lama, use bf16 while you can."""
-    inpaint_flat_fill: bool = True
+    inpaint_flat_fill: bool = False
     """均勻底色（對話框）的抹除區直接用背景色實心填，免跑神經網路 → 平塗泡泡完美乾淨、零殘渣、
-    零顯存；背景有紋理/漸層的區塊變異大會自動退回 LaMa。關掉則全部走 LaMa。"""
+    零顯存；背景有紋理/漸層的區塊變異大會自動退回 LaMa。關掉則全部走 LaMa。
+    預設關閉：原本的均勻判定只取元件四周薄環（~4px）測變異，漸層/網點/柔和上色（韓漫長條超常見）會以
+    『薄環局部均勻』騙過檢查 → 被實心平塗成色塊（banding/變髒，只在線上翻韓漫長條時出現）。先一律走 LaMa
+    保乾淨；日後若要找回平塗泡泡的銳利，需收緊判定（環上下/左右均值差也要小、std 門檻降到 ~3）再開。"""
 
 class ColorizerConfig(BaseModel):
     colorization_size: int = 576
