@@ -15,6 +15,12 @@ from ..config import OcrConfig
 from ..utils import Quadrilateral
 
 
+# PaddleOCR 信心下限（修「莫名冒出的句子」）：DBNet 偶爾把臉/背景誤判成字框，PaddleOCR 仍會
+# 硬讀出一句通順韓文。前端預設 prob=0.08 幾乎不過濾；這裡設較高下限濾掉雜訊。韓文正常字通常
+# 0.9+，0.6 不影響正常字；嫌誤砍可用 env PADDLE_OCR_MIN_PROB 調低、要更嚴可調高。
+_PADDLE_MIN_PROB = float(os.getenv('PADDLE_OCR_MIN_PROB', '0.6'))
+
+
 class ModelPaddleOCR(OfflineOCR):
     """
     PaddleOCR 後端 —— 中/日/英/韓多語。預設 paddle_lang='auto' 會自動偵測語言
@@ -102,8 +108,8 @@ class ModelPaddleOCR(OfflineOCR):
         return best
 
     @staticmethod
-    def _parse_ocr_result(r0, prob_threshold: float):
-        """從單一 PaddleOCR 結果物件抽出 (text, prob)。供逐框與批次共用。"""
+    def _parse_ocr_result(r0):
+        """從單一 PaddleOCR 結果物件抽出 (text, mean_conf)；不在這裡過濾信心，門檻交 caller。"""
         if r0 is None:
             return '', 0.0
         data = r0.json.get('res', r0.json) if hasattr(r0, 'json') else (r0 if isinstance(r0, dict) else {})
@@ -115,14 +121,14 @@ class ModelPaddleOCR(OfflineOCR):
                 s = float(s)
             except (TypeError, ValueError):
                 continue
-            if s >= prob_threshold and str(t).strip():
+            if str(t).strip():
                 parts.append(str(t))
                 scores.append(s)
         if not parts:
             return '', 0.0
         return ''.join(parts), sum(scores) / len(scores)
 
-    def _recognize_crop(self, engine, crop: np.ndarray, prob_threshold: float):
+    def _recognize_crop(self, engine, crop: np.ndarray):
         try:
             res = engine.predict(crop)
         except Exception as e:
@@ -130,7 +136,7 @@ class ModelPaddleOCR(OfflineOCR):
             return '', 0.0
         if not res:
             return '', 0.0
-        return self._parse_ocr_result(res[0], prob_threshold)
+        return self._parse_ocr_result(res[0])
 
     async def _infer(self, image: np.ndarray, textlines: List[Quadrilateral], config: OcrConfig,
                      verbose: bool = False, ignore_bubble: int = 0) -> List[Quadrilateral]:
@@ -184,14 +190,21 @@ class ModelPaddleOCR(OfflineOCR):
                     f'PaddleOCR batch predict failed ({type(e).__name__}: {e})；退回逐框')
                 batched = None
 
+        # 信心門檻：DBNet 偶爾把臉/背景誤判成字框，PaddleOCR 仍硬讀出一句通順韓文（莫名冒出的句子）。
+        # 取「前端門檻」與「_PADDLE_MIN_PROB 下限」較大者；低於門檻的讀字清空丟棄，並 log 出來方便核對
+        # 有沒有誤砍正常字（若 [paddle drop] 冒出正常台詞 → 用 env PADDLE_OCR_MIN_PROB 調低）。
+        eff_prob = max(float(prob_threshold or 0.0), _PADDLE_MIN_PROB)
         output_regions = []
         for idx, (q, d) in enumerate(quadrilaterals):
             if batched is not None:
                 r = batched[idx]
                 r0 = r[0] if isinstance(r, (list, tuple)) and len(r) else r
-                txt, prob = self._parse_ocr_result(r0, prob_threshold)
+                txt, prob = self._parse_ocr_result(r0)
             else:
-                txt, prob = self._recognize_crop(engine, crops[idx], prob_threshold)
+                txt, prob = self._recognize_crop(engine, crops[idx])
+            if txt and prob < eff_prob:
+                self.logger.info(f'[paddle drop] conf={prob:.3f} < {eff_prob:.2f} text={txt[:30]!r}')
+                txt, prob = '', 0.0
             if min_text_length and len(txt) < min_text_length:
                 txt, prob = '', 0.0
             if verbose:
