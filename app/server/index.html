@@ -216,6 +216,28 @@
                 <span class="absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white transition-transform peer-checked:translate-x-4"></span>
               </span>
             </label>
+            <!-- [beta] 只翻泡泡內 -->
+            <label class="flex items-center justify-between cursor-pointer select-none" title="只翻譯對話框內的字；框外 SFX／旁白／誤偵測一律保留原圖。美術重的 webtoon 建議開。">
+              <span class="text-sm text-stone-300 flex items-center gap-1.5">
+                <i class="iconify accent-text" data-icon="carbon:chat"></i>只翻泡泡內
+              </span>
+              <span class="relative inline-block w-9 h-5">
+                <input type="checkbox" class="sr-only peer" v-model="onlyTranslateBubbles" @change="onSettingChange">
+                <span class="absolute inset-0 rounded-full bg-stone-600 acc-knob transition-colors"></span>
+                <span class="absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white transition-transform peer-checked:translate-x-4"></span>
+              </span>
+            </label>
+            <!-- [beta] 長圖/密集頁加速 -->
+            <label class="flex items-center justify-between cursor-pointer select-none" title="長圖或密集頁時，把一頁的文字分成數帶、平行翻譯以縮短等待。實驗功能。">
+              <span class="text-sm text-stone-300 flex items-center gap-1.5">
+                <i class="iconify accent-text" data-icon="carbon:flash"></i>長圖/密集頁加速 (beta)
+              </span>
+              <span class="relative inline-block w-9 h-5">
+                <input type="checkbox" class="sr-only peer" v-model="parallelBands" @change="onSettingChange">
+                <span class="absolute inset-0 rounded-full bg-stone-600 acc-knob transition-colors"></span>
+                <span class="absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white transition-transform peer-checked:translate-x-4"></span>
+              </span>
+            </label>
             <!-- 測試連接 -->
             <div class="flex items-center gap-2 flex-wrap">
               <button
@@ -2090,6 +2112,8 @@
         },
         // 翻譯時是否把漫畫圖傳給 LLM 校對（準確度較高，需視覺模型）
         llmSendImage: true,
+        onlyTranslateBubbles: false,
+        parallelBands: false,
         // 主區分頁籤：queue（翻譯佇列）/ gallery（成果圖庫）
         mainTab: 'queue',
         // 深夜模式（root div 加 .dark class）
@@ -2425,6 +2449,8 @@
           if (settings.apiKeys) Object.assign(this.apiKeys, settings.apiKeys);
           if (settings.customBaseUrl) this.customBaseUrl = settings.customBaseUrl;
           if (typeof settings.llmSendImage === 'boolean') this.llmSendImage = settings.llmSendImage;
+          if (typeof settings.onlyTranslateBubbles === 'boolean') this.onlyTranslateBubbles = settings.onlyTranslateBubbles;
+          if (typeof settings.parallelBands === 'boolean') this.parallelBands = settings.parallelBands;
           if (typeof settings.darkMode === 'boolean') this.darkMode = settings.darkMode;
           if (['blue', 'pink', 'amber'].includes(settings.accentColor)) this.accentColor = settings.accentColor;
           if (settings.targetLanguage) this.targetLanguage = settings.targetLanguage;
@@ -2467,6 +2493,8 @@
             apiKeys: this.apiKeys,
             customBaseUrl: this.customBaseUrl,
             llmSendImage: this.llmSendImage,
+            onlyTranslateBubbles: this.onlyTranslateBubbles,
+            parallelBands: this.parallelBands,
             darkMode: this.darkMode,
             accentColor: this.accentColor,
             targetLanguage: this.targetLanguage,
@@ -2794,9 +2822,11 @@
               llm_model: this.currentModel || null,
               llm_base_url: this.llmProvider === 'custom' ? (this.customBaseUrl || null) : null,
               llm_send_image: this.llmSendImage,
+              parallel_bands: this.parallelBands,
               post_check_max_retry_attempts: 0,
               enable_post_translation_check: false,
             },
+            translate_only_in_bubbles: this.onlyTranslateBubbles,
             detector: {
               detector: "default",
               detection_size: 2048,

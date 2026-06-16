@@ -628,6 +628,8 @@ const apikeyInput = document.getElementById("set-apikey");
 const baseurlInput = document.getElementById("set-baseurl");
 const baseurlLabel = document.getElementById("txt-baseurl");
 const sendimageRow = document.getElementById("set-sendimage");
+const onlyBubblesRow = document.getElementById("set-onlybubbles");
+const parallelBandsRow = document.getElementById("set-parallelbands");
 const langSetSelect = document.getElementById("set-lang");
 const ocrSelect = document.getElementById("set-ocr");
 const dirSelect = document.getElementById("set-dir");
@@ -654,6 +656,8 @@ function applyViewToFields() {
   dirSelect.value = _view.renderTextDirection || "auto";
   inpaintSelect.value = _view.inpainter || "lama_mpe";
   sendimageRow.classList.toggle("on", _view.llmSendImage !== false);
+  onlyBubblesRow.classList.toggle("on", _view.onlyTranslateBubbles === true);
+  parallelBandsRow.classList.toggle("on", _view.parallelBands === true);
 }
 
 function refreshProviderDependentFields() {
@@ -695,6 +699,8 @@ async function loadSettings() {
 
 providerSelect.addEventListener("change", refreshProviderDependentFields);
 sendimageRow.addEventListener("click", () => sendimageRow.classList.toggle("on"));
+onlyBubblesRow.addEventListener("click", () => onlyBubblesRow.classList.toggle("on"));
+parallelBandsRow.addEventListener("click", () => parallelBandsRow.classList.toggle("on"));
 document.getElementById("set-apikey-eye").addEventListener("click", () => {
   apikeyInput.type = apikeyInput.type === "password" ? "text" : "password";
 });
@@ -705,6 +711,8 @@ document.getElementById("set-save").addEventListener("click", async () => {
     llmProvider: providerSelect.value,
     model: modelInput.value.trim(),
     llmSendImage: sendimageRow.classList.contains("on"),
+    onlyTranslateBubbles: onlyBubblesRow.classList.contains("on"),
+    parallelBands: parallelBandsRow.classList.contains("on"),
     targetLanguage: langSetSelect.value,
     ocrModel: ocrSelect.value,
     renderTextDirection: dirSelect.value,

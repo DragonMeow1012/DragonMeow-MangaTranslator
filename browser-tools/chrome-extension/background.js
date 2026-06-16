@@ -9,6 +9,8 @@ const DEFAULT_SETTINGS = {
   llmModel: "",
   llmBaseUrl: "",
   llmSendImage: true,
+  onlyTranslateBubbles: false,
+  parallelBands: false,
   fontPath: "",
   // 以下三項對齊網頁 UI（index.html）預設；翻譯時會即時抓 /ui-settings 覆蓋成你在 127.0.0.1:8501 的設定。
   ocrModel: "mocr/gpu",
@@ -186,6 +188,8 @@ async function loadRawSettings() {
     if (norm.llmModel) raw.models[p] = norm.llmModel;
     if (norm.llmApiKey) raw.apiKeys[p] = norm.llmApiKey;
     if (typeof norm.llmSendImage === "boolean") raw.llmSendImage = norm.llmSendImage;
+    if (typeof norm.onlyTranslateBubbles === "boolean") raw.onlyTranslateBubbles = norm.onlyTranslateBubbles;
+    if (typeof norm.parallelBands === "boolean") raw.parallelBands = norm.parallelBands;
     if (norm.targetLang) raw.targetLanguage = norm.targetLang;
     if (norm.llmBaseUrl) raw.customBaseUrl = norm.llmBaseUrl;
   }
@@ -206,6 +210,8 @@ async function getSettingsView() {
     apiKeys: raw.apiKeys,
     apiKeySet,
     llmSendImage: raw.llmSendImage,
+    onlyTranslateBubbles: raw.onlyTranslateBubbles,
+    parallelBands: raw.parallelBands,
     targetLanguage: raw.targetLanguage,
     customBaseUrl: raw.customBaseUrl,
     ocrModel: raw.ocrModel || DEFAULT_SETTINGS.ocrModel,
@@ -224,6 +230,8 @@ async function saveSettings(patch) {
   // 金鑰留空代表「沿用原本的」，只有非空才覆蓋。
   if (typeof patch.apiKey === "string" && patch.apiKey !== "") raw.apiKeys[provider] = patch.apiKey;
   if (typeof patch.llmSendImage === "boolean") raw.llmSendImage = patch.llmSendImage;
+  if (typeof patch.onlyTranslateBubbles === "boolean") raw.onlyTranslateBubbles = patch.onlyTranslateBubbles;
+  if (typeof patch.parallelBands === "boolean") raw.parallelBands = patch.parallelBands;
   if (typeof patch.targetLanguage === "string") raw.targetLanguage = patch.targetLanguage;
   if (typeof patch.customBaseUrl === "string") raw.customBaseUrl = patch.customBaseUrl;
   if (typeof patch.ocrModel === "string") raw.ocrModel = patch.ocrModel;
@@ -279,6 +287,8 @@ function normalizeUiSettings(raw, apiBase) {
     llmModel: models[provider] || raw.llmModel || "",
     llmBaseUrl: raw.customBaseUrl || raw.llmBaseUrl || "",
     llmSendImage: typeof raw.llmSendImage === "boolean" ? raw.llmSendImage : true,
+    onlyTranslateBubbles: typeof raw.onlyTranslateBubbles === "boolean" ? raw.onlyTranslateBubbles : false,
+    parallelBands: typeof raw.parallelBands === "boolean" ? raw.parallelBands : false,
     fontPath: raw.fontPath || "",
     // OCR / 抹字 / 輸出排版：完全跟隨網頁 UI（user_settings.json），不在擴充寫死。
     ocrModel: raw.ocrModel || DEFAULT_SETTINGS.ocrModel,
@@ -338,9 +348,11 @@ function buildConfig(settings) {
       llm_model: settings.llmModel || null,
       llm_base_url: settings.llmProvider === "custom" ? (settings.llmBaseUrl || null) : null,
       llm_send_image: Boolean(settings.llmSendImage),
+      parallel_bands: Boolean(settings.parallelBands),
       post_check_max_retry_attempts: 0,
       enable_post_translation_check: false
     },
+    translate_only_in_bubbles: Boolean(settings.onlyTranslateBubbles),
     detector: {
       detector: "default",
       detection_size: 2048,
