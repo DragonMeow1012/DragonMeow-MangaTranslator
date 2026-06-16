@@ -590,6 +590,7 @@ class MangaTranslator:
         
     def _set_image_context(self, config: Config, image=None):
         """设置当前处理图片的上下文信息，用于生成调试图片子文件夹"""
+        import uuid
         from .utils.generic import get_image_md5
 
         # 使用毫秒级时间戳确保唯一性
@@ -604,8 +605,10 @@ class MangaTranslator:
         else:
             file_md5 = "unknown"
 
-        # 生成子文件夹名：{timestamp}-{file_md5}-{detection_size}-{target_lang}-{translator}
-        subfolder_name = f"{timestamp}-{file_md5}-{detection_size}-{target_lang}-{translator}"
+        # 生成子文件夹名：{timestamp}-{file_md5}-{detection_size}-{target_lang}-{translator}-{uuid}
+        # 末尾加 uuid：毫秒時間戳在 Windows 很粗（多次呼叫常落同一毫秒），同內容圖 md5 又相同，
+        # 沒有 uuid 時兩張會算出同名資料夾 → 互相覆蓋 final.png → 重複頁。uuid4 與時間/內容無關，保證唯一。
+        subfolder_name = f"{timestamp}-{file_md5}-{detection_size}-{target_lang}-{translator}-{uuid.uuid4().hex[:8]}"
 
         self._current_image_context = {
             'subfolder': subfolder_name,
@@ -662,6 +665,12 @@ class MangaTranslator:
         # 保存debug文件夹信息到Context中（用于Web模式的缓存访问）
         # 在web模式下总是保存，不仅仅是verbose模式
         ctx.debug_folder = self._get_image_subfolder()
+
+        # 【關鍵】立刻（任何 await 之前）把本張的資料夾快照進 ctx。K 並發共用一個 translator 實例，
+        # self._current_image_context 是全域；若拖到 _stage_pre_llm 才快照（那中間有 gpu_lock await），
+        # 期間別張的 _set_image_context 會覆蓋它 → 這張就抓到別張的資料夾 → 整批重複頁/檔名錯亂。
+        # 同步快照後，rendering_folder / final_ready / final.png 全解析到「這張自己的」資料夾。
+        ctx.image_context = dict(self._current_image_context) if self._current_image_context else None
         
         # 保存原始输入图片用于调试
         if self.verbose:
@@ -1090,9 +1099,10 @@ class MangaTranslator:
                 except Exception as e:
                     logger.warning(f"Failed to save edit state: {e}")
 
-            # 通知前端文件已就绪
-            if hasattr(self, '_progress_hooks') and self._current_image_context:
-                folder_name = self._current_image_context['subfolder']
+            # 通知前端文件已就绪。讀 ctx.image_context（這張自己的快照），不讀會被別張覆蓋的 self.*。
+            _fr_ctx = getattr(ctx, 'image_context', None) or self._current_image_context
+            if hasattr(self, '_progress_hooks') and _fr_ctx:
+                folder_name = _fr_ctx['subfolder']
                 await self._report_progress(f'final_ready:{folder_name}')
 
             # 创建占位符结果并立即返回（Image 已在模組頂層 import）
