@@ -267,6 +267,8 @@ class TranslatorConfig(BaseModel):
     """Base URL for custom OpenAI-compatible providers (e.g. http://localhost:11434/v1)."""
     llm_send_image: Optional[bool] = None
     """Send the manga image to the LLM for proofreading (better accuracy, needs a vision model). None = keep current/default (on)."""
+    parallel_bands: Optional[bool] = None
+    """[beta] Tall/dense-page accel: split a page's regions into vertical bands and translate them in PARALLEL LLM calls instead of one big call. None/False = single call."""
     no_text_lang_skip: bool = False
     """Dont skip text that is seemingly already in the target language."""
     skip_lang: Optional[str] = None
@@ -337,12 +339,19 @@ class DetectorConfig(BaseModel):
     """How much to extend text skeleton to form bounding box"""
 
 class InpainterConfig(BaseModel):
-    inpainter: Inpainter = Inpainter.lama_mpe
-    """Inpainting model to use"""
+    inpainter: Inpainter = Inpainter.lama_large
+    """Inpainting model to use. lama_large = 18-block 漫畫微調版，平塗泡泡填補乾淨銳利；
+    lama_mpe = 2022 舊版 9 塊 + MPE 位置偏置，會在整塊抹除區糊出灰霾（已知較髒，僅省顯存時用）。"""
     inpainting_size: int = 2048
     """Size of image used for inpainting (too large will result in OOM)"""
     inpainting_precision: InpaintPrecision = InpaintPrecision.bf16
     """Inpainting precision for lama, use bf16 while you can."""
+    inpaint_flat_fill: bool = False
+    """均勻底色（對話框）的抹除區直接用背景色實心填，免跑神經網路 → 平塗泡泡完美乾淨、零殘渣、
+    零顯存；背景有紋理/漸層的區塊變異大會自動退回 LaMa。關掉則全部走 LaMa。
+    預設關閉：原本的均勻判定只取元件四周薄環（~4px）測變異，漸層/網點/柔和上色（韓漫長條超常見）會以
+    『薄環局部均勻』騙過檢查 → 被實心平塗成色塊（banding/變髒，只在線上翻韓漫長條時出現）。先一律走 LaMa
+    保乾淨；日後若要找回平塗泡泡的銳利，需收緊判定（環上下/左右均值差也要小、std 門檻降到 ~3）再開。"""
 
 class ColorizerConfig(BaseModel):
     colorization_size: int = 576
@@ -394,6 +403,8 @@ class Config(BaseModel):
     """Set the convolution kernel size of the text erasure area to completely clean up text residues"""
     mask_dilation_offset: int = 20
     """By how much to extend the text mask to remove left-over text pixels of the original image."""
+    translate_only_in_bubbles: bool = False
+    """Only translate text inside detected speech bubbles; keep all out-of-bubble text (SFX / signs / mis-detections) as original art. Good for art-heavy webtoons."""
     _filter_text = None
 
     @property

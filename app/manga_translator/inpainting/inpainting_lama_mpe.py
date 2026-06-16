@@ -53,6 +53,34 @@ class LamaMPEInpainter(OfflineInpainter):
     async def _unload(self):
         del self.model
 
+    @staticmethod
+    def _flat_fill(img_original: np.ndarray, mask_bin: np.ndarray):
+        """平塗背景捷徑：逐個抹除連通元件，取它四周一圈背景像素；若背景夠均勻（低變異、非雙色），
+        直接用背景色中位數實心填（全解析度、色準銳利），不交給 LaMa。回傳 (已填的影像, 剩餘遮罩)。
+        背景有紋理/漸層/網點的元件變異大 → 留在剩餘遮罩交給 LaMa，行為不變。"""
+        ans = img_original.copy()
+        num, labels, stats, _ = cv2.connectedComponentsWithStats(mask_bin, connectivity=8)
+        residual = np.zeros_like(mask_bin)
+        H, W = mask_bin.shape
+        pad = 10
+        for lab in range(1, num):
+            x, y, w, h, _area = stats[lab]
+            x0, y0 = max(0, x - pad), max(0, y - pad)
+            x1, y1 = min(W, x + w + pad), min(H, y + h + pad)
+            comp = labels[y0:y1, x0:x1] == lab
+            dil = cv2.dilate(comp.astype(np.uint8), np.ones((9, 9), np.uint8))
+            ring = (dil > 0) & (~comp) & (mask_bin[y0:y1, x0:x1] == 0)  # 元件四周、且未被任何遮罩蓋到的背景
+            bg = img_original[y0:y1, x0:x1][ring]
+            ok = False
+            if bg.shape[0] >= 30:
+                med = np.median(bg, axis=0)
+                if bg.std(axis=0).max() < 6 and np.abs(med - bg.mean(axis=0)).max() < 6:
+                    ans[y0:y1, x0:x1][comp] = med.astype(np.uint8)
+                    ok = True
+            if not ok:
+                residual[y0:y1, x0:x1][comp] = 1
+        return ans, residual
+
     async def _infer(self, image: np.ndarray, mask: np.ndarray, config: InpainterConfig, inpainting_size: int = 1024, verbose: bool = False) -> np.ndarray:
         img_original = np.copy(image)
         mask_original = np.copy(mask)
@@ -60,10 +88,33 @@ class LamaMPEInpainter(OfflineInpainter):
         mask_original[mask_original >= 127] = 1
         mask_original = mask_original[:, :, None]
 
+        # 平塗泡泡捷徑：均勻底色的抹除區直接用背景色實心填（免神經網路、零顯存、色準銳利），
+        # 背景不均勻（紋理/漸層/網點）的區塊才留給 LaMa。
+        ans_flat = None
+        if getattr(config, 'inpaint_flat_fill', True):
+            ans_flat, residual = self._flat_fill(img_original, mask_original[:, :, 0])
+            if int(residual.sum()) == 0:
+                return ans_flat                       # 全部平塗解決 → 跳過 LaMa
+            mask = (residual * 255).astype(np.uint8)  # LaMa 只處理剩餘非均勻區塊
+            mask_original = residual[:, :, None]
+
         height, width, c = image.shape
-        if max(image.shape[0: 2]) > inpainting_size:
-            image = resize_keep_aspect(image, inpainting_size)
-            mask = resize_keep_aspect(mask, inpainting_size)
+        # webtoon 長條修正：原本一律把「最長邊」壓到 inpainting_size，會把直條的「寬度」壓垮
+        # （例：700x4000 → 358x2048）→ LaMa 在 ~358px 寬上填補、再放大回原寬 → 糊/灰霾（只在韓漫長條出現）。
+        # 改成以「短邊」保住解析度，並用像素量上限（≈inpainting_size² 的記憶體量級，與原本最長邊=2048 的方圖
+        # 相當）夾住，避免超長條爆顯存。兩條件取較小縮放比。
+        short_side = min(height, width)
+        max_pixels = inpainting_size * inpainting_size
+        scale = 1.0
+        if short_side > inpainting_size:
+            scale = inpainting_size / short_side
+        if height * width * scale * scale > max_pixels:
+            scale = min(scale, (max_pixels / (height * width)) ** 0.5)
+        if scale < 1.0:
+            new_w0 = max(1, int(round(width * scale)))
+            new_h0 = max(1, int(round(height * scale)))
+            image = cv2.resize(image, (new_w0, new_h0), interpolation=cv2.INTER_AREA)
+            mask = cv2.resize(mask, (new_w0, new_h0), interpolation=cv2.INTER_AREA)
         pad_size = 8
         h, w, c = image.shape
         if h % pad_size != 0:
@@ -113,8 +164,14 @@ class LamaMPEInpainter(OfflineInpainter):
             img_inpainted_torch = img_inpainted_torch.to(torch.float32)
             img_inpainted = ((img_inpainted_torch.cpu().squeeze_(0).permute(1, 2, 0).numpy() + 1.0) * 127.5).astype(np.uint8)
         if new_h != height or new_w != width:
-            img_inpainted = cv2.resize(img_inpainted, (width, height), interpolation = cv2.INTER_LINEAR)
-        ans = img_inpainted * mask_original + img_original * (1 - mask_original)
+            # INTER_CUBIC 比 INTER_LINEAR 放大時銳利些，減少抹除區放大回原尺寸時的糊邊/灰霾。
+            img_inpainted = cv2.resize(img_inpainted, (width, height), interpolation = cv2.INTER_CUBIC)
+        # 合成時把遮罩往內縮 1px：LaMa 成品是從 inpainting 解析度用 INTER_LINEAR 放大回來的，邊界那
+        # 一圈是模糊／不可靠的填補（和對話框底色「格格不入」的暗邊/光暈來源）。用原圖（乾淨背景）接手
+        # 這 1px 即可消掉抹字邊緣。遮罩本來就過度膨脹（mask_dilation_offset），內縮 1px 不會露出原文。
+        base = ans_flat if ans_flat is not None else img_original  # 已平塗的泡泡保留在 base，剩餘交 LaMa
+        mask_comp = cv2.erode(mask_original[:, :, 0], np.ones((3, 3), np.uint8), iterations=1)[:, :, None]
+        ans = img_inpainted * mask_comp + base * (1 - mask_comp)
         return ans
     
 

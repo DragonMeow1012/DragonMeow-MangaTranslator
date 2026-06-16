@@ -84,12 +84,24 @@ let _autoPersistEnabled = false; // 頁碼翻譯啟用中（持久化；換頁/�
 let _pagePersistEnabled = false; // 整頁翻譯啟用中（持久化）
 const PREFETCH_TO_END_CAP = 200; // 預抓往後猜的上限（一律翻到完；背景遇 404 自然停）
 let _showPrefetch = true;   // 顯示預抓進度（指泡泡時的 tooltip）
+let _showQueuePanel = true; // 顯示翻譯進度浮窗（縮圖佇列）；popup 開關控制（dmmtShowQueuePanel）
 let _lastPrefetchPage = 0;
 let _pfProg = null;         // 頁碼翻譯預抓即時進度 {done,total}，顯示在泡泡 tooltip
+const _pfPages = new Map(); // 頁碼翻譯每頁即時狀態 page -> {stage, thumb}，面板顯示成縮圖+徽章列（跟整頁一樣）
 // 並發送出數：從同步設定讀（網頁 UI「並發數」→ user_settings.json → background 存進 dmmtSyncedSettings）。
+// 餵圖上限 = 伺服器 slot 總數 = worker 進程數 × 並發數（每個 worker 各註冊「並發數」個 slot）。
+// 只用 concurrency 的話，開了多 worker 時會餵不滿、多出來的 slot 空等。
 function _applyConcurrency(synced) {
-  const n = parseInt(synced?.concurrency);
-  if (n >= 1 && n <= 16) PAGE_TRANSLATE_CONCURRENCY = n;
+  const slots = parseInt(synced?.serverSlots);
+  if (slots >= 1 && slots <= 64) {
+    PAGE_TRANSLATE_CONCURRENCY = slots;
+    return;
+  }
+  const c = parseInt(synced?.concurrency);
+  const w = parseInt(synced?.workers);
+  const conc = (c >= 1 && c <= 16) ? c : 5;
+  const workers = (w >= 1 && w <= 4) ? w : 1;
+  PAGE_TRANSLATE_CONCURRENCY = conc * workers;
 }
 // 快取上限（張）：可自訂 1–9999，存 chrome.storage 的 dmmtCacheMax；放大後整本長條漫都能留快取。
 function _applyCacheMax(v) {
@@ -97,7 +109,7 @@ function _applyCacheMax(v) {
   if (n >= 1 && n <= 9999) IMG_CACHE_MAX_ENTRIES = n;
 }
 function loadDebugFlag() {
-  chromeSafeGet(["dmmtDebugInput", "dmmtPrefetchNotify", "dmmtBoxMode", "dmmtBoxOrigin", "dmmtBoxRects", "dmmtWheelNav", "dmmtWheelDir", "dmmtSyncedSettings", "dmmtCacheMax"], (s) => {
+  chromeSafeGet(["dmmtDebugInput", "dmmtPrefetchNotify", "dmmtBoxMode", "dmmtBoxOrigin", "dmmtBoxRects", "dmmtWheelNav", "dmmtWheelDir", "dmmtSyncedSettings", "dmmtCacheMax", "dmmtShowQueuePanel"], (s) => {
     _debugOn = s?.dmmtDebugInput === true;
     if (typeof s?.dmmtWheelNav === "boolean") _wheelNav = s.dmmtWheelNav;
     if (typeof s?.dmmtWheelDir === "string") _wheelDir = s.dmmtWheelDir;
@@ -105,7 +117,12 @@ function loadDebugFlag() {
       _boxMode = true; _boxRects = s.dmmtBoxRects;
     }
     if (typeof s?.dmmtPrefetchNotify === "boolean") _showPrefetch = s.dmmtPrefetchNotify;
+    if (typeof s?.dmmtShowQueuePanel === "boolean") _showQueuePanel = s.dmmtShowQueuePanel;
     _applyConcurrency(s?.dmmtSyncedSettings);
+    sendMessage({
+      type: "fetch-server-settings",
+      apiBase: s?.dmmtSyncedSettings?.apiBase || "http://127.0.0.1:8501"
+    }).then((fresh) => _applyConcurrency(fresh)).catch(() => {});
     _applyCacheMax(s?.dmmtCacheMax);
   });
   try {
@@ -117,6 +134,10 @@ function loadDebugFlag() {
       if (changes.dmmtPrefetchNotify && typeof changes.dmmtPrefetchNotify.newValue === "boolean") {
         _showPrefetch = changes.dmmtPrefetchNotify.newValue;
         refreshBubbleTitle();
+      }
+      if (changes.dmmtShowQueuePanel && typeof changes.dmmtShowQueuePanel.newValue === "boolean") {
+        _showQueuePanel = changes.dmmtShowQueuePanel.newValue;
+        updateQueuePanel();
       }
       if (changes.dmmtSyncedSettings) _applyConcurrency(changes.dmmtSyncedSettings.newValue);
       if (changes.dmmtCacheMax) _applyCacheMax(changes.dmmtCacheMax.newValue);
@@ -133,9 +154,9 @@ function refreshBubbleTitle() {
     state.button.title = "點一下翻譯這頁（合併翻譯）";
   } else if (_pageTranslate) {
     const pt = _pageTranslate;
-    let t = pt.total > 0 ? `整頁翻譯：已完成 ${pt.ok}/${pt.total}` : "整頁翻譯啟用中…";
-    if (pt.blocked) t += `，防盜圖 ${pt.blocked}`;
-    state.button.title = t;
+    let proc = 0;
+    for (const [, it] of pt.items) if (it.status === "processing") proc++;
+    state.button.title = proc > 0 ? `整頁翻譯中…處理 ${proc} 張` : "整頁翻譯啟用中…";
   } else if (_showPrefetch && autoOn) {
     state.button.title = _pfProg ? `頁碼翻譯：已完成 ${_pfProg.done} 頁` : "頁碼翻譯啟用中";
   } else {
@@ -148,14 +169,75 @@ function updateBubblePrefetchTitle(lastPage) {
 }
 
 // 背景預抓的即時進度 → 顯示在泡泡 tooltip（頁碼翻譯中… done/total）。
+let _pfClearTimer = null;
 chrome.runtime.onMessage.addListener((message) => {
   if (message?.type !== "prefetch-progress") return;
-  _pfProg = { done: message.done, total: message.total };
+  _pfProg = {
+    done: message.done || 0,
+    total: message.total || 0,
+    crawled: message.crawled ?? message.total ?? 0,
+    currentPage: message.currentPage || 0,
+    planned: message.planned || message.requested || 0
+  };
   if (_showPrefetch && message.done > 0) {
     showStatus(`頁碼翻譯：已完成 ${message.done} 頁`, 1600);
   }
   refreshBubbleTitle();
+  updateQueuePanel();
+  // 全部抓完 / 整輪閒置(idle) → 顯示完成數字數秒後自動清掉面板，避免永遠卡在最後的 done/total
+  // （使用者回報的「進度視窗卡在 27/29」就是這裡少了收尾）。新一輪預抓進來會 clearTimeout 取消。
+  clearTimeout(_pfClearTimer);
+  if ((message.idle || (message.total > 0 && message.done >= message.total)) && !_autoPersistEnabled) {
+    if (message.idle) _pfPages.clear(); // 整輪結束：清掉殘留的列（正常每頁收尾都已自己移除）
+    _pfClearTimer = setTimeout(() => {
+      _pfProg = null;
+      _pfPages.clear();
+      refreshBubbleTitle();
+      updateQueuePanel();
+    }, 4000);
+  }
 });
+
+// 頁碼翻譯每頁的即時狀態（爬圖/下載/翻譯各階段 + 原圖縮圖）→ 面板渲染成縮圖+徽章列，跟整頁翻譯一樣。
+chrome.runtime.onMessage.addListener((message) => {
+  if (message?.type !== "prefetch-page" || !message.page) return;
+  if (message.done) {
+    _pfPages.delete(message.page); // 該頁收尾：移除列（完成的不留，跟整頁「完成立即隱藏」一致）
+  } else {
+    const prev = _pfPages.get(message.page) || {};
+    _pfPages.set(message.page, {
+      stage: message.stage != null ? message.stage : prev.stage, // stage=null 時只更新縮圖、不動階段
+      thumb: message.thumb || prev.thumb
+    });
+  }
+  updateQueuePanel();
+});
+
+// 伺服器分階段進度（偵測/OCR/翻譯/抹字/嵌字…）→ 對回正確的縮圖/進度條，顯示得跟網頁版一樣。
+chrome.runtime.onMessage.addListener((message) => {
+  if (message?.type !== "translate-progress") return;
+  // 單張/框選翻譯：把階段顯示在滑動進度條上。
+  if (_singleStageTask && message.taskId === _singleStageTask) {
+    showProgress(stageLabel(message.stage));
+  }
+  // 整頁翻譯：把階段寫進對應縮圖的徽章。
+  const pt = _pageTranslate;
+  if (pt && pt.taskItems) {
+    const it = pt.taskItems.get(message.taskId);
+    if (it) { it.stage = message.stage || ""; updateQueuePanel(); }
+  }
+});
+
+// 單張/框選翻譯的送出包裝：配一個 taskId 並開啟階段進度（自動在結束後關閉）。
+async function translateWithStageProgress(dataUrl) {
+  const taskId = "t" + (++_taskSeq);
+  _singleStageTask = taskId;
+  try {
+    return await sendMessage({ type: "translate-data-url", image: dataUrl, taskId });
+  } finally {
+    if (_singleStageTask === taskId) _singleStageTask = null;
+  }
+}
 function imageDims(dataUrl) {
   return new Promise((resolve, reject) => {
     const im = new Image();
@@ -191,7 +273,9 @@ function normalizedImageUrl(src) {
     // 去掉 CDN 分流子網域的編號（i4.nhentai.net / i1.nhentai.net → nhentai.net、img3.x.com → x.com）。
     // 同一張圖常被分流到不同編號的子網域，網址不同卻是同一張，不正規化會害快取/預測對不上。
     // 只剝「字母+數字」開頭的子網域（i4、img3、cdn2…），不動 www、IP（1.2.3.4）等。
-    const host = u.host.replace(/^[a-z]+\d+\./i, "");
+    const host = /\.nhentai\.net$/i.test(u.host)
+      ? u.host.replace(/^(?:[a-z]+\d+|i)\./i, "")
+      : u.host.replace(/^[a-z]+\d+\./i, "");
     return u.protocol + "//" + host + u.pathname;
   } catch {
     return clean;
@@ -202,6 +286,80 @@ function imgCacheKey(src) {
   return IMG_CACHE_PREFIX + normalizedImageUrl(src);
 }
 
+function lastNumberMatch(text) {
+  const matches = [...String(text || "").matchAll(/\d+/g)];
+  if (!matches.length) return null;
+  const m = matches[matches.length - 1];
+  return { start: m.index, end: m.index + m[0].length, value: Number(m[0]), raw: m[0], count: matches.length };
+}
+
+function buildNumberedUrl(base, match, n) {
+  return base.slice(0, match.start) + String(n).padStart(match.raw.length, "0") + base.slice(match.end);
+}
+
+function pageNumberMatchFromUrl(base, preferredPage = 0) {
+  let scan = String(base || "");
+  let offset = 0;
+  try {
+    const u = new URL(base);
+    scan = `${u.pathname}${u.search}`;
+    offset = base.indexOf(scan);
+    if (offset < 0) offset = base.indexOf(u.pathname);
+    if (offset < 0) offset = 0;
+  } catch {}
+
+  const candidates = [];
+  const addMatches = (regex, score) => {
+    for (const m of scan.matchAll(regex)) {
+      const raw = m[1];
+      const rel = m[0].lastIndexOf(raw);
+      if (!raw || rel < 0) continue;
+      candidates.push({
+        start: offset + m.index + rel,
+        end: offset + m.index + rel + raw.length,
+        value: Number(raw),
+        raw,
+        score
+      });
+    }
+  };
+
+  addMatches(/\/g\/\d+\/([0-9]+)(?=\/|$|[?#&])/gi, 140);
+  addMatches(/\/(?:reader|read|chapter|chapters|view)\/[^?#]*\/([0-9]+)(?=\/|$|[?#&])/gi, 120);
+  addMatches(/[?&](?:page|p|pg|page_num|pageNo)=([0-9]+)/gi, 100);
+  addMatches(/\/(?:page|p)\/([0-9]+)(?=\/|$|[?#&])/gi, 95);
+  addMatches(/\/([0-9]+)(?=\/|$|[?#&]|\.(?:html?|php|aspx?))/gi, 80);
+  addMatches(/-([0-9]+)(?=-|$|[/?&#.]|\.(?:html?|php|aspx?))/gi, 75);
+  addMatches(/(?:^|[\/_-])([0-9]+)(?=[\/_-]|$|[?#&.]|\.(?:html?|php|aspx?))/gi, 40);
+
+  const preferred = Number(preferredPage) || 0;
+  if (preferred > 0) {
+    for (const c of candidates) {
+      if (c.value === preferred) c.score += 200;
+    }
+  }
+  candidates.sort((a, b) => (b.score - a.score) || (b.start - a.start));
+  return candidates.find((c) => c.value > 0) || null;
+}
+
+function titlePageNumber() {
+  const m = String(document.title || "").match(/\b(?:page|p|頁|第)\s*[-:#]?\s*(\d{1,5})\b/i);
+  return m ? Number(m[1]) : 0;
+}
+
+function pageUrlPrefetchBuilder(preferredPage = 0) {
+  const full = String(location.href || "");
+  const hashIndex = full.indexOf("#");
+  const base = hashIndex >= 0 ? full.slice(0, hashIndex) : full;
+  const hash = hashIndex >= 0 ? full.slice(hashIndex) : "";
+  const match = pageNumberMatchFromUrl(base, preferredPage);
+  if (!match || !match.value) return null;
+  return {
+    current: match.value,
+    build: (page) => buildNumberedUrl(base, match, page) + hash
+  };
+}
+
 // 取「真正顯示的圖片網址」當快取依據：lazy-load 時 getAttribute("src") 常是佔位圖，
 // 真正載入的是 currentSrc。優先用 currentSrc，沒有才用 src 屬性。
 function bestImageUrl(img) {
@@ -209,6 +367,20 @@ function bestImageUrl(img) {
   if (cs && !cs.startsWith("data:")) return cs;
   const a = img.getAttribute("src") || "";
   return (a && !a.startsWith("data:")) ? a : "";
+}
+
+function imageDomSlot(element) {
+  if (!element || element.tagName?.toLowerCase() !== "img") return -1;
+  const imgs = Array.from(document.querySelectorAll("img"))
+    .filter((img) => {
+      try { return pageImageTranslatable(img); } catch { return false; }
+    })
+    .sort((a, b) => {
+      const ar = a.getBoundingClientRect();
+      const br = b.getBoundingClientRect();
+      return (ar.top - br.top) || (ar.left - br.left);
+    });
+  return imgs.indexOf(element);
 }
 
 function saveTranslationToImgCache(originalSrc, dataUrl) {
@@ -241,7 +413,7 @@ let _predictedNext = "";   // 上一頁推算出的「下一頁」絕對網址�
 let _prefetchMisses = 0;   // 連續預測失敗次數
 let _prefetchOff = false;  // 預測連續失敗就停用本頁面的預抓
 
-function schedulePrefetchNextPages(originalSrc, countOverride) {
+function legacySchedulePrefetchNextPages(originalSrc, countOverride, targetElement = null) {
   if (_prefetchOff || !originalSrc) return;
   if (!state.autoTargets.length && !_pageTranslate && !_autoPersistEnabled && !_pagePersistEnabled) return;
   // 不驗證網址頁碼——直接抓圖檔名「副檔名前的最後一組數字」往後加。
@@ -258,6 +430,7 @@ function schedulePrefetchNextPages(originalSrc, countOverride) {
 
   const count = clamp(typeof countOverride === "number" ? countOverride : PREFETCH_TO_END_CAP, 0, PREFETCH_TO_END_CAP);
   if (count <= 0) return;
+  const imageSlot = imageDomSlot(targetElement);
   const pad = filePageStr.length;
   const buildUrl = (n) => absoluteImageUrl(fileMatch[1] + String(n).padStart(pad, "0") + fileMatch[3]);
   _predictedNext = buildUrl(pageNum + 1); // 記住「下一頁」預測，翻頁後驗證
@@ -282,6 +455,76 @@ function schedulePrefetchNextPages(originalSrc, countOverride) {
 
 // 翻頁後驗證：實際的新頁圖網址有沒有命中上一頁的「下一頁」預測。
 // 連續猜錯兩次就停用預抓（這網站的網址規則不是單純遞增），避免一直白抓。
+function schedulePrefetchNextPages(originalSrc, countOverride, targetElement = null) {
+  if (_prefetchOff || !originalSrc) return;
+  if (!state.autoTargets.length && !_pageTranslate && !_autoPersistEnabled && !_pagePersistEnabled) return;
+
+  const clean = String(originalSrc).split(/[?#]/)[0];
+  const fileMatch = clean.match(/^(.*?)(\d+)(\D*\.[A-Za-z0-9]+)$/);
+  const filePageStr = fileMatch ? fileMatch[2] : "";
+  // 兩條「各自獨立」的編號，絕不能混用：
+  //   imgNum＝圖檔名自己的連號（…/001.jpg 的 001）＝真實頁序，main 一直靠這個。
+  //   urlNum＝reader 頁網址裡的數字（…/reader/656136 的 656136）＝站內 ID，常常不是頁序。
+  // 之前的 bug：pageNum 取 urlNum(656136) 後又拿去填進「圖檔名」(buildImageUrl) → 推出 656137.jpg
+  // 這種不存在的圖，真實頁全 404、面板顯示「第 656137 頁」。圖序要用 imgNum 遞增，頁網址才用 urlNum。
+  const imgNum = Number(filePageStr) || 0;
+  const hintedPage = imgNum || titlePageNumber();
+  const pageBuilder = pageUrlPrefetchBuilder(hintedPage);
+  const urlNum = (pageBuilder && pageBuilder.current) || 0;
+  // 顯示用頁碼的事實來源：優先圖檔名連號（真實頁序），沒有才退回網址數字 / 標題。
+  const baseNum = imgNum || urlNum || titlePageNumber();
+  if (!baseNum) return;
+
+  const count = clamp(typeof countOverride === "number" ? countOverride : PREFETCH_TO_END_CAP, 0, PREFETCH_TO_END_CAP);
+  if (count <= 0) return;
+  const imageSlot = imageDomSlot(targetElement);
+
+  const buildPageUrl = pageBuilder && pageBuilder.build;
+  const buildImageUrl = fileMatch
+    ? (n) => absoluteImageUrl(buildNumberedUrl(clean, {
+        start: fileMatch[1].length,
+        end: fileMatch[1].length + filePageStr.length,
+        raw: filePageStr
+      }, n))
+    : null;
+  if (!buildPageUrl && !buildImageUrl) {
+    if (_debugOn) console.log("[DMMT prefetch] no page/image number found", clean, location.href);
+    return;
+  }
+
+  // 只要圖網址能推算（圖檔名有連號），翻頁後就能驗證預測：對到＝規則正確；連錯兩次＝這站不是
+  // 單純遞增（urlNum 是 ID 之類）→ verifyPrefetchPrediction 會停用預抓，不再狂抓不存在的頁。
+  // 唯有「純爬 HTML（圖檔名無數字）」才真的無法預測，才不驗證。
+  _predictedNext = buildImageUrl ? buildImageUrl(imgNum + 1) : "";
+  const items = [];
+  for (let i = 1; i <= count; i++) {
+    const page = baseNum + i;
+    if (buildPageUrl) {
+      const pageUrl = buildPageUrl(urlNum + i); // reader 頁網址照「網址自己的數字」遞增
+      const dedupeKey = "page:" + pageUrl.split("#")[0];
+      if (!pageUrl || _prefetchedKeys.has(dedupeKey)) continue;
+      _prefetchedKeys.add(dedupeKey);
+      // 提速：reader 站若圖檔名也是連號（nhentai 等），附上「推算的圖網址」當快路徑。
+      // 背景先直接抓這張圖（免開 HTML，省一次往返）；猜錯(404，如混副檔名/換 CDN)再退回爬該頁 HTML。
+      // 注意：圖網址一定用 imgNum 遞增（圖檔名自己的連號），不能用 urlNum，否則填出不存在的圖。
+      const guessImageUrl = buildImageUrl ? buildImageUrl(imgNum + i) : null;
+      items.push({ pageUrl, page, imageSlot, guessImageUrl });
+    } else {
+      const imageUrl = buildImageUrl(imgNum + i);
+      const cacheKey = imgCacheKey(imageUrl);
+      if (!imageUrl || _prefetchedKeys.has(cacheKey)) continue;
+      _prefetchedKeys.add(cacheKey);
+      items.push({ cacheKey, imageUrl, page });
+    }
+  }
+  if (_debugOn) console.log("[DMMT prefetch] queued", items.length, buildPageUrl ? "page crawl" : "image guess", items[0]);
+  if (items.length) {
+    sendMessage({ type: "prefetch-translate", items, referer: location.href }).then((result) => {
+      if (result?.lastPage) updateBubblePrefetchTitle(result.lastPage);
+    }).catch(() => {});
+  }
+}
+
 function verifyPrefetchPrediction(newSrc) {
   if (!_predictedNext) return;
   // 用正規化網址比對（去掉分流子網域編號），否則 i4→i1 之類的換伺服器會被誤判成「猜錯」而停用預抓。
@@ -436,12 +679,13 @@ function bubbleSize() {
 // 持續模式：完成首批後仍持續監看，網頁延遲載入（lazy-load）或無限捲動載入的新圖會接著
 // 自動翻譯，直到使用者再次點「整頁翻譯」關閉，或執行清除／離開頁面。
 // 並發送出數：對齊伺服器預設 5 slot（MT_WORKER_CONCURRENCY=5，=bot 的 5 並發）。
-// 伺服器端 gpu_lock 序列化 GPU 階段、LLM 階段重疊，送滿 5 不會炸 GPU。可由設定覆寫。
+// 並發數預設 5（由 /ui-settings 的「並發數」覆寫，line 93）。單一免費 key 配額低時調低或多加 key 避 429。
 let PAGE_TRANSLATE_CONCURRENCY = 5;
-// Over-send：整頁實際派 conc+2 個工作者，讓伺服器佇列永遠有下一張等著 → GPU 不必等 client
-// round-trip 與逐張抓圖空檔（對齊 SDMDCBOT「pipeline 深度 + 2 buffer」餵滿策略）。
+// Over-send：整頁實際派 conc+2 個工作者，讓伺服器佇列永遠有下一張等著（餵滿 GPU pipeline，對齊 bot）。
 const PAGE_TRANSLATE_OVERSEND = 2;
 let _pageTranslate = null; // 持續模式狀態物件；null = 未啟用
+let _taskSeq = 0; // 每次送翻譯給背景的唯一編號，用來把伺服器回報的分階段進度對回正確的縮圖
+let _singleStageTask = null; // 單張/框選翻譯目前的 taskId（階段進度顯示在滑動進度條上）
 
 // 是否為「值得整頁翻譯」的圖：已載入、自然或顯示尺寸夠大（過濾圖示/頭像/廣告），且尚未替換。
 function pageImageTranslatable(el) {
@@ -458,6 +702,7 @@ function translatePage() {
   if (_pageTranslate) {
     terminateAllTasks();
     showStatus("已停止整頁翻譯，已終止所有進行中的翻譯", 2000);
+    if (state.progressPanel) state.progressPanel.classList.add("dmmt-ext-hidden");
     return;
   }
   if (state.picking) stopPickMode();
@@ -467,6 +712,8 @@ function translatePage() {
     queue: [],
     active: 0,
     total: 0, done: 0, ok: 0, blocked: 0, failed: 0,
+    items: new Map(), // el -> {src, status, stage, taskId}（給縮圖進度面板）
+    taskItems: new Map(), // taskId -> item（把伺服器回報的分階段進度對回縮圖；只存進行中的，完成即移除）
     observer: null, onScroll: null, rescanTimer: 0
   };
   _pageTranslate = pt;
@@ -548,6 +795,7 @@ function collectNewPageImages() {
   // 由上而下排序，符合閱讀順序。
   fresh.sort((a, b) => a.getBoundingClientRect().top - b.getBoundingClientRect().top);
   pt.queue.push(...fresh);
+  for (const el of fresh) pt.items.set(el, { src: el.currentSrc || el.src || "", status: "queued" });
   pt.total += fresh.length;
   updatePageStatus();
   pumpPageTranslate();
@@ -579,23 +827,52 @@ function pumpPageTranslate() {
   }
 }
 
+// 完成的縮圖列在 5 秒後自動移出佇列面板，避免整排卡著（失敗/防盜保留，方便看）。
+function scheduleQueueDoneRemoval(pt, el) {
+  setTimeout(() => {
+    if (_pageTranslate === pt && pt.items && pt.items.get(el)?.status === "done") {
+      pt.items.delete(el);
+      updateQueuePanel();
+    }
+  }, 5000);
+}
+
+function markQueueDone(pt, el, it) {
+  if (it) { it.status = "done"; it.doneAt = Date.now(); }
+  scheduleQueueDoneRemoval(pt, el);
+}
+
 async function pageTranslateWorker(pt) {
   while (_pageTranslate === pt && pt.queue.length) {
     const el = pt.queue.shift();
-    if (!el || state.replacements.has(el) || !document.contains(el)) { pt.done++; updatePageStatus(); continue; }
+    const it = pt.items && pt.items.get(el);
+    let taskId;
+    if (it) {
+      it.status = "processing"; it.stage = "";
+      taskId = it.taskId = "t" + (++_taskSeq);
+      pt.taskItems.set(taskId, it); // 讓 translate-progress 能對回這張縮圖
+      updatePageStatus();
+    }
+    if (!el || state.replacements.has(el) || !document.contains(el)) {
+      if (taskId) pt.taskItems.delete(taskId);
+      markQueueDone(pt, el, it); pt.done++; updatePageStatus(); continue;
+    }
     const dataUrl = await getFullResImageDataUrl(el);
     if (_pageTranslate !== pt) return;          // 期間已關閉
-    if (!dataUrl) { pt.blocked++; pt.done++; updatePageStatus(); continue; } // 防盜圖，無法讀取像素
+    if (!dataUrl) { if (it) it.status = "blocked"; if (taskId) pt.taskItems.delete(taskId); pt.blocked++; pt.done++; updatePageStatus(); continue; } // 防盜圖，無法讀取像素
     try {
-      const resp = await sendMessage({ type: "translate-data-url", image: dataUrl });
+      const resp = await sendMessage({ type: "translate-data-url", image: dataUrl, taskId });
       if (_pageTranslate !== pt) return;        // 期間已關閉，別套用
       if (!state.replacements.has(el) && document.contains(el)) {
         replaceImgElement(el, resp.image);
         pt.ok++;
       }
+      markQueueDone(pt, el, it);
     } catch {
       pt.failed++;
+      if (it) it.status = "failed";
     }
+    if (taskId) pt.taskItems.delete(taskId);
     pt.done++;
     updatePageStatus();
   }
@@ -603,8 +880,144 @@ async function pageTranslateWorker(pt) {
 
 function updatePageStatus() {
   const pt = _pageTranslate;
-  if (pt && pt.done < pt.total) showStatus(`整頁翻譯中… ${pt.done}/${pt.total}`);
+  if (pt) {
+    // 只報「目前」在處理幾張（不是整本累計、也不報待翻總數），避免長圖一路滑下來變成幾千張的嚇人數字。
+    let proc = 0;
+    for (const [, it] of pt.items) if (it.status === "processing") proc++;
+    if (proc > 0) showStatus(`整頁翻譯中… 處理 ${proc} 張`);
+  }
   refreshBubbleTitle(); // 進度也寫進「譯」泡泡 tooltip（與頁碼翻譯一致，指著泡泡即可看）
+  updateQueuePanel();
+}
+
+// 伺服器分階段字串 → 顯示標籤（用詞對齊網頁 UI 的 st* zh-TW，讓兩邊一致）。
+const STAGE_LABELS = {
+  "crawl": "爬取網頁中",
+  "download": "下載原圖中",
+  "upload": "上傳中",
+  "pending": "準備中",
+  "running_pre_translation_hooks": "前處理中",
+  "colorizing": "上色中",
+  "upscaling": "放大處理中",
+  "detection": "偵測文字中",
+  "ocr": "辨識文字中（OCR）",
+  "textline_merge": "合併文字行中",
+  "translating": "翻譯中",
+  "after-translating": "翻譯後處理中",
+  "mask-generation": "產生文字遮罩中",
+  "inpainting": "抹除原文中",
+  "rendering": "嵌字渲染中",
+  "downscaling": "縮回尺寸中",
+  "finished": "完成",
+  "skip-no-text": "無文字",
+  "skip-no-regions": "無文字",
+  "error-translating": "翻譯無回應",
+  "cancelled": "已取消",
+  "waiting": "等待翻譯器",
+};
+function stageLabel(stage) {
+  if (!stage) return "處理中";
+  if (stage.startsWith("queue:")) { const n = stage.slice(6); return n ? `排隊中 #${n}` : "排隊中"; }
+  return STAGE_LABELS[stage] || "處理中";
+}
+
+// 翻譯進度面板：常駐浮窗，內容比照網頁 UI 佇列（整頁：完成/總數/待翻/失敗/防盜；頁碼：已抓頁），
+// 讓人一看就知道進度。沒有進行中的翻譯時自動隱藏。
+// 進度面板更新極頻繁：每筆伺服器階段／預抓進度都會呼叫，翻譯時一秒可能數十次。
+// 原本每次都整塊重建 innerHTML → 重新解碼所有縮圖（整頁翻譯那欄縮圖還是「整張原圖」）＋ 重排重繪，
+// 這正是「翻譯時瀏覽器卡」的主因。改成：
+//   1) requestAnimationFrame 合併 → 同一 frame 內的多次呼叫只實際重繪一次（最多 ~60fps）。
+//   2) innerHTML memo → 內容字串沒變就完全不碰 DOM（很多進度 tick 其實不改變可見內容）。
+//   3) 縮圖 decoding="async" → 解碼丟到主執行緒外，不卡捲動／互動。
+let _queuePanelRaf = 0;
+let _lastPanelHtml = null;
+function updateQueuePanel() {
+  if (_queuePanelRaf) return;
+  // 以 window.xxx(...) 形式呼叫，保留接收者；拆成裸函式呼叫 requestAnimationFrame 在部分瀏覽器會丟 Illegal invocation。
+  const cb = () => {
+    _queuePanelRaf = 0;
+    try { renderQueuePanel(); } catch (e) { if (!isExtContextError(e)) throw e; }
+  };
+  _queuePanelRaf = window.requestAnimationFrame ? window.requestAnimationFrame(cb) : window.setTimeout(cb, 16);
+}
+function _setPanelHtml(p, html) {
+  if (html === _lastPanelHtml) return; // 內容沒變 → 不重建 DOM、不重新解碼縮圖
+  _lastPanelHtml = html;
+  p.innerHTML = html;
+}
+function renderQueuePanel() {
+  const p = state.progressPanel;
+  if (!p) return;
+  if (!_showQueuePanel) { p.classList.add("dmmt-ext-hidden"); _lastPanelHtml = null; return; }
+  const pt = _pageTranslate;
+  const LABELS = {
+    processing: ["處理中", "p"], queued: ["排隊中", "q"],
+    done: ["✓ 完成", "d"], failed: ["✗ 失敗", "f"], blocked: ["🛡 防盜", "b"],
+  };
+  if (pt && pt.items && pt.items.size) {
+    // 面板固定大小、用滾輪捲動（CSS 控制高度）。列表「依插入順序」顯示、不依狀態重排，
+    // 縮圖才不會跳來跳去——只就地更新各列徽章。完成逾 5 秒就地清掉，避免累積。
+    // 標題只放小數字（目前處理中張數），不顯示會漲到上千的待翻/完成總數。
+    let proc = 0, failN = 0, blockN = 0, shown = 0, rows = "";
+    for (const [el, it] of pt.items) {
+      const s = it.status;
+      // 完成的立即隱藏不顯示（使用者要求）：從清單移除、不佔位、不顯示「✓ 完成」徽章。
+      if (s === "done") { pt.items.delete(el); continue; }
+      if (s === "processing") proc++;
+      else if (s === "failed") failN++;
+      else if (s === "blocked") blockN++;
+      if (shown < 40) {
+        let label, cls;
+        if (s === "processing") { label = stageLabel(it.stage); cls = "p"; } // 顯示伺服器回報的階段
+        else { [label, cls] = LABELS[s] || LABELS.queued; }
+        const thumb = it.src
+          ? `<img class="dmmt-q-thumb" src="${String(it.src).replace(/"/g, "&quot;")}" loading="lazy" decoding="async">`
+          : `<span class="dmmt-q-thumb"></span>`;
+        rows += `<div class="dmmt-q-item">${thumb}<span class="dmmt-q-badge dmmt-q-${cls}">${label}</span></div>`;
+        shown++;
+      }
+    }
+    if (!shown) { p.classList.add("dmmt-ext-hidden"); _lastPanelHtml = null; return; }
+    let head = proc > 0 ? `📄 整頁翻譯中　處理 ${proc}` : "📄 整頁翻譯";
+    if (failN) head += `・✗ ${failN}`;
+    if (blockN) head += `・🛡 ${blockN}`;
+    _setPanelHtml(p, `<div class="dmmt-q-title">${head}</div><div class="dmmt-q-list">${rows}</div>`);
+    p.classList.add("dmmt-q-fixed");        // 縮圖多 → 固定高度＋滾輪，不跳動
+    p.classList.remove("dmmt-ext-hidden");
+  } else if (_pfPages.size) {
+    // 頁碼翻譯：每個進行中的頁一列（縮圖＋頁碼＋階段徽章），版面跟整頁翻譯一致。
+    // 依頁碼排序，列才不會因為各頁並行收尾而跳來跳去；完成的頁背景已送 done 把列移除。
+    const pages = [..._pfPages.entries()].sort((a, b) => a[0] - b[0]);
+    let rows = "";
+    for (const [page, info] of pages) {
+      const thumb = info.thumb
+        ? `<img class="dmmt-q-thumb" src="${String(info.thumb).replace(/"/g, "&quot;")}" loading="lazy" decoding="async">`
+        : `<span class="dmmt-q-thumb"></span>`;
+      rows += `<div class="dmmt-q-item">${thumb}<span class="dmmt-q-page">第 ${page} 頁</span>` +
+        `<span class="dmmt-q-badge dmmt-q-p">${stageLabel(info.stage)}</span></div>`;
+    }
+    let head = `🔁 頁碼翻譯中　處理 ${_pfPages.size}`;
+    if (_pfProg && _pfProg.done) head += `・已完成 ${_pfProg.done}`;
+    _setPanelHtml(p, `<div class="dmmt-q-title">${head}</div><div class="dmmt-q-list">${rows}</div>`);
+    p.classList.add("dmmt-q-fixed");
+    p.classList.remove("dmmt-ext-hidden");
+  } else if (_pfProg && (_pfProg.total > 0 || _pfProg.currentPage)) {
+    // 還沒有任何進行中的頁（剛啟動爬第一頁、或整輪剛收尾等 idle）→ 退回緊湊摘要，別撐成大空盒。
+    const currentRow = _pfProg.currentPage
+      ? `<div class="dmmt-q-row"><span>目前頁</span><b>${_pfProg.currentPage}</b></div>`
+      : "";
+    // 「預抓目標」拿掉：它只是固定的往後猜上限（PREFETCH_TO_END_CAP=200），不是真實總頁數，顯示反而誤導。
+    _setPanelHtml(p,
+      `<div class="dmmt-q-title">🔁 頁碼翻譯</div>` +
+      currentRow +
+      `<div class="dmmt-q-row"><span>完成 / 已爬取</span><b>${_pfProg.done}/${_pfProg.crawled}</b></div>`);
+    p.classList.remove("dmmt-q-fixed");
+    p.classList.remove("dmmt-ext-hidden");
+  } else {
+    p.classList.remove("dmmt-q-fixed");
+    p.classList.add("dmmt-ext-hidden");
+    _lastPanelHtml = null;
+  }
 }
 
 // 佇列清空（暫時沒有待翻圖）→ 顯示成果並提示仍在監看，不關閉，等新內容載入後自動接續。
@@ -617,6 +1030,7 @@ function onPageQueueDrained() {
   msg += "；持續監看中，捲動載入新內容會自動翻譯（再點一次可停止）";
   showStatus(msg, 4000);
   refreshBubbleTitle();
+  updateQueuePanel();
 }
 
 function stopPageTranslate() {
@@ -626,6 +1040,12 @@ function stopPageTranslate() {
   try { pt.observer?.disconnect(); } catch {}
   if (pt.onScroll) window.removeEventListener("scroll", pt.onScroll, true);
   window.clearInterval(pt.rescanTimer);
+  // UI 收尾：清掉縮圖佇列資料、隱藏面板、抹掉「整頁翻譯中… X/Y」那行殘留字串
+  //（它是 timeout=0 永久顯示，不主動清會一直卡在畫面上 → 使用者以為沒清乾淨）。
+  if (pt.items) pt.items.clear();
+  if (pt.taskItems) pt.taskItems.clear();
+  if (state.progressPanel) state.progressPanel.classList.add("dmmt-ext-hidden");
+  hideStatus();
 }
 
 // 把已載入的 <img> 以原解析度畫到 canvas 取出 dataURL；跨域受污染時回傳 null。
@@ -881,7 +1301,11 @@ function createUi() {
   state.label = document.createElement("div");
   state.label.className = "dmmt-ext-label dmmt-ext-hidden";
 
-  state.root.append(state.button, state.status, state.progress, state.highlight, state.label);
+  // 翻譯進度面板（常駐浮窗，內容比照網頁 UI 佇列）
+  state.progressPanel = document.createElement("div");
+  state.progressPanel.className = "dmmt-ext-queue dmmt-ext-hidden";
+
+  state.root.append(state.button, state.status, state.progress, state.highlight, state.label, state.progressPanel);
   document.documentElement.append(state.root);
 }
 
@@ -999,6 +1423,8 @@ function terminateAllTasks() {
   stopPageTranslate();
   stopAutoMode();
   _pfProg = null;
+  _pfPages.clear();
+  _prefetchedKeys.clear(); // 清掉「已排過」去重集，清除後重新啟用才不會以為整本都抓過而跳過
   refreshBubbleTitle();
   try { sendMessage({ type: "abort-all-tasks" }).catch(() => {}); } catch {}
 }
@@ -1011,6 +1437,7 @@ function confirmAutoTargets() {
   chromeSafeSet({ dmmtAutoEnabled: true, dmmtAutoOrigin: location.origin });
   showStatus(`連續翻譯已鎖定 ${count} 個區域，翻頁會自動翻譯`, 2500);
   runAutoTranslateAll();
+  window.setTimeout(() => runAutoTranslateAll(), 350);
 }
 
 function installAutoTriggers() {
@@ -1079,8 +1506,12 @@ async function runAutoTranslateOne(element, index, gen) {
     const src = element.getAttribute("src") || "";
     if (src && !src.startsWith("data:")) {
       // 先用本頁網址驗證上一頁的預測，再排後面 10 頁預先翻譯。
-      verifyPrefetchPrediction(src);
-      schedulePrefetchNextPages(src);
+      try {
+        verifyPrefetchPrediction(src);
+        schedulePrefetchNextPages(src, undefined, element);
+      } catch (e) {
+        if (_debugOn) console.warn("[DMMT prefetch] skipped; current translation continues", e);
+      }
     }
     const keys = [];
     const cs = element.currentSrc || "";
@@ -1356,7 +1787,7 @@ async function translateBoxRects(rects) {
     });
     const composite = canvas.toDataURL("image/png");
     showProgress("翻譯中");
-    const resp = await sendMessage({ type: "translate-data-url", image: composite });
+    const resp = await translateWithStageProgress(composite);
     const union = { left: minL, top: minT, width: maxR - minL, height: maxB - minT };
     addResultOverlay(resp.image, union, null, null);
     _boxCache.set(_pageIdx, { image: resp.image, union }); // 記住這頁翻譯，滾回來能重貼
@@ -1579,7 +2010,7 @@ async function translateImgFullRes(img, dataUrl) {
   maybeDumpInput(dataUrl);
   showProgress("翻譯中");
   try {
-    const resp = await sendMessage({ type: "translate-data-url", image: dataUrl });
+    const resp = await translateWithStageProgress(dataUrl);
     // 翻譯期間若已換頁或換圖就放棄，避免貼錯。
     if (location.href !== pageToken) return;
     const curSrc = img.getAttribute("src") || "";
@@ -1613,10 +2044,7 @@ async function captureAndTranslateWithoutExtensionUi(rect) {
   await reportDiag("截圖" + (_imgDiag ? `（無法取原圖：${_imgDiag}）` : ""), crop.image);
   maybeDumpInput(crop.image);
   showProgress("翻譯中");
-  return sendMessage({
-    type: "translate-data-url",
-    image: crop.image
-  });
+  return translateWithStageProgress(crop.image);
 }
 
 function waitForPaint() {
@@ -2208,14 +2636,19 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       stopAutoMode();
       stopPageTranslate();
     }
+    if (message.action === "terminate-all") {
+      terminateAllTasks();
+      showStatus("已終止所有進行中的翻譯任務", 1800);
+    }
     if (message.action === "clear-current") {
-      // 清除目前頁面的翻譯：還原所有替換並刪掉它們的快取，避免又被掃回來。
+      // 「清除所有翻譯」：還原所有替換並刪掉它們的快取，避免又被掃回來。
       clearOverlays();
       for (const el of Array.from(state.replacements.keys())) {
         restoreInPlaceReplacement(el, true);
       }
-      stopAutoMode();
-      stopPageTranslate();
+      // 全停：連持久化監看、預抓、伺服器進行中的任務一起終止（清除＝全部停掉，
+      // 否則監看/預抓還在背景跑，使用者會覺得「清了還在動、數字沒清乾淨」）。
+      terminateAllTasks();
     }
     if (message.action === "translate-page") translatePage();
     if (message.action === "toggle-page") translatePage();

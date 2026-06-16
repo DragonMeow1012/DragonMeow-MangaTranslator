@@ -222,8 +222,11 @@ def _is_likely_preserve_sfx(region) -> bool:
     expressive_marks = bool(re.search(r'[ーｰ～〜…‥・っッ!！?？]', src))
 
     # Outside bubbles, short kana-like low-confidence text is usually SFX.
+    # 只有「低信心 AND 有 SFX 特徵」才保留原文不翻。原本是 OR → 任何含 ー/！/… 的乾淨大字喊聲
+    # （例「すごーい」）只因有長音 ー 就被當 SFX 丟掉不翻（漏翻、連 editor 都看不到）。真 SFX 是手繪
+    # 低信心，照樣被 (prob<=thresh) 攔下；高信心的印刷字（對白/喊聲）不再誤砍。
     if not in_bubble:
-        return prob <= _PRESERVE_SFX_PROB_THRESH or motif_hit or expressive_marks
+        return (prob <= _PRESERVE_SFX_PROB_THRESH) and (motif_hit or expressive_marks)
 
     # Inside a speech-bubble detector box, be stricter so short dialogue such as
     # "うん" is not accidentally preserved.
@@ -590,6 +593,7 @@ class MangaTranslator:
         
     def _set_image_context(self, config: Config, image=None):
         """设置当前处理图片的上下文信息，用于生成调试图片子文件夹"""
+        import uuid
         from .utils.generic import get_image_md5
 
         # 使用毫秒级时间戳确保唯一性
@@ -604,8 +608,10 @@ class MangaTranslator:
         else:
             file_md5 = "unknown"
 
-        # 生成子文件夹名：{timestamp}-{file_md5}-{detection_size}-{target_lang}-{translator}
-        subfolder_name = f"{timestamp}-{file_md5}-{detection_size}-{target_lang}-{translator}"
+        # 生成子文件夹名：{timestamp}-{file_md5}-{detection_size}-{target_lang}-{translator}-{uuid}
+        # 末尾加 uuid：毫秒時間戳在 Windows 很粗（多次呼叫常落同一毫秒），同內容圖 md5 又相同，
+        # 沒有 uuid 時兩張會算出同名資料夾 → 互相覆蓋 final.png → 重複頁。uuid4 與時間/內容無關，保證唯一。
+        subfolder_name = f"{timestamp}-{file_md5}-{detection_size}-{target_lang}-{translator}-{uuid.uuid4().hex[:8]}"
 
         self._current_image_context = {
             'subfolder': subfolder_name,
@@ -662,6 +668,12 @@ class MangaTranslator:
         # 保存debug文件夹信息到Context中（用于Web模式的缓存访问）
         # 在web模式下总是保存，不仅仅是verbose模式
         ctx.debug_folder = self._get_image_subfolder()
+
+        # 【關鍵】立刻（任何 await 之前）把本張的資料夾快照進 ctx。K 並發共用一個 translator 實例，
+        # self._current_image_context 是全域；若拖到 _stage_pre_llm 才快照（那中間有 gpu_lock await），
+        # 期間別張的 _set_image_context 會覆蓋它 → 這張就抓到別張的資料夾 → 整批重複頁/檔名錯亂。
+        # 同步快照後，rendering_folder / final_ready / final.png 全解析到「這張自己的」資料夾。
+        ctx.image_context = dict(self._current_image_context) if self._current_image_context else None
         
         # 保存原始输入图片用于调试
         if self.verbose:
@@ -737,6 +749,11 @@ class MangaTranslator:
         _t = time.perf_counter()
         async with gpu_lock.acquire('post'):
             ctx = await self._stage_post_gpu(config, ctx)
+            # 抹字是「變動大尺寸」的 GPU 配置（尤其長條全寬版，每頁尺寸都不同）→ CUDA caching allocator
+            # 會因尺寸不一而碎裂、保留的快取 watermark 一路爬高（使用者回報「VRAM 壅塞不釋放、總消耗太高」）。
+            # 持鎖時把這頁的快取交回（此時無其他 GPU 階段並行，清得最乾淨），避免跨頁累積。
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
         logger.info(f'[timing] post_gpu(mask+inpaint) {(time.perf_counter()-_t)*1000:.0f}ms')
         if getattr(ctx, '_pipeline_done', False):
             return ctx
@@ -1090,9 +1107,10 @@ class MangaTranslator:
                 except Exception as e:
                     logger.warning(f"Failed to save edit state: {e}")
 
-            # 通知前端文件已就绪
-            if hasattr(self, '_progress_hooks') and self._current_image_context:
-                folder_name = self._current_image_context['subfolder']
+            # 通知前端文件已就绪。讀 ctx.image_context（這張自己的快照），不讀會被別張覆蓋的 self.*。
+            _fr_ctx = getattr(ctx, 'image_context', None) or self._current_image_context
+            if hasattr(self, '_progress_hooks') and _fr_ctx:
+                folder_name = _fr_ctx['subfolder']
                 await self._report_progress(f'final_ready:{folder_name}')
 
             # 创建占位符结果并立即返回（Image 已在模組頂層 import）
@@ -1301,11 +1319,20 @@ class MangaTranslator:
             os.environ['MANGA_OCR_RESULT_DIR'] = ocr_result_dir
         
         try:
-            textlines = await self._run_async_in_thread(
-                dispatch_ocr,
-                config.ocr.ocr, ctx.img_rgb, ctx.textlines, config.ocr,
-                self._resolve_ocr_device(config.ocr), self.verbose,
+            # 加逾時：PaddleOCR predict 偶爾卡住單執行緒 GPU pipeline（持著 gpu_lock 不放→整批卡死，
+            # log 停在 "Running ocr"）。逾時就放棄本頁 OCR、釋放鎖，避免凍結整批。日文建議用 manga-ocr
+            # （不會卡），韓文才用 paddle。可用 env MANGA_OCR_TIMEOUT 調整秒數。
+            textlines = await asyncio.wait_for(
+                self._run_async_in_thread(
+                    dispatch_ocr,
+                    config.ocr.ocr, ctx.img_rgb, ctx.textlines, config.ocr,
+                    self._resolve_ocr_device(config.ocr), self.verbose,
+                ),
+                timeout=float(os.getenv('MANGA_OCR_TIMEOUT', '120')),
             )
+        except asyncio.TimeoutError:
+            self.logger.error('OCR 逾時（疑似 PaddleOCR predict 卡住）→ 跳過本頁 OCR 並釋放 GPU 鎖；日文建議改用 manga-ocr')
+            textlines = []
         finally:
             # 恢复环境变量
             if old_ocr_dir is not None:
@@ -1913,6 +1940,20 @@ class MangaTranslator:
         # 讓編輯器能列出、讓使用者自行決定要不要翻。
         ctx._skipped_regions = []
         new_text_regions = []
+        # 大型裝飾 SFX 判定用：頁內各框高度中位數＝對話字高；SFX（如「碎片」）字高遠大於此。
+        def _box_h(r):
+            try:
+                x1, y1, x2, y2 = r.xyxy
+                return abs(float(y2) - float(y1))
+            except Exception:
+                return 0.0
+        _heights = sorted(h for h in (_box_h(r) for r in ctx.text_regions) if h > 0)
+        _median_h = _heights[len(_heights) // 2] if _heights else 0.0
+        # 只翻泡泡內模式（webtoon 用，env MANGA_ONLY_TRANSLATE_BUBBLES=1）：框外文字
+        # （SFX / 旁白 / 誤偵測的臉）一律不翻、保留原圖。一條規則同時解掉「SFX 被翻」
+        # 「臉上冒假句」「inpaint 抹出髒邊」——skip ＝ 不挖洞 ＝ 原圖。
+        _only_bubbles = bool(getattr(config, 'translate_only_in_bubbles', False)) \
+            or os.getenv('MANGA_ONLY_TRANSLATE_BUBBLES', '0') in ('1', 'true', 'True')
         for region in ctx.text_regions:
             should_filter = False
             filter_reason = ""
@@ -1921,7 +1962,11 @@ class MangaTranslator:
                 should_filter = True
                 filter_reason = "Translation contain blank areas"
             elif config.translator.translator != Translator.none:
-                if region.translation.isnumeric():
+                if _only_bubbles and getattr(region, '_layout_role', '') != 'dialogue' \
+                        and getattr(region, '_bubble_rect', None) is None:
+                    should_filter = True
+                    filter_reason = "Outside-bubble skipped (only-translate-bubbles mode)"
+                elif region.translation.isnumeric():
                     should_filter = True
                     filter_reason = "Numeric translation"
                 elif config.filter_text and re.search(config.re_filter_text, region.translation):
@@ -1954,6 +1999,18 @@ class MangaTranslator:
                     # → 不翻、挖洞保留原作。斜角對話泡極罕見且有 _bubble_rect 護著。
                     should_filter = True
                     filter_reason = "Steep-angle handwriting outside bubble (keep original art)"
+                elif (
+                    getattr(region, '_layout_role', '') != 'dialogue'
+                    and getattr(region, '_bubble_rect', None) is None
+                    and _median_h > 0
+                    and _box_h(region) >= 2.2 * _median_h
+                    and len(re.sub(r'\s', '', region.translation)) <= 6
+                ):
+                    # 框外 + 字高遠大於頁內中位數 + 短字 = 大型裝飾/音效字（如「碎片」）。
+                    # 韓文等非假名 SFX 不會被 _looks_like_pure_sfx_source 抓到 → 在這裡補抓；
+                    # 翻譯後渲染會蓋掉原作美術字 → 不翻、挖洞保留原圖。
+                    should_filter = True
+                    filter_reason = "Large short text outside bubble = decorative SFX (keep original art)"
                 # 已移除「translation identical to original」過濾：
                 # gemini_2stage 在 LLM 失敗時會「回填原文」(translation=Japanese=原文)，
                 # 過濾掉這些 region 會導致它們被 inpaint 塗白卻沒新字 → 空白氣泡。

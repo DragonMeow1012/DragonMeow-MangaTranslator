@@ -11,6 +11,8 @@ const I18N = {
     enableHint: "每次進入新網站需重新啟用",
     pick: "🖼 選取圖片翻譯替換",
     translatePage: "📄 整頁翻譯",
+    terminateAll: "⏹ 終止所有任務",
+    terminateAllDone: "已終止所有任務",
     downloadCurrent: "⬇ 下載此頁翻譯圖",
     downloadAll: "⬇ 下載所有翻譯圖（zip）",
     retry: "翻譯失敗自動重試",
@@ -86,6 +88,8 @@ const I18N = {
     enableHint: "每次进入新网站需重新启用",
     pick: "🖼 选取图片翻译替换",
     translatePage: "📄 整页翻译",
+    terminateAll: "⏹ 终止所有任务",
+    terminateAllDone: "已终止所有任务",
     downloadCurrent: "⬇ 下载此页翻译图",
     downloadAll: "⬇ 下载所有翻译图（zip）",
     retry: "翻译失败自动重试",
@@ -161,6 +165,8 @@ const I18N = {
     enableHint: "Re-enable on each new site",
     pick: "🖼 Pick image to translate",
     translatePage: "📄 Translate whole page",
+    terminateAll: "⏹ Abort all tasks",
+    terminateAllDone: "Aborted all tasks",
     downloadCurrent: "⬇ Download this page",
     downloadAll: "⬇ Download all (zip)",
     retry: "Auto-retry on failure",
@@ -236,6 +242,8 @@ const I18N = {
     enableHint: "新しいサイトごとに再有効化が必要",
     pick: "🖼 画像を選んで翻訳",
     translatePage: "📄 ページ全体を翻訳",
+    terminateAll: "⏹ すべてのタスクを中止",
+    terminateAllDone: "すべてのタスクを中止しました",
     downloadCurrent: "⬇ このページをDL",
     downloadAll: "⬇ すべてDL（zip）",
     retry: "失敗時に自動リトライ",
@@ -324,6 +332,7 @@ function applyLang() {
   document.getElementById("txt-enable-hint").textContent = t("enableHint");
   document.getElementById("txt-pick").textContent = t("pick");
   document.getElementById("txt-translate-page").textContent = t("translatePage");
+  document.getElementById("txt-terminate-all").textContent = t("terminateAll");
   document.getElementById("txt-tp-hint").textContent = t("tpHint");
   document.getElementById("txt-auto-hint").textContent = t("autoHint");
   document.getElementById("txt-pf-notify").textContent = t("pfNotify");
@@ -516,6 +525,18 @@ document.getElementById("page").addEventListener("click", async () => {
   if (st && st.pageActive) window.close(); // 開啟時關 popup 讓使用者看進度；關閉時留著
 });
 
+document.getElementById("terminate-all").addEventListener("click", async () => {
+  const span = document.getElementById("txt-terminate-all");
+  const st = await sendCommand("terminate-all");
+  try {
+    await bg({ type: "abort-all-tasks" });
+    errBox.textContent = "";
+  } catch {}
+  if (st) updateButtons(st);
+  span.textContent = t("terminateAllDone");
+  setTimeout(() => { span.textContent = t("terminateAll"); }, 1800);
+});
+
 document.getElementById("download-current").addEventListener("click", () => {
   sendCommand("download-current");
 });
@@ -624,22 +645,58 @@ function setServerStatus(status) {
 
 const providerSelect = document.getElementById("set-provider");
 const modelInput = document.getElementById("set-model");
-const apikeyInput = document.getElementById("set-apikey");
+const apikeyRowsEl = document.getElementById("apikey-rows");
+let _apikeyShown = false;
+function makeApiKeyRow(val) {
+  const row = document.createElement("div");
+  row.className = "field-row";
+  row.style.marginBottom = "4px";
+  const inp = document.createElement("input");
+  inp.className = "field";
+  inp.type = _apikeyShown ? "text" : "password";
+  inp.autocomplete = "off";
+  inp.value = val || "";
+  const del = document.createElement("button");
+  del.className = "icon-btn";
+  del.type = "button";
+  del.textContent = "✕";
+  del.title = "移除這把 key";
+  del.addEventListener("click", () => {
+    row.remove();
+    if (!apikeyRowsEl.children.length) apikeyRowsEl.appendChild(makeApiKeyRow(""));
+  });
+  row.appendChild(inp);
+  row.appendChild(del);
+  return row;
+}
+function renderApiKeyRows(keys) {
+  const list = (keys && keys.length) ? keys : [""];
+  apikeyRowsEl.innerHTML = "";
+  for (const k of list) apikeyRowsEl.appendChild(makeApiKeyRow(k));
+  updateApiKeyPlaceholder();
+}
+function collectApiKeys() {
+  return [...apikeyRowsEl.querySelectorAll("input")].map((i) => i.value.trim()).filter(Boolean).join("\n");
+}
 const baseurlInput = document.getElementById("set-baseurl");
 const baseurlLabel = document.getElementById("txt-baseurl");
 const sendimageRow = document.getElementById("set-sendimage");
+const onlyBubblesRow = document.getElementById("set-onlybubbles");
+const parallelBandsRow = document.getElementById("set-parallelbands");
+const fontBorderRow = document.getElementById("set-fontborder");
 const langSetSelect = document.getElementById("set-lang");
 const ocrSelect = document.getElementById("set-ocr");
 const dirSelect = document.getElementById("set-dir");
 const inpaintSelect = document.getElementById("set-inpaint");
+const maskDilationInput = document.getElementById("set-maskdilation");
 const saveStatus = document.getElementById("set-status");
 
 let _view = null; // 後端回傳的設定視圖（含 models 與 apiKeySet）
 
 function updateApiKeyPlaceholder() {
   const p = providerSelect.value;
-  const isSet = _view?.apiKeySet?.[p];
-  apikeyInput.placeholder = isSet ? t("apikeyKeep") : t("apikeyEmpty");
+  const ph = _view?.apiKeySet?.[p] ? t("apikeyKeep") : t("apikeyEmpty");
+  apikeyRowsEl.querySelectorAll("input").forEach((i) => { i.placeholder = ph; });
 }
 
 function applyViewToFields() {
@@ -651,19 +708,22 @@ function applyViewToFields() {
   if (_om === "mocr") _om = "mocr/gpu";                  // 舊值遷移
   else if (_om === "paddle/auto") _om = "paddle/auto/gpu";
   ocrSelect.value = _om;
+  if (!ocrSelect.value) ocrSelect.value = "mocr/gpu";   // 伺服器值不在清單時不要留空白（OCR 沒更新到）
   dirSelect.value = _view.renderTextDirection || "auto";
-  inpaintSelect.value = _view.inpainter || "lama_mpe";
+  inpaintSelect.value = _view.inpainter || "lama_large";
+  maskDilationInput.value = (_view.maskDilationOffset != null) ? _view.maskDilationOffset : 20;
   sendimageRow.classList.toggle("on", _view.llmSendImage !== false);
+  onlyBubblesRow.classList.toggle("on", _view.onlyTranslateBubbles === true);
+  parallelBandsRow.classList.toggle("on", _view.parallelBands === true);
+  fontBorderRow.classList.toggle("on", _view.fontBorder === true);
 }
 
 function refreshProviderDependentFields() {
   const p = providerSelect.value;
   const model = _view?.models?.[p];
   modelInput.value = model || _view?.providerDefaults?.[p] || "";
-  // 回填該服務商目前的金鑰（密碼遮罩，需點眼睛才看明文）。
-  apikeyInput.value = _view?.apiKeys?.[p] || "";
-  apikeyInput.type = "password";
-  updateApiKeyPlaceholder();
+  // 回填該服務商目前的金鑰，拆成多行（密碼遮罩，需點眼睛才看明文）。
+  renderApiKeyRows((_view?.apiKeys?.[p] || "").split(/[,\n]+/).map((s) => s.trim()).filter(Boolean));
   const isCustom = p === "custom";
   baseurlInput.style.display = isCustom ? "block" : "none";
   baseurlLabel.style.display = isCustom ? "block" : "none";
@@ -695,8 +755,15 @@ async function loadSettings() {
 
 providerSelect.addEventListener("change", refreshProviderDependentFields);
 sendimageRow.addEventListener("click", () => sendimageRow.classList.toggle("on"));
+onlyBubblesRow.addEventListener("click", () => onlyBubblesRow.classList.toggle("on"));
+parallelBandsRow.addEventListener("click", () => parallelBandsRow.classList.toggle("on"));
+fontBorderRow.addEventListener("click", () => fontBorderRow.classList.toggle("on"));
 document.getElementById("set-apikey-eye").addEventListener("click", () => {
-  apikeyInput.type = apikeyInput.type === "password" ? "text" : "password";
+  _apikeyShown = !_apikeyShown;
+  apikeyRowsEl.querySelectorAll("input").forEach((i) => { i.type = _apikeyShown ? "text" : "password"; });
+});
+document.getElementById("apikey-add").addEventListener("click", () => {
+  apikeyRowsEl.appendChild(makeApiKeyRow(""));
 });
 
 document.getElementById("set-save").addEventListener("click", async () => {
@@ -705,12 +772,17 @@ document.getElementById("set-save").addEventListener("click", async () => {
     llmProvider: providerSelect.value,
     model: modelInput.value.trim(),
     llmSendImage: sendimageRow.classList.contains("on"),
+    onlyTranslateBubbles: onlyBubblesRow.classList.contains("on"),
+    parallelBands: parallelBandsRow.classList.contains("on"),
+    fontBorder: fontBorderRow.classList.contains("on"),
     targetLanguage: langSetSelect.value,
     ocrModel: ocrSelect.value,
     renderTextDirection: dirSelect.value,
-    inpainter: inpaintSelect.value
+    inpainter: inpaintSelect.value,
+    maskDilationOffset: maskDilationInput.value === "" ? 20 : parseInt(maskDilationInput.value)
   };
-  if (apikeyInput.value.trim() !== "") patch.apiKey = apikeyInput.value.trim();
+  const _ak = collectApiKeys();
+  if (_ak) patch.apiKey = _ak;
   if (providerSelect.value === "custom") patch.customBaseUrl = baseurlInput.value.trim();
   try {
     const result = await bg({ type: "save-settings", patch });
@@ -745,6 +817,19 @@ retryRow.addEventListener("click", async () => {
   const on = !retryRow.classList.contains("on");
   retryRow.classList.toggle("on", on);
   await chrome.storage.local.set({ [AUTO_RETRY_KEY]: on });
+});
+
+// ---- 翻譯進度面板（縮圖佇列）顯示開關 ----
+const SHOW_QUEUE_KEY = "dmmtShowQueuePanel";
+const queuePanelRow = document.getElementById("set-queuepanel");
+async function loadQueuePanelPref() {
+  const stored = await chrome.storage.local.get(SHOW_QUEUE_KEY);
+  queuePanelRow.classList.toggle("on", stored[SHOW_QUEUE_KEY] !== false); // 預設開
+}
+queuePanelRow.addEventListener("click", async () => {
+  const on = !queuePanelRow.classList.contains("on");
+  queuePanelRow.classList.toggle("on", on);
+  await chrome.storage.local.set({ [SHOW_QUEUE_KEY]: on });
 });
 
 // ---- Crawler: 請求「所有網站」存取權去抓跨域原圖 ----
@@ -900,19 +985,25 @@ document.getElementById("clear-current").addEventListener("click", async () => {
   if (st) window.close(); // 關 popup 讓使用者去點要重翻的那張圖
 });
 
-// 清除所有翻譯：清空整個快取儲存，並還原目前頁面。
+// 清除所有翻譯：先停背景（預抓爬圖＋進行中翻譯）→ 再清空整個快取儲存 → 還原目前頁面。
+// 順序很重要：若先清儲存再停背景，正在跑的預抓 worker 會在清完之後又把爬到的圖寫回快取
+//（storePrefetchCache）→ 使用者看到「清不乾淨、又冒出來」。先 abort 才不會被重新寫回。
 document.getElementById("clear-all").addEventListener("click", async () => {
   const span = document.getElementById("txt-clear-all");
   try {
-    const all = await chrome.storage.local.get(null);
-    const keys = Object.keys(all).filter(k => k.startsWith("dmmtImgCache:") || k === "dmmtPageCacheIndex");
-    if (keys.length) await chrome.storage.local.remove(keys);
+    // 1) 直接叫背景中止所有任務（預抓迴圈 + 進行中翻譯 + 清 in-flight）；內容腳本沒注入時也保證停得了。
+    try { await chrome.runtime.sendMessage({ type: "abort-all-tasks" }); } catch {}
+    // 2) 通知內容腳本：還原頁面替換 + terminateAllTasks（停持久化監看、清面板/預抓狀態）。
     try {
       const tabId = await activeTabId();
       if (tabId) await chrome.tabs.sendMessage(tabId, { type: "popup-command", action: "clear-current" });
     } catch {
       // 內容腳本未注入的頁面忽略即可。
     }
+    // 3) 背景已停，現在清掉所有快取（含爬的圖）才不會被重新寫回。重新讀一次 storage 取最新鍵。
+    const all = await chrome.storage.local.get(null);
+    const keys = Object.keys(all).filter(k => k.startsWith("dmmtImgCache:") || k === "dmmtPageCacheIndex");
+    if (keys.length) await chrome.storage.local.remove(keys);
     span.textContent = `${t("clearCacheDone")} (${keys.length})`;
     updateCacheInfo();
   } catch {
@@ -923,6 +1014,7 @@ document.getElementById("clear-all").addEventListener("click", async () => {
 
 loadPrefs().then(fillPrefsInputs);
 loadRetryPref();
+loadQueuePanelPref();
 loadDebugPref();
 loadCrawlPref();
 loadPrefetchPrefs();

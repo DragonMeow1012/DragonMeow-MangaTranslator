@@ -1,5 +1,6 @@
 import asyncio
 import contextvars
+import os
 import pickle
 import io
 import secrets
@@ -65,15 +66,36 @@ class MangaShare:
         # _progress_queue_var.get() 取到正確的 queue。沒有 listener 的 hook（理論上不會發生
         # 因為每個 request 都會 set queue）就 drop 訊息。
         async def hook(state: str, finished: bool):
-            q = _progress_queue_var.get()
-            if q is None:
+            ctx = _progress_queue_var.get()
+            if ctx is None:
                 return
             state_data = state.encode("utf-8")
             progress_data = b'\x01' + len(state_data).to_bytes(4, 'big') + state_data
-            await q.put(progress_data)
+            # 記住最後一個真實進度 frame，心跳會原樣重送它（前端看到的階段標籤不變）
+            ctx['last'] = progress_data
+            await ctx['q'].put(progress_data)
             await asyncio.sleep(0)
 
         self.manga.add_progress_hook(hook)
+
+    async def _heartbeat(self, queue: asyncio.Queue, ctx: dict):
+        """Idle watchdog 的心跳：頁面處理期間，只要 worker event loop 還活著就每
+        MT_WORKER_HEARTBEAT 秒往 queue 塞一個 status=1 frame（重送最後的真實進度，前端無感）。
+        OCR 走 to_thread、LLM 是純網路 await → loop 都空著 → 心跳照常 → 慢頁不會被誤判卡死。
+        只有 loop 被同步操作卡住、或 worker 進程掛掉（socket 斷）才會停止心跳 →
+        orchestrator 端的 sock_read 逾時（MT_IDLE_TIMEOUT，預設 30s＝漏掉 3 拍）才會觸發。
+        run_method 完成時由 done callback cancel 掉本 task。"""
+        interval = float(os.getenv('MT_WORKER_HEARTBEAT', '10'))
+        try:
+            while True:
+                await asyncio.sleep(interval)
+                frame = ctx.get('last')
+                if frame is None:
+                    st = b'processing'
+                    frame = b'\x01' + len(st).to_bytes(4, 'big') + st
+                await queue.put(frame)
+        except asyncio.CancelledError:
+            return
 
     async def progress_stream(self, queue: asyncio.Queue):
         """Loop 讀 queue 直到拿到 status != 1（最終結果 0 或錯誤 2）。"""
@@ -159,13 +181,19 @@ class MangaShare:
             config = attr.get('config')
             self.manga._is_streaming_mode = getattr(config, '_web_frontend_optimized', False) if config else False
 
-            # 為這個 request 建立獨立 queue 並透過 contextvar 暴露給 hook
+            # 為這個 request 建立獨立 queue + ctx，透過 contextvar 暴露給 hook。
+            # ctx['last'] 存最後的進度 frame 供心跳重送。
             queue: asyncio.Queue = asyncio.Queue()
-            _progress_queue_var.set(queue)
+            ctx = {'q': queue, 'last': None}
+            _progress_queue_var.set(ctx)
 
-            # create_task 複製當前 context（含 _progress_queue_var=queue），
-            # hook 在子 task 裡呼叫 .get() 取到的就是這個 queue
-            asyncio.create_task(self.run_method(method, queue, **attr))
+            # create_task 複製當前 context（含 _progress_queue_var=ctx），
+            # hook 在子 task 裡呼叫 .get() 取到的就是這個 ctx
+            run_task = asyncio.create_task(self.run_method(method, queue, **attr))
+            # 心跳 task：worker 活著就持續餵 frame，讓 orchestrator 的 sock_read 不誤殺慢頁。
+            # run_method 一結束（成功/失敗）就 cancel 掉心跳，避免多塞 frame。
+            hb_task = asyncio.create_task(self._heartbeat(queue, ctx))
+            run_task.add_done_callback(lambda _t: hb_task.cancel())
 
             return StreamingResponse(self.progress_stream(queue), media_type="application/octet-stream")
 

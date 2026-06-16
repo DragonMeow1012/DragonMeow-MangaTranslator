@@ -36,7 +36,41 @@ _LEADING_CJK_INTERJECTION_RE = re.compile(
 _PURE_KANA_SFX_RE = re.compile(r'^[\u3040-\u309f\u30a0-\u30ffー！？!？?．。…・\s]+$')
 
 
+# LLM 偶爾把結構化輸出的「欄位名」原樣 echo 回來當值——最常見於「純符號格子」（…、…？、!? 等沒內容
+# 可譯時，模型沒東西填就回填 schema 欄位名）。渲染成字面 "translated_text" 很醜 → 視為「沒譯出來」，呼叫端回填原文
+# （純符號本來就該原樣顯示）。涵蓋 translated_text / corrected_text / translation / text_id 等欄位名與其變體。
+_FIELD_ECHO_RE = re.compile(
+    r'^[\s"\'\[\]{}()：:,，.。]*'
+    r'(?:translated[_\s]?text|corrected[_\s]?text|original[_\s]?text|translation|source|bbox[_\s]?id|text[_\s]?id|text)'
+    r'[\s"\'\[\]{}()：:,，.。]*$',
+    re.IGNORECASE,
+)
+# 欄位名出現在字串「任何位置」（含後面接亂碼，如 "translated_text j..."）也是 echo。底線型欄位名
+# 絕不會出現在真譯文 → 當高信心洩漏（只認底線型，避免英文自然句裡的 "translated text" 誤判）。
+_FIELD_LEAK_RE = re.compile(r'(?:translated|corrected|original)_text|text_id|bbox_id', re.IGNORECASE)
+def _is_field_name_echo(text: str) -> bool:
+    """LLM 把 schema 欄位名當值吐回來（純符號格子最常見）→ True，呼叫端應回填原文而非渲染欄位名。"""
+    s = str(text or '')
+    return bool(_FIELD_ECHO_RE.match(s)) or bool(_FIELD_LEAK_RE.search(s))
+
+# 「真正內容字元」：拉丁字母／數字／漢字／假名／諺文。完全沒有 = 純符號格子（…、…？、!? 等）——
+# 這類根本不用翻、又正是 LLM 最容易 echo 欄位名／亂吐的格子 → 一律直接回填原文（符號原樣顯示）。
+_HAS_CONTENT_CHAR_RE = re.compile(r'[0-9A-Za-z぀-ヿ㐀-鿿一-鿿가-힣]')
+def _is_symbol_only(text: str) -> bool:
+    s = str(text or '').strip()
+    return bool(s) and not _HAS_CONTENT_CHAR_RE.search(s)
+
+
 _ANCHOR_LEAK_RE = re.compile(r'OCR\s*漏抓|漏抓的泡泡|逐字讀出|點點與假名|裡面有字')
+
+# LLM 沒輸出 [SKIP]，改用中文描述「這是裝飾字/擬聲詞…略過」把 prompt 指令回顯成譯文，
+# 結果被渲染上圖（例：「（手寫裝飾字，略過）」「（擬聲詞，略過）」）。整段是指令回顯
+# → 清空當 skip；後處理 filter（manga_translator：空譯文 → _skipped_regions）會保留原圖美術字。
+_SKIP_PARAPHRASE_RE = re.compile(
+    r'[（(][^（()）]{0,24}(?:略過|跳過|省略|忽略|不(?:翻|譯|處理)|保留原|skip)[^（()）]{0,6}[)）]'
+    r'|手寫裝飾字|手寫塗鴉|斜寫裝飾字',
+    re.IGNORECASE,
+)
 
 
 def clean_synonym_parens(text: str) -> str:
@@ -48,7 +82,7 @@ def clean_synonym_parens(text: str) -> str:
     # 空泡泡（_synth_bubble）的錨點指示「(OCR 漏抓的泡泡…請看圖逐字讀出，含點點與假名)」
     # 有時會被 LLM 照抄回 corrected/translated_text。這些字串絕不會出現在真對白，命中即視為
     # 「LLM 沒讀出內容」→ 清空，避免把 prompt 指示渲染到圖上。
-    if _ANCHOR_LEAK_RE.search(text):
+    if _ANCHOR_LEAK_RE.search(text) or _SKIP_PARAPHRASE_RE.search(text):
         return ''
     # 純假名（SFX 回填的原文）不要動
     if re.match(r'^[぀-ゟ゠-ヿー…．.\s]+$', text):
@@ -363,6 +397,8 @@ class Gemini2StageTranslator(CommonTranslator):
         # 是否把漫畫圖傳給 LLM 校對（網頁端開關）。關閉 = 純文字翻譯，
         # 文字模型也能用、省流量，但 OCR 仲裁少了看圖依據，準確度略低。
         self._send_image = True
+        # [beta] 長圖/密集頁加速：region 多時切 y 帶平行打多個 LLM call（parse_args 由網頁/擴充覆寫）
+        self._parallel_bands = False
         # 每次 _gemini_json_call 進來 round-robin 一個起始 key index。
         # 並發 K 張同時打 LLM 時，第 1 張用 key #0、第 2 張 key #1、...，分散 quota 壓力。
         # 單 thread asyncio 下整數遞增是原子的，不需 lock。
@@ -389,6 +425,13 @@ class Gemini2StageTranslator(CommonTranslator):
         # max_tokens 動態：batch 大時 vision response 變大；單頁時用 self.max_tokens
         self._batch_max_tokens_per_page = max(2000, int(os.getenv('GEMINI_2STAGE_BATCH_TOKENS_PER_PAGE', '4000')))
         self._batch_buffer: '_UnifiedBatchBuffer | None' = None  # lazy-init in event loop
+
+        # 送圖(vision)看圖 LLM 呼叫 timeout：送圖 token 多、比純文字慢。env 可調，預設 90s。
+        # 注意：送圖路徑本來就是 90s（>60），刻意不降到 60——長頁/多 bbox 在 60s 容易逾時漏翻。
+        # 要更短可設 GEMINI_2STAGE_VISION_TIMEOUT=60。
+        self._vision_timeout_s = max(15.0, float(os.getenv('GEMINI_2STAGE_VISION_TIMEOUT', '90')))
+        # 純文字 LLM 呼叫（補譯/校對）timeout，預設 45s。
+        self._text_timeout_s = max(10.0, float(os.getenv('GEMINI_2STAGE_TEXT_TIMEOUT', '45')))
 
     def parse_args(self, args):
         """每次請求由 dispatch() 呼叫：套用網頁端送來的 provider / API key / 模型覆寫。
@@ -426,9 +469,23 @@ class Gemini2StageTranslator(CommonTranslator):
         send_image = getattr(args, 'llm_send_image', None)
         if send_image is not None:
             self._send_image = bool(send_image)
+        pb = getattr(args, 'parallel_bands', None)
+        if pb is not None:
+            self._parallel_bands = bool(pb)
         model = (getattr(args, 'llm_model', None) or '').strip()
         if model:
             self.refine_model = self.translate_model = model
+            # 對齊穩定版 bot：unified call 「有送圖」時是 vision call，模型必須 vision-capable。
+            # gemini provider 卻選了非 vision 的模型（如 gemma-*）+ 送圖開關開著 → 送圖給非 vision 的
+            # Gemma 會讓 Google 回 500 INTERNAL → 整頁漏翻。此情況把「看圖階段」改回 GEMINI_VISION_MODEL。
+            # 注意：若使用者關掉「傳圖給 AI」開關（self._send_image=False），unified call 本來就 text-only
+            # （line 607 把 image 設 None），Gemma 純文字沒問題 → 不需強制換 vision 模型，尊重該開關。
+            if self._send_image and self._provider == 'gemini' and not model.lower().startswith('gemini'):
+                self.refine_model = GEMINI_VISION_MODEL
+                self.logger.warning(
+                    f'vision 階段不可用非 vision 模型 {model!r} → 看圖改用 {GEMINI_VISION_MODEL!r}，'
+                    f'{model!r} 只用於文字翻譯階段（否則 vision call 會 500 INTERNAL → 漏翻）'
+                )
 
     @staticmethod
     def _collect_api_keys() -> List[str]:
@@ -541,16 +598,27 @@ class Gemini2StageTranslator(CommonTranslator):
 
     @staticmethod
     def _validate_loose(content: str, schema):
-        """Gemini/Gemma 常忽略 schema 吐純陣列；schema 是 {single_field: list[...]} 時自動包起來。"""
+        """Gemini/Gemma 常忽略 schema 吐純陣列；schema 是 {single_field: list[...]} 時自動包起來。
+        Gemma 還常在合法 JSON 後面多吐垃圾（"Extra data" JSONDecodeError）或前面加說明 → 用 raw_decode
+        從第一個 { 或 [ 起只解析「第一個合法 JSON 值」、忽略尾端多餘資料，救回 Gemma 的補譯（否則整頁漏翻）。"""
         try:
             return schema.model_validate_json(content)
         except ValidationError:
-            parsed = json.loads(content)
-            if isinstance(parsed, list):
-                fields = list(schema.model_fields.keys())
-                if len(fields) == 1:
-                    return schema.model_validate({fields[0]: parsed})
-            raise
+            pass
+        text = (content or '').strip()
+        m = re.search(r'[\[{]', text)            # 跳過 JSON 前的說明文字
+        if m:
+            text = text[m.start():]
+        try:
+            parsed, _end = json.JSONDecoder().raw_decode(text)  # 只取第一個合法 JSON、丟掉尾巴垃圾
+        except json.JSONDecodeError:
+            parsed = json.loads(content)         # 救不了就照原樣拋原始錯誤
+        if isinstance(parsed, list):
+            fields = list(schema.model_fields.keys())
+            if len(fields) == 1:
+                return schema.model_validate({fields[0]: parsed})
+            raise ValueError('list JSON but schema expects multiple fields')
+        return schema.model_validate(parsed)
 
     async def _call_gemini_native(
         self, key: str, model: str, system_instruction: str, user_text: str,
@@ -808,14 +876,18 @@ class Gemini2StageTranslator(CommonTranslator):
         # 直接換下個 key 試。所有 key 都 503 → 全 Google 端問題，sleep 5s 整批再試一輪就放棄。
         # 整體最差 ~50s 而非 200s+，外層 unified_call 才能及時 fallback 到 GT。
         last_err: Exception | None = None
-        for round_n in range(2):  # 最多 2 輪：第一輪試所有 key、503 全擋 → sleep 5s 再試一輪
-            if round_n > 0:
-                self.logger.warning(
-                    f'Gemini 第 1 輪所有 key 都 503 (model={model})，sleep 5s 後試最後一輪'
-                )
-                await asyncio.sleep(5.0)
-
+        _503_rounds = 0
+        _429_rounds = 0
+        _MAX_503_ROUNDS = 1                                            # 全 503 → sleep 5s 再試一輪
+        _MAX_429_ROUNDS = int(os.getenv('GEMINI_429_RETRIES', '4'))    # 配額(429) → 等 retry-delay 再重試的輪數
+        _500_rounds = 0
+        _500_wait = float(os.getenv('GEMINI_500_WAIT', '10'))         # 500 INTERNAL 後等幾秒重試（使用者指定 10s）
+        _MAX_500_ROUNDS = int(os.getenv('GEMINI_500_RETRIES', '2'))   # 500 INTERNAL（Google 暫時性）→ 等 10s 再重試的輪數
+        while True:
             all_503_this_round = True
+            any_429_this_round = False
+            any_500_this_round = False
+            max_429_delay = 0.0
             for offset in range(n_keys):
                 this_idx = (start + offset) % n_keys
                 key = self._api_keys[this_idx]
@@ -852,6 +924,7 @@ class Gemini2StageTranslator(CommonTranslator):
                         '429' in msg
                         or 'quota' in msg_lower
                         or 'rate limit' in msg_lower
+                        or 'resource_exhausted' in msg_lower
                     )
                     if is_503:
                         self.logger.warning(
@@ -860,25 +933,110 @@ class Gemini2StageTranslator(CommonTranslator):
                         continue  # 立即換下個 key
                     if is_429:
                         all_503_this_round = False  # 不是 503 storm，是 quota
+                        any_429_this_round = True
+                        # 解析伺服器要求的等待秒數（"Please retry in 25.3s" / "retryDelay': '25s'"）
+                        m = (re.search(r'retry in ([\d.]+)\s*s', msg, re.I)
+                             or re.search(r"retryDelay['\"]?\s*[:=]\s*['\"]?(\d+)", msg))
+                        if m:
+                            try:
+                                max_429_delay = max(max_429_delay, float(m.group(1)))
+                            except ValueError:
+                                pass
                         self.logger.warning(
-                            f'Gemini 429 on key #{this_idx + 1}/{n_keys}, trying next key'
+                            f'Gemini 429 (配額) on key #{this_idx + 1}/{n_keys}'
+                        )
+                        continue
+                    if '500' in msg and 'internal' in msg_lower:
+                        all_503_this_round = False
+                        any_500_this_round = True
+                        self.logger.warning(
+                            f'Gemini 500 INTERNAL on key #{this_idx + 1}/{n_keys}（暫時性，稍後重試）'
                         )
                         continue
                     # 其他錯誤（包含 empty content）→ 不重試，直接 raise
                     raise
 
-            # 整輪都 503 → 進下一輪（sleep 5s 再試）。一輪混 503/429 也算試完，不繼續。
-            if not all_503_this_round:
-                break
+            # 全 key 503 → sleep 5s 再試一輪（Google 端暫時問題）
+            if all_503_this_round and _503_rounds < _MAX_503_ROUNDS:
+                _503_rounds += 1
+                self.logger.warning(
+                    f'Gemini 全 key 503 (model={model})，sleep 5s 後再試一輪'
+                )
+                await asyncio.sleep(5.0)
+                continue
+            # 全 key 配額 429 → 等伺服器要求的秒數（或退避）再重試，而非直接漏翻。
+            # 配 並發=1 一張一張處理時，這個等待讓「每分鐘配額」回復後該頁仍翻得出來。
+            if any_429_this_round and _429_rounds < _MAX_429_ROUNDS:
+                _429_rounds += 1
+                wait = min(max(max_429_delay, 2.0 * _429_rounds), 30.0)
+                self.logger.warning(
+                    f'Gemini 配額用盡 → 等 {wait:.0f}s 後重試（{_429_rounds}/{_MAX_429_ROUNDS}），避免漏翻'
+                )
+                await asyncio.sleep(wait)
+                continue
+            # 全 key 500 INTERNAL（Google 端暫時性）→ 等 10s 後重試（使用者指定：收到 500 隔 10s 重翻），
+            # 不直接漏翻。耗盡仍 500 → raise → 整頁標失敗進重翻列表（前端再插隊重試）。
+            if any_500_this_round and _500_rounds < _MAX_500_ROUNDS:
+                _500_rounds += 1
+                self.logger.warning(
+                    f'Gemini 500 INTERNAL → 等 {_500_wait:.0f}s 後重試（{_500_rounds}/{_MAX_500_ROUNDS}）'
+                )
+                await asyncio.sleep(_500_wait)
+                continue
+            break
 
         assert last_err is not None
         raise last_err
 
+    @staticmethod
+    def _gt_lang_code(lang: str) -> str:
+        """把 app 的目標語言（CHT/繁中/Traditional…）對映成 Google Translate 的語言碼。"""
+        s = (lang or '').strip().lower()
+        if any(k in s for k in ('cht', 'traditional', '繁', 'zh-tw', 'zh_tw', 'zh-hant')):
+            return 'zh-TW'
+        if any(k in s for k in ('chs', 'simplified', '简', '簡体', 'zh-cn', 'zh_cn', 'zh-hans')):
+            return 'zh-CN'
+        if any(k in s for k in ('jpn', 'japan', '日', 'ja')):
+            return 'ja'
+        if any(k in s for k in ('kor', 'korea', '韓', '韩')) or s == 'ko':
+            return 'ko'
+        if any(k in s for k in ('eng', 'english')) or s == 'en':
+            return 'en'
+        if 'zh' in s or '中' in s:
+            return 'zh-TW'
+        return 'zh-TW'
+
+    @staticmethod
+    def _gt_one_sync(text: str, sl: str, tl: str) -> str:
+        """免費 GT web 端點（translate_a/single），單句翻譯，無需 API key。"""
+        import urllib.request, urllib.parse, json as _json
+        url = 'https://translate.googleapis.com/translate_a/single?' + urllib.parse.urlencode({
+            'client': 'gtx', 'sl': sl, 'tl': tl, 'dt': 't', 'q': text,
+        })
+        req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            data = _json.loads(resp.read().decode('utf-8'))
+        segs = data[0] if (isinstance(data, list) and data) else []
+        return ''.join(s[0] for s in segs if isinstance(s, list) and s and s[0])
+
     async def _google_translate_fallback(
         self, texts: list[str], from_lang: str, to_lang: str,
     ) -> list[str]:
-        """Online Google Translate fallback is intentionally disabled for manga translation."""
-        raise RuntimeError('Online translation fallback is disabled for manga translation')
+        """免費 Google Translate web 端點機翻（固定不送圖、純文字、自動偵測來源語言）。
+        用作 LLM 翻不出（含連續 3 次 500 INTERNAL）的兜底，避免整頁回填原文（漏翻）。逐句翻。"""
+        tl = self._gt_lang_code(to_lang)
+        out = []
+        for t in texts:
+            tt = (t or '').strip()
+            if not tt:
+                out.append('')
+                continue
+            try:
+                out.append((await asyncio.to_thread(self._gt_one_sync, tt, 'auto', tl)) or '')
+            except Exception as e:
+                self.logger.warning(f'GT 單句失敗: {type(e).__name__}: {e}')
+                out.append('')
+        return out
 
 
     async def _gt_then_polish(
@@ -1205,8 +1363,12 @@ class Gemini2StageTranslator(CommonTranslator):
             mocr_text = (region.text or '').replace('"', '\\"').replace('\n', ' ')
             anchor = f'"{mocr_text}"' if mocr_text else '"(空)"'
             if getattr(region, '_synth_bubble', False):
-                # 空泡泡補抓：OCR 完全漏抓，anchor 是佔位符。明示 LLM 必須讀圖。
-                anchor = '"(OCR 漏抓的泡泡，裡面有字：請看圖逐字讀出，含點點與假名)"'
+                # 空泡泡補抓：mocr 漏抓。給 vision 一條「沒字就別編」的出路——bubble 偵測器有時把
+                # 沒字的臉/留白誤判成泡泡，舊 anchor 斷定「裡面有字、逐字讀出」會逼 vision 硬編一句
+                # 台詞（莫名其妙的句子）。改成：真有字才讀，沒字就留空。
+                anchor = ('"(可能漏抓的泡泡：看圖，**只有框內真的有文字**才逐字讀出（含點點與假名）；'
+                          '若框內其實是臉/背景/留白、沒有可辨識文字，corrected_text 與 '
+                          'translated_text 都留空字串，絕對不要硬編或猜內容)"')
             role = _layout_role(region)
             if role == 'dialogue':
                 bubble_hint = 'role=dialogue 泡泡內台詞'
@@ -1222,7 +1384,8 @@ class Gemini2StageTranslator(CommonTranslator):
 
     async def _call_llm_single(self, payload: dict) -> list:
         """單頁 unified vision call → bboxes 列表。失敗 raise（caller 處理 GT fallback）。
-        90s 上限。包 retry/換 key/503 storm 兜底（在 _gemini_json_call 裡）。
+        timeout = self._vision_timeout_s（env GEMINI_2STAGE_VISION_TIMEOUT，預設 90s）。
+        包 retry/換 key/503 storm 兜底（在 _gemini_json_call 裡）。
         """
         response = await asyncio.wait_for(
             self._gemini_json_call(
@@ -1233,7 +1396,7 @@ class Gemini2StageTranslator(CommonTranslator):
                 temperature=self.translate_temperature,
                 schema=UnifiedResponse,
             ),
-            timeout=90.0,
+            timeout=self._vision_timeout_s,
         )
         return response.bboxes
 
@@ -1280,6 +1443,46 @@ class Gemini2StageTranslator(CommonTranslator):
             if 0 <= page.page_id < n_pages:
                 results[page.page_id] = page.bboxes
         return results
+
+    async def _unified_call_banded(self, rgb_img, query_regions, from_lang, to_lang, w, h):
+        """[beta] 長圖/密集頁加速：region 多時依垂直位置切成數個帶，平行打多個 _unified_call，
+        再按原索引合併，攤平「一次 LLM 吃 N 格」的延遲。關閉或 region 少 → 走原本單一 call。"""
+        n = len(query_regions)
+        _BAND_MAX = 8  # 每帶最多幾個 region
+        if not self._parallel_bands or n <= _BAND_MAX:
+            return await self._unified_call(rgb_img, query_regions, from_lang, to_lang, w, h)
+
+        def _cy(i):
+            try:
+                x1, y1, x2, y2 = query_regions[i].xyxy
+                return (float(y1) + float(y2)) / 2
+            except Exception:
+                return 0.0
+        order = sorted(range(n), key=_cy)
+        bands = [order[i:i + _BAND_MAX] for i in range(0, n, _BAND_MAX)]
+
+        async def _one(idx_list):
+            sub = [query_regions[i] for i in idx_list]
+            return await self._unified_call(rgb_img, sub, from_lang, to_lang, w, h)
+
+        results = await asyncio.gather(*[_one(b) for b in bands], return_exceptions=True)
+        ocr_texts: dict[int, str] = {}
+        translations: list[str] = [''] * n
+        explicit_skip: set[int] = set()
+        for idx_list, res in zip(bands, results):
+            if isinstance(res, Exception) or res is None:
+                self.logger.warning(f'[banded] 一帶失敗，該帶留空: {res!r}')
+                continue
+            b_ocr, b_trans, b_skip = res
+            for local_i, orig_i in enumerate(idx_list):
+                if local_i < len(b_trans):
+                    translations[orig_i] = b_trans[local_i]
+                if local_i in b_ocr:
+                    ocr_texts[orig_i] = b_ocr[local_i]
+                if local_i in b_skip:
+                    explicit_skip.add(orig_i)
+        self.logger.info(f'[banded] {n} regions → {len(bands)} 帶並行 LLM')
+        return ocr_texts, translations, explicit_skip
 
     async def _unified_call(
         self, rgb_img: Image.Image, query_regions,
@@ -1335,13 +1538,19 @@ class Gemini2StageTranslator(CommonTranslator):
                 # 單頁直送（既有行為）
                 bboxes = await self._call_llm_single(payload)
         except Exception as e:
-            # Gemini 整批失敗（PROHIBITED_CONTENT silent block / quota 用完 / 空 content 等）
-            # → 走 GT + polish 一條龍補救（_gt_then_polish helper）。
-            # batch 模式下 buffer 已試過「拆單頁 retry」，這層只接「單頁 retry 也死」的情況 →
-            # 影響範圍仍只有這頁，不會牽連 batch 內其他頁。
+            # Gemini 整批失敗（PROHIBITED_CONTENT silent block / quota 用完 / 空 content 等）。
+            es = str(e).lower()
+            is_quota = '429' in es or 'quota' in es or 'rate limit' in es or 'resource_exhausted' in es
             self.logger.warning(
                 f'Unified call 失敗: {type(e).__name__}: {e}; online fallback disabled'
             )
+            if is_quota:
+                # 配額爆掉(429)是「暫時性」的：別回填原文（會變成靜默漏翻、整頁看起來像原文）。
+                # 已先在 _gemini_json_call 等過 retry-delay 還是 429 → 直接 raise，讓整頁標記失敗、
+                # 進佇列的「重翻列表」之後重試（等每分鐘配額回復），使用者也看得到哪頁沒翻成功。
+                self.logger.warning('Unified call 429/配額用盡 → 整頁標記失敗、加入重翻列表（不回填原文）')
+                raise
+            # 非配額失敗（內容被擋等）非暫時性，retry 也沒用 → 維持原本 polish/回填補救。
             src_texts = [(query_regions[i].text or '').strip() for i in range(n)]
             polished = await self._gt_then_polish(src_texts, from_lang, to_lang)
             ocr_texts = {i: src_texts[i] for i in range(n) if src_texts[i]}
@@ -1383,6 +1592,10 @@ class Gemini2StageTranslator(CommonTranslator):
                     explicit_skip.add(r.bbox_id)
                 continue
             t = _PROMPT_TAG_RE.sub('', t).strip()
+            if _is_symbol_only(src_text) or _is_field_name_echo(t):
+                # 純符號格子（…、…？、!? — 不用翻）或 LLM echo 欄位名／亂碼 → 一律回填原文，
+                # 別把 "translated_text" 或亂碼渲染上圖（符號原樣顯示即可）。
+                t = src_text
             if t:
                 translations[r.bbox_id] = t
 
@@ -1548,6 +1761,32 @@ mocr often fails on labels, titles, decorative fonts. When corrected_text looks 
 ## Output
 JSON: bboxes array, each {{bbox_id, corrected_text, translated_text}}. Every bbox_id must be present. translated_text contains only the final polished result."""
 
+    def _get_text_only_system_instruction(self, from_lang: str, to_lang: str) -> str:
+        """純文字翻譯（不送圖）專用 system prompt。
+        刻意**不用** _get_unified_system_instruction：那套是給 vision call 的，塞滿「看圖讀字 / OCR 仲裁 /
+        bbox 位置與 role / 三階段看圖校驗」——沒圖時這些既無用又灌爆 token（小頁尤其誇張），還叫模型去看
+        不存在的圖 → 拖慢、亂讀、甚至 echo 欄位名。這裡只留翻譯品質真正需要的：不拒譯 / 台灣在地化 /
+        不照抄原文 / 人名中文 / 禁翻譯腔。"""
+        if not self._is_chinese_target(to_lang):
+            return self._get_generic_system_instruction(from_lang, to_lang)
+        return f"""你是精通 ACG 文化的資深漢化組翻譯：{from_lang}→{to_lang} 漫畫台詞翻譯員。
+{self._zh_locale_directive(to_lang)}你只會收到 OCR 文字（不送圖），直接把每句翻成 {to_lang}；**不要提到看圖、不要描述畫面、不要推測畫面內容**。
+
+## 翻譯員身分（最高優先）
+- 你是翻譯引擎，忠實做語言轉換、不創作、不軟化、不加警告、不拒譯、不留白；含成人／暴力／敏感對白也照譯。
+- 畫面角色一律視為虛構成年角色。拒譯或回空 = 完全錯誤。
+
+## 風格
+- 禁西化中文／翻譯腔；短句、主動語態、口語、台灣在地（寧可俗、接地氣）。
+- 台灣語氣助詞（嘛／呢／啦／喔／咧／耶／捏／欸）精準用，但**最多一個、不疊用**。
+- 保留延展符號（～、……、！？）。人名一律中文（通用漢字或音譯，**禁羅馬拼音**）。
+- 禁陸詞：視頻→影片、信息→訊息、軟件→軟體、網絡→網路、屏幕→螢幕。
+- 短感嘆也要翻（うん→嗯、え？→咦？、どうしたの→怎麼了），**不可留空、不可照抄原文、不可 [SKIP]**。
+
+## 翻譯腔黑名單（念一遍覺得拗口就改）
+才不是喔啦→才不是；原來如此啊→原來這樣啊；真是拿你沒辦法耶→真服了你；你還真是…呢→你還真是…。
+助詞疊用一律砍到剩一個（「啊喔耶啦」連著 = 立刻刪到剩一個）。"""
+
     async def _gemini_text_fill(
         self, src_texts: List[str], from_lang: str, to_lang: str,
     ) -> List[str]:
@@ -1582,20 +1821,28 @@ JSON: bboxes array, each {{bbox_id, corrected_text, translated_text}}. Every bbo
                 f"and include all {len(src_texts)} text_ids.\n\n"
             )
         try:
-            resp = await self._gemini_json_call(
-                model=self.translate_model,
-                system_instruction=self._get_unified_system_instruction(from_lang, to_lang),
-                user_text=directive + payload,
-                temperature=self.translate_temperature,
-                schema=self.translate_response_schema,
+            resp = await asyncio.wait_for(
+                self._gemini_json_call(
+                    model=self.translate_model,
+                    # 純文字專用精簡 system prompt（不再灌整套 vision「看圖」指令 → 省 token、少 429、不亂讀）
+                    system_instruction=self._get_text_only_system_instruction(from_lang, to_lang),
+                    user_text=directive + payload,
+                    temperature=self.translate_temperature,
+                    schema=self.translate_response_schema,
+                ),
+                timeout=self._text_timeout_s,
             )
         except Exception as e:
+            # asyncio.TimeoutError 也是 Exception 子類，會被接住 → 回等長空字串（既有「失敗回空」契約）
             self.logger.warning(f'Gemini 補譯失敗: {type(e).__name__}: {e}')
             return [''] * len(src_texts)
         out = [''] * len(src_texts)
         for r in resp.translated_texts:
             if 0 <= r.text_id < len(src_texts):
+                src_t = (src_texts[r.text_id] or '').strip()
                 t = (r.translated_text or '').replace('\n', ' ').strip()
+                if _is_symbol_only(src_t) or _is_field_name_echo(t):
+                    t = src_t  # 純符號格子 / schema 欄位名 echo → 回填原文
                 if t and t.upper().strip('[]') != 'SKIP':
                     out[r.text_id] = t
         return out
@@ -1618,10 +1865,20 @@ JSON: bboxes array, each {{bbox_id, corrected_text, translated_text}}. Every bbo
         if n == 0:
             return []
 
-        # 單一 Gemini vision call：同時 OCR 仲裁 + 翻譯 + SFX 判斷
-        ocr_texts, translations, explicit_skip = await self._unified_call(
-            rgb_img, query_regions, from_lang, to_lang, w, h,
-        )
+        if not self._send_image:
+            # 「傳圖給 AI」關閉 → 不送圖、不做 vision call，直接把 mocr 的 OCR 文字交 LLM 純文字翻譯
+            #（使用者指定行為）。跳過「看圖讀真字」那套 vision prompt——沒圖時它會空轉/亂讀/500。
+            self.logger.info(f'[no-image] 送圖開關關閉 → 直接純文字翻譯 {n} 個 OCR 文本（不送圖）')
+            src = [(query_regions[i].text or '').strip() for i in range(n)]
+            translations = await self._gemini_text_fill(src, from_lang, to_lang)
+            ocr_texts = {i: src[i] for i in range(n) if src[i]}
+            explicit_skip = set()
+        else:
+            # 單一 Gemini vision call（同時 OCR 仲裁 + 翻譯 + SFX 判斷）；
+            # [beta] 長圖/密集頁加速開啟時，region 多會自動切帶平行打多個 call。
+            ocr_texts, translations, explicit_skip = await self._unified_call_banded(
+                rgb_img, query_regions, from_lang, to_lang, w, h,
+            )
         self.logger.info(f'[Unified] OCR {len(ocr_texts)}/{n} 個 | 譯文 {sum(1 for t in translations if t)}/{n} 個 | skip {len(explicit_skip)}')
         # Debug: LLM OCR vs mocr
         for i in range(n):
@@ -1650,24 +1907,44 @@ JSON: bboxes array, each {{bbox_id, corrected_text, translated_text}}. Every bbo
                 fill = await self._gemini_text_fill(src, from_lang, to_lang)
             except Exception as e:
                 self.logger.warning(f'[retry] 補譯失敗: {type(e).__name__}: {e}')
+                # 配額/429 已耗盡 → 別再用同一把 key 空轉重打 ×3（拖慢釋放、洗版 log）→ 直接跳出走回填。
+                es = str(e).lower()
+                if '429' in es or 'quota' in es or 'rate limit' in es or 'resource_exhausted' in es:
+                    break
                 continue
             for k, i in enumerate(missing):
                 if k < len(fill) and fill[k].strip():
                     translations[i] = fill[k]
 
-        # ---- 保底：LLM 沒回的格子回填原文（explicit_skip 例外，保持空翻譯）----
-        # explicit_skip 的 bbox 已是 LLM 主動跳過 → 不要塞 mocr 錯字進來。
-        # 翻譯填 LLM corrected_text（若有，原假名）或留空，讓 post-filter 處理。
+        # ---- GT 兜底：LLM 翻不出的格子（含連續 3 次 500 INTERNAL）先用 Google 翻譯機翻（不送圖），
+        #      而非直接回填原文（使用者指定）。explicit_skip 例外（LLM 主動跳過＝SFX，保持空翻譯）。----
+        gt_idx = [
+            i for i, t in enumerate(translations)
+            if not t.strip() and i not in explicit_skip
+            and (refine_sentences[i] or (query_regions[i].text if i < len(query_regions) else '')).strip()
+        ]
+        if gt_idx:
+            gt_src = [(refine_sentences[i] or query_regions[i].text or '').strip() for i in gt_idx]
+            self.logger.warning(f'LLM 翻不出 {len(gt_idx)} 格 → 改用 Google 翻譯機翻（不送圖）兜底')
+            try:
+                gt_out = await self._google_translate_fallback(gt_src, from_lang, to_lang)
+            except Exception as e:
+                self.logger.warning(f'GT 兜底失敗: {type(e).__name__}: {e}')
+                gt_out = [''] * len(gt_idx)
+            for k, i in enumerate(gt_idx):
+                if k < len(gt_out) and gt_out[k].strip():
+                    translations[i] = gt_out[k].strip()
+
+        # ---- 最後保底：GT 也救不回的格子才回填原文（explicit_skip 保持空翻譯）----
         for i, t in enumerate(translations):
             if t.strip():
                 continue
             if i in explicit_skip:
-                # LLM 主動 skip → 用 LLM 看圖讀的字（無則空）
                 translations[i] = refine_sentences[i] or ''
                 continue
             fallback = refine_sentences[i] or (query_regions[i].text if i < len(query_regions) else '')
             translations[i] = fallback or '…'
-            self.logger.warning(f'  #{i} 全部失敗，回填原文: {translations[i][:30]!r}')
+            self.logger.warning(f'  #{i} GT 也失敗，回填原文: {translations[i][:30]!r}')
 
         # 框外短擬聲詞 Python 啟發式（純假名 ≤6 字 = SFX 不翻）**預設關**：
         # 它會把手寫台詞/喘息（は、ん、ヤダ、もう…）整批清空 → 使用者看到整頁「沒翻譯到」。

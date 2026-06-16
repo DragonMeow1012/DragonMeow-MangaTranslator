@@ -64,6 +64,40 @@
   box-shadow: 0 12px 30px rgba(15, 23, 42, 0.28);
 }
 
+.dmmt-ext-queue {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  z-index: 2147483647;
+  pointer-events: auto;
+  width: 240px;
+  max-height: min(70vh, 380px); /* 預設依內容撐高、最多這麼高就捲動（頁碼翻譯只有數字 → 不留空） */
+  overflow-y: auto;
+  overflow-x: hidden;
+  border-radius: 10px;
+  padding: 10px 12px;
+  background: rgba(17, 24, 39, 0.94);
+  color: #fff;
+  font-size: 13px;
+  line-height: 1.5;
+  box-shadow: 0 12px 30px rgba(15, 23, 42, 0.4);
+}
+.dmmt-ext-queue.dmmt-q-fixed { height: min(70vh, 380px); } /* 整頁縮圖模式：固定高度，內容多用滾輪捲動，不隨張數忽大忽小 */
+.dmmt-ext-queue .dmmt-q-title { font-weight: 800; color: #5eead4; margin-bottom: 6px; position: sticky; top: -10px; background: rgba(17, 24, 39, 0.94); padding: 2px 0 5px; }
+.dmmt-ext-queue .dmmt-q-row { display: flex; justify-content: space-between; gap: 18px; }
+.dmmt-ext-queue .dmmt-q-row b { font-weight: 700; }
+.dmmt-ext-queue .dmmt-q-list { display: flex; flex-direction: column; gap: 5px; }
+.dmmt-ext-queue .dmmt-q-item { display: flex; align-items: center; gap: 8px; }
+.dmmt-ext-queue .dmmt-q-thumb { width: 42px; height: 30px; object-fit: cover; border-radius: 4px; background: rgba(255, 255, 255, 0.12); flex: none; display: block; }
+.dmmt-ext-queue .dmmt-q-badge { font-size: 11px; font-weight: 700; padding: 1px 7px; border-radius: 999px; white-space: nowrap; margin-left: auto; }
+.dmmt-ext-queue .dmmt-q-page { font-size: 12px; font-weight: 700; color: #cbd5e1; white-space: nowrap; } /* 頁碼翻譯每列的「第 N 頁」標籤 */
+.dmmt-ext-queue .dmmt-q-p { background: #1e3a8a; color: #bfdbfe; }
+.dmmt-ext-queue .dmmt-q-q { background: rgba(146, 64, 14, 0.4); color: #fcd34d; }
+.dmmt-ext-queue .dmmt-q-d { background: #14532d; color: #86efac; }
+.dmmt-ext-queue .dmmt-q-f { background: #7f1d1d; color: #fca5a5; }
+.dmmt-ext-queue .dmmt-q-b { background: #374151; color: #d1d5db; }
+.dmmt-ext-queue .dmmt-q-more { font-size: 11px; opacity: 0.7; margin-top: 4px; }
+
 .dmmt-ext-progress {
   position: fixed;
   left: 0;

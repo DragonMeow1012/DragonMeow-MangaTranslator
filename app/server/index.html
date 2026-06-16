@@ -143,7 +143,7 @@
           <div class="space-y-3">
             <div :title="t('providerTooltip')">
               <label class="side-label">{{ t('labelProvider') }}</label>
-              <select class="side-field" v-model="llmProvider" @change="onSettingChange">
+              <select class="side-field" v-model="llmProvider" @change="onProviderSwitched">
                 <option value="gemini">Gemini</option>
                 <option value="openai">ChatGPT (OpenAI)</option>
                 <option value="claude">Claude (Anthropic)</option>
@@ -185,16 +185,27 @@
               />
             </div>
             <div :title="t('apiKeyTooltip')">
-              <label class="side-label">API key</label>
-              <div class="relative">
+              <label class="side-label">API key <span style="opacity:.5;font-weight:400">（多把可輪換、避 429）</span></label>
+              <div v-for="(k, i) in apiKeyRows" :key="i" class="relative" style="margin-bottom:6px">
                 <input
                   :type="showApiKey ? 'text' : 'password'"
                   autocomplete="off"
-                  class="side-field pr-9"
-                  v-model="currentApiKey"
+                  class="side-field"
+                  style="padding-right:3.8rem"
+                  v-model="apiKeyRows[i]"
                   :placeholder="t('apiKeyPlaceholder')"
-                  @change="onSettingChange"
+                  @input="commitApiKeyRows"
                 />
+                <button
+                  v-if="apiKeyRows.length > 1"
+                  type="button"
+                  class="absolute top-1/2 -translate-y-1/2 text-stone-400 hover:text-rose-400"
+                  style="right:2.1rem"
+                  title="移除這把 key"
+                  @click="removeApiKeyRow(i)"
+                >
+                  <i class="iconify" data-icon="carbon:close"></i>
+                </button>
                 <button
                   type="button"
                   class="absolute right-2 top-1/2 -translate-y-1/2 text-stone-400 hover:text-stone-200"
@@ -204,6 +215,12 @@
                   <i class="iconify" :data-icon="showApiKey ? 'carbon:view-off' : 'carbon:view'"></i>
                 </button>
               </div>
+              <button
+                type="button"
+                class="side-field"
+                style="cursor:pointer;text-align:center;opacity:.85;border-style:dashed"
+                @click="addApiKeyRow"
+              >＋ 加一把 key</button>
             </div>
             <!-- 是否傳圖給 LLM 校對（提高準確度，需視覺模型） -->
             <label class="flex items-center justify-between cursor-pointer select-none" :title="t('sendImageTooltip')">
@@ -212,6 +229,28 @@
               </span>
               <span class="relative inline-block w-9 h-5">
                 <input type="checkbox" class="sr-only peer" v-model="llmSendImage" @change="onSettingChange">
+                <span class="absolute inset-0 rounded-full bg-stone-600 acc-knob transition-colors"></span>
+                <span class="absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white transition-transform peer-checked:translate-x-4"></span>
+              </span>
+            </label>
+            <!-- [beta] 只翻泡泡內 -->
+            <label class="flex items-center justify-between cursor-pointer select-none" title="只翻譯對話框內的字；框外 SFX／旁白／誤偵測一律保留原圖。美術重的 webtoon 建議開。">
+              <span class="text-sm text-stone-300 flex items-center gap-1.5">
+                <i class="iconify accent-text" data-icon="carbon:chat"></i>只翻泡泡內
+              </span>
+              <span class="relative inline-block w-9 h-5">
+                <input type="checkbox" class="sr-only peer" v-model="onlyTranslateBubbles" @change="onSettingChange">
+                <span class="absolute inset-0 rounded-full bg-stone-600 acc-knob transition-colors"></span>
+                <span class="absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white transition-transform peer-checked:translate-x-4"></span>
+              </span>
+            </label>
+            <!-- [beta] 長圖/密集頁加速 -->
+            <label class="flex items-center justify-between cursor-pointer select-none" title="長圖或密集頁時，把一頁的文字分成數帶、平行翻譯以縮短等待。實驗功能。">
+              <span class="text-sm text-stone-300 flex items-center gap-1.5">
+                <i class="iconify accent-text" data-icon="carbon:flash"></i>長圖/密集頁加速 (beta)
+              </span>
+              <span class="relative inline-block w-9 h-5">
+                <input type="checkbox" class="sr-only peer" v-model="parallelBands" @change="onSettingChange">
                 <span class="absolute inset-0 rounded-full bg-stone-600 acc-knob transition-colors"></span>
                 <span class="absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white transition-transform peer-checked:translate-x-4"></span>
               </span>
@@ -299,12 +338,27 @@
               </div>
               <div style="font-size:11px;opacity:.55;margin-top:3px;line-height:1.35">{{ t('fontHint') }}</div>
             </div>
+            <div title="開啟後譯文加上對比描邊底色，壓在畫面/雜背景上較好讀；乾淨白底泡泡可關。" style="margin-top:8px">
+              <label class="flex items-center justify-between cursor-pointer select-none">
+                <span class="text-sm text-stone-300 flex items-center gap-1.5">
+                  <i class="iconify accent-text" data-icon="carbon:text-font"></i>文字加底色（描邊增可讀）
+                </span>
+                <span class="relative inline-block w-9 h-5">
+                  <input type="checkbox" class="sr-only peer" v-model="fontBorder" @change="onSettingChange">
+                  <span class="absolute inset-0 rounded-full bg-stone-600 acc-knob transition-colors"></span>
+                  <span class="absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white transition-transform peer-checked:translate-x-4"></span>
+                </span>
+              </label>
+            </div>
             <div>
               <label class="side-label">{{ t('labelOcr') }}</label>
               <select class="side-field" v-model="ocrModel" @change="onSettingChange">
                 <option value="mocr/gpu">{{ t('ocrMocrGpu') }}</option>
                 <option value="mocr/cpu">{{ t('ocrMocrCpu') }}</option>
                 <option value="paddle/auto/gpu">{{ t('ocrPaddleGpu') }}</option>
+                <option value="paddle/korean/gpu">PaddleOCR 한국어 / 韓文 (GPU)</option>
+                <option value="paddle/ch/gpu">PaddleOCR 中文 (GPU)</option>
+                <option value="paddle/japan/gpu">PaddleOCR 日本語 (GPU)</option>
                 <option value="paddle/auto/cpu">{{ t('ocrPaddleCpu') }}</option>
               </select>
               <div style="font-size:11px;opacity:.55;margin-top:3px;line-height:1.35">{{ t('ocrHint') }}</div>
@@ -327,6 +381,11 @@
               <div style="font-size:11px;opacity:.55;margin-top:3px;line-height:1.35">{{ t('inpaintHint') }}</div>
             </div>
             <div>
+              <label class="side-label">遮罩擴張 / Mask dilation</label>
+              <input class="side-field" type="number" min="0" max="60" step="2" v-model.number="maskDilationOffset" @change="onSettingChange">
+              <div style="font-size:11px;opacity:.55;margin-top:3px;line-height:1.35">抹字遮罩往外擴張的像素。<b>越大</b>越能蓋住殘字，但太大會抹到對話框邊線、邊緣糊掉；<b>越小</b>越乾淨銳利，但太小會殘留原文邊緣。不是越低越好，建議 10~25。</div>
+            </div>
+            <div>
               <label class="side-label">{{ t('labelFontMin') }}</label>
               <select class="side-field" v-model="fontSizeMinimum" @change="onSettingChange">
                 <option value="0">{{ t('fmAuto') }}</option>
@@ -338,13 +397,35 @@
             <div :title="t('concurrencyTip')">
               <label class="side-label">{{ t('labelConcurrency') }}</label>
               <select class="side-field" v-model="concurrency" @change="onSettingChange">
-                <option value="1">1</option>
+                <option value="1">1（一張一張，最不會漏翻）</option>
                 <option value="2">2</option>
                 <option value="3">3</option>
                 <option value="5">5</option>
                 <option value="8">8</option>
               </select>
               <div style="font-size:11px;opacity:.55;margin-top:3px;line-height:1.35">{{ t('concurrencyHint') }}</div>
+              <div v-if="Number(concurrency) > 1" style="font-size:11px;margin-top:4px;line-height:1.35;color:#ea580c;font-weight:600">
+                ⚠ 並發 &gt; 1：單一免費 API key 配額低（如 15 次/分鐘），並發會撞每分鐘速率限制 → 大量 429、整批漏翻。多加幾把 API key 再調高才安全。
+              </div>
+            </div>
+            <div :title="t('workersTip')">
+              <label class="side-label">{{ t('labelWorkers') }}</label>
+              <select class="side-field" v-model="workers" @change="onSettingChange">
+                <option value="1">1（預設，單進程）</option>
+                <option value="2">2</option>
+                <option value="3">3</option>
+                <option value="4">4</option>
+              </select>
+              <div style="font-size:11px;opacity:.55;margin-top:3px;line-height:1.35">{{ t('workersHint') }}</div>
+              <div style="font-size:11px;margin-top:4px;line-height:1.35;opacity:.9">
+                {{ t('effectiveConcLabel') }}<b>{{ workers }} × {{ concurrency }} = {{ effectiveConcurrency }}</b> {{ t('effectiveConcUnit') }}
+              </div>
+              <div style="font-size:11px;margin-top:4px;line-height:1.35;opacity:.8">
+                {{ t('workersVramLabel') }}<b>{{ workerVramEstimate }}</b>
+              </div>
+              <div v-if="Number(workers) > 1" style="font-size:11px;margin-top:4px;line-height:1.35;color:#ea580c;font-weight:600">
+                ⚠ 每個 worker 各載「一份完整模型」到 VRAM。單張 GPU 開多 worker，CUDA 仍序列化算圖，主要益處是「某 worker 等 LLM 回應時另一個能用 GPU」；建議顯存 ≥12GB 才開 2 以上。**改了要重啟伺服器才生效。**
+              </div>
             </div>
           </div>
         </div>
@@ -742,12 +823,19 @@
               <button v-if="finishedImages.length > 0" @click="clearGallery" class="ink-btn ink-btn-red">
                 {{ t('deleteAll') }}
               </button>
+              <select v-if="finishedImages.length > 1" v-model="resultSort"
+                      class="ink-btn" style="cursor:pointer;padding-top:6px;padding-bottom:6px" title="排序方式">
+                <option value="name-asc">名稱 ↑（1→9）</option>
+                <option value="name-desc">名稱 ↓（9→1）</option>
+                <option value="time-desc">時間 ↓（新→舊）</option>
+                <option value="time-asc">時間 ↑（舊→新）</option>
+              </select>
             </div>
           
           <!-- Gallery Grid -->
           <div v-if="finishedImages.length > 0"
                class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
-            <div v-for="image in finishedImages" :key="image.id"
+            <div v-for="image in sortedFinishedImages" :key="image.id"
                  class="group cursor-pointer bg-white rounded-lg border acc-hover-border hover:shadow-md transition-all duration-200"
                  :class="{'acc-ring': selectedGallery.includes(image.id)}"
                  @click="openImageModal(image)">
@@ -1121,6 +1209,34 @@
 
     <script>
       const BASE_URI = "./";
+      const TRANSLATE_BASE_URIS = (() => {
+        const protocol = location.protocol || "http:";
+        const port = location.port ? `:${location.port}` : "";
+        const candidates = [
+          location.origin,
+          `${protocol}//127.0.0.1${port}`,
+          `${protocol}//localhost${port}`,
+          `${protocol}//lvh.me${port}`,
+          `${protocol}//localtest.me${port}`,
+          `${protocol}//127-0-0-1.nip.io${port}`,
+          `${protocol}//127.0.0.1.nip.io${port}`,
+        ];
+        const seen = new Set();
+        return candidates
+          .map((u) => {
+            try { return new URL(u).origin; } catch { return ""; }
+          })
+          .filter((u) => u && !seen.has(u) && seen.add(u))
+          .map((u) => `${u}/`);
+      })();
+      let translateOriginSeq = 0;
+
+      function nextTranslateBaseUri() {
+        if (!TRANSLATE_BASE_URIS.length) return BASE_URI;
+        const uri = TRANSLATE_BASE_URIS[translateOriginSeq % TRANSLATE_BASE_URIS.length];
+        translateOriginSeq += 1;
+        return uri;
+      }
       const acceptTypes = [
         "image/png",
         "image/jpeg",
@@ -1143,6 +1259,38 @@
       // 各家「目前能用」的現役模型（2026-06 查證，含視覺與純文字）。
       // 開啟「傳圖給 AI 校對」時需選支援看圖的視覺模型；
       // 純文字模型（或 DeepSeek 官方 API）請關閉傳圖、走純文字翻譯。
+      // 參數同步的「單一事實來源」：load(_applySettings) 與 save(saveSettings) 都從這份清單推導，
+      // 不再各自手列每個欄位 → 杜絕「存了卻沒讀回 / 讀了卻沒存」這類同步 bug（如先前 maskDilationOffset 漏存）。
+      // 加新設定只要在這裡加一行。t=型別強轉（select 綁字串用 'str'、數字用 'int'、開關 'bool'）；
+      // assign=合併進現有物件（models/apiKeys）；enum=白名單；migrate=舊值遷移。
+      const SETTINGS_FIELDS = [
+        { k: 'uiLang' },
+        { k: 'llmProvider' },
+        { k: 'models', assign: true },
+        { k: 'apiKeys', assign: true },
+        { k: 'customBaseUrl' },
+        { k: 'llmSendImage', t: 'bool' },
+        { k: 'onlyTranslateBubbles', t: 'bool' },
+        { k: 'parallelBands', t: 'bool' },
+        { k: 'darkMode', t: 'bool' },
+        { k: 'accentColor', enum: ['blue', 'pink', 'amber'] },
+        { k: 'targetLanguage' },
+        { k: 'fontPath' },
+        { k: 'ocrModel', migrate: v => v === 'mocr' ? 'mocr/gpu' : (v === 'paddle/auto' ? 'paddle/auto/gpu' : v) },
+        { k: 'renderTextDirection' },
+        // lama_mpe 是 db230de 誤設的舊版預設（平塗泡泡會糊出灰霾）→ 自動升級成乾淨的 lama_large
+        { k: 'inpainter', migrate: v => v === 'lama_mpe' ? 'lama_large' : v },
+        { k: 'fontSizeMinimum', t: 'str' },
+        { k: 'concurrency', t: 'str' },
+        { k: 'workers', t: 'str' },
+        { k: 'maskDilationOffset', t: 'int' },
+        { k: 'inpaintingSize', t: 'str' },
+        { k: 'advancedMode', t: 'bool' },
+        { k: 'autoRetryFailed', t: 'bool' },
+        { k: 'fontBorder', t: 'bool' },
+        { k: 'resultSort' },
+      ];
+
       const MODEL_SUGGESTIONS = {
         gemini: [
           // Gemini 全系列支援看圖；Gemma 為開源模型、經 Gemini API 調用（也支援看圖）
@@ -1277,9 +1425,10 @@
           labelOcr: 'OCR 模型', labelDir: '輸出排版', labelInpaint: '抹字模型',
           labelFontMin: '最小字級', fmAuto: '自動（縮到塞下）',
           labelConcurrency: '並發數', concurrencyTip: '整批／擴充翻譯同時送幾張（對齊伺服器 slot；改了伺服器要重啟才生效）。',
+          labelWorkers: 'Worker 進程數', workersTip: 'Server 啟動時 spawn 幾個 worker 進程，各自載一份模型到 VRAM、各有獨立 GPU 排程。改了要重啟伺服器才生效。', workersHint: '多進程：各載一份模型、各跑一條 pipeline。單 GPU 主要益處是某 worker 等 LLM 時另一個能算圖。', workersVramLabel: '預估 VRAM：', effectiveConcLabel: '同時處理：', effectiveConcUnit: '張（= 伺服器 slot 總數）',
           dirAuto: '自動', dirH: '橫式', dirV: '直式',
           inpClean: 'lama_large（通用）', inpFast: 'lama_mpe（漫畫專用·推薦）',
-          ocrMocrGpu: 'manga-ocr GPU（日漫專用）', ocrMocrCpu: 'manga-ocr CPU（日漫專用）', ocrPaddleGpu: 'PaddleOCR GPU（中/日/英/韓）', ocrPaddleCpu: 'PaddleOCR CPU（中/日/英/韓）', ocrHint: '💡 GPU 較快；CPU 較慢但相容性好（GPU 出狀況時的逃生口）。日漫選 manga-ocr、韓漫選 PaddleOCR。',
+          ocrMocrGpu: 'manga-ocr GPU（日漫專用）', ocrMocrCpu: 'manga-ocr CPU（日漫專用）', ocrPaddleGpu: 'PaddleOCR GPU（中/日/英/韓）', ocrPaddleCpu: 'PaddleOCR CPU（中/日/英/韓）', ocrHint: '💡 GPU 較快；CPU 較慢但相容性好（GPU 出狀況時的逃生口）。日漫選 manga-ocr、韓漫選 PaddleOCR。單一語言建議直接手選對應語言（韓/中/日）——自動模式首次要偵測語言、會載多個引擎，冷啟動較慢。',
           fontHint: '留空＝依語言自動挑字型；可上傳 .ttf/.otf 自訂', dirHint: '自動＝依語言判斷；可強制橫書或直書', inpaintHint: 'lama_mpe 漫畫專用、抹字最乾淨又快（推薦）；lama_large 是通用大模型，漫畫網點／對話框反而較差', fontMinHint: '縮字下限，避免字太小看不清（會略允許超出框）', concurrencyHint: '同時翻幾張；越高越快，但越吃 VRAM 與 API 額度',
           heroTitle: '把漫畫丟進來，一鍵翻譯',
           darkModeLabel: '深夜模式',
@@ -1463,6 +1612,7 @@
           labelOcr: 'OCR 模型', labelDir: '输出排版', labelInpaint: '抹字模型',
           labelFontMin: '最小字级', fmAuto: '自动（缩到塞下）',
           labelConcurrency: '并发数', concurrencyTip: '整批／扩展翻译同时送几张（对齐服务器 slot；改了服务器要重启才生效）。',
+          labelWorkers: 'Worker 进程数', workersTip: 'Server 启动时 spawn 几个 worker 进程，各自载一份模型到 VRAM、各有独立 GPU 排程。改了要重启服务器才生效。', workersHint: '多进程：各载一份模型、各跑一条 pipeline。单 GPU 主要益处是某 worker 等 LLM 时另一个能算图。', workersVramLabel: '预估 VRAM：', effectiveConcLabel: '同时处理：', effectiveConcUnit: '张（= 服务器 slot 总数）',
           dirAuto: '自动', dirH: '横式', dirV: '竖式',
           inpClean: 'lama_large（通用）', inpFast: 'lama_mpe（漫画专用·推荐）',
           ocrMocrGpu: 'manga-ocr GPU（日漫专用）', ocrMocrCpu: 'manga-ocr CPU（日漫专用）', ocrPaddleGpu: 'PaddleOCR GPU（中/日/英/韩）', ocrPaddleCpu: 'PaddleOCR CPU（中/日/英/韩）', ocrHint: '💡 GPU 更快；CPU 较慢但兼容性好（GPU 出问题时的逃生口）。日漫选 manga-ocr、韩漫选 PaddleOCR。',
@@ -1649,6 +1799,7 @@
           labelOcr: 'OCR model', labelDir: 'Text layout', labelInpaint: 'Text removal',
           labelFontMin: 'Min font size', fmAuto: 'Auto (shrink to fit)',
           labelConcurrency: 'Concurrency', concurrencyTip: 'How many images to translate at once (batch / extension). Match the server slots; restart the server to apply.',
+          labelWorkers: 'Worker processes', workersTip: 'How many worker processes the server spawns at startup. Each loads its own copy of the models into VRAM and runs its own GPU scheduler. Restart the server to apply.', workersHint: 'Multi-process: each loads its own models and runs its own pipeline. On a single GPU the main gain is one worker computing while another waits on the LLM.', workersVramLabel: 'Est. VRAM: ', effectiveConcLabel: 'Processed at once: ', effectiveConcUnit: ' (= total server slots)',
           dirAuto: 'Auto', dirH: 'Horizontal', dirV: 'Vertical',
           inpClean: 'lama_large (general)', inpFast: 'lama_mpe (manga, recommended)',
           ocrMocrGpu: 'manga-ocr GPU (Japanese)', ocrMocrCpu: 'manga-ocr CPU (Japanese)', ocrPaddleGpu: 'PaddleOCR GPU (CN/JP/EN/KO)', ocrPaddleCpu: 'PaddleOCR CPU (CN/JP/EN/KO)', ocrHint: '💡 GPU is faster; CPU is slower but more compatible (escape hatch if GPU fails). manga-ocr for JP, PaddleOCR for KR.',
@@ -1835,6 +1986,7 @@
           labelOcr: 'OCR モデル', labelDir: 'レイアウト', labelInpaint: '文字消去',
           labelFontMin: '最小フォント', fmAuto: '自動（収まるまで縮小）',
           labelConcurrency: '並列数', concurrencyTip: '一括／拡張翻訳で同時に送る枚数（サーバーのslotに合わせる。変更後はサーバー再起動）。',
+          labelWorkers: 'Worker プロセス数', workersTip: 'サーバー起動時に spawn する worker プロセス数。各プロセスがモデルを個別に VRAM に読み込み、独立した GPU スケジューラを持つ。変更後はサーバー再起動。', workersHint: 'マルチプロセス：各々がモデルを読み込み独自のパイプラインを実行。単一 GPU では「あるworkerがLLM待ちの間に別のworkerがGPU計算」が主な利点。', workersVramLabel: '推定 VRAM：', effectiveConcLabel: '同時処理：', effectiveConcUnit: '枚（= サーバー slot 総数）',
           dirAuto: '自動', dirH: '横書き', dirV: '縦書き',
           inpClean: 'lama_large（汎用）', inpFast: 'lama_mpe（漫画専用·推奨）',
           ocrMocrGpu: 'manga-ocr GPU（日本語）', ocrMocrCpu: 'manga-ocr CPU（日本語）', ocrPaddleGpu: 'PaddleOCR GPU（中/日/英/韓）', ocrPaddleCpu: 'PaddleOCR CPU（中/日/英/韓）', ocrHint: '💡 GPU が高速；CPU は遅いが互換性が高い（GPU 不調時の逃げ道）。日本語は manga-ocr、韓国語は PaddleOCR。',
@@ -2021,6 +2173,7 @@
         // New features: Queue and Gallery
         queuedImages: [],
         finishedImages: [],
+        resultSort: 'name-asc',   // 翻譯結果排序：name/time × asc/desc（名稱用自然數字排序，5 在 10 前）
         showGallery: true,
         selectedFiles: [], // Store multiple selected files before adding to queue
         
@@ -2087,6 +2240,8 @@
         },
         // 翻譯時是否把漫畫圖傳給 LLM 校對（準確度較高，需視覺模型）
         llmSendImage: true,
+        onlyTranslateBubbles: false,
+        parallelBands: false,
         // 主區分頁籤：queue（翻譯佇列）/ gallery（成果圖庫）
         mainTab: 'queue',
         // 深夜模式（root div 加 .dark class）
@@ -2147,6 +2302,39 @@
         _customSeq: 0,
         get currentModel() { return this.models[this.llmProvider] || ''; },
         set currentModel(v) { this.models[this.llmProvider] = v; },
+        get sortedFinishedImages() {
+          const arr = [...this.finishedImages];
+          const [key, dir] = (this.resultSort || 'name-asc').split('-');
+          const sign = dir === 'desc' ? -1 : 1;
+          arr.sort((a, b) => {
+            if (key === 'time') {
+              const ta = a.finishedAt ? new Date(a.finishedAt).getTime() : 0;
+              const tb = b.finishedAt ? new Date(b.finishedAt).getTime() : 0;
+              return sign * (ta - tb);
+            }
+            // 名稱：自然數字排序（5.webp 在 10.webp 前）
+            return sign * String(a.originalName || '').localeCompare(
+              String(b.originalName || ''), undefined, { numeric: true, sensitivity: 'base' });
+          });
+          return arr;
+        },
+        get workerVramEstimate() {
+          // 粗估：每 worker ~3.5GB（detector+OCR+inpainter）；開放大/上色再 +~2GB/worker。
+          const n = Math.max(1, Math.min(parseInt(this.workers) || 1, 4));
+          const base = 3.5, extra = (this.colorize || this.upscaleRatio) ? 2 : 0;
+          const lo = (n * (base + extra)).toFixed(1);
+          const hi = (n * (base + extra + 0.8)).toFixed(1);
+          return `${n} × ~${(base + extra).toFixed(1)}GB ≈ ${lo}–${hi} GB`;
+        },
+        // 伺服器同時處理張數 = worker 進程數 × 並發數（= 伺服器註冊的 slot 總數）。
+        // client 餵圖、佇列排程都以此為上限，多 worker 才不會空等 slot。
+        get effectiveConcurrency() {
+          const slots = parseInt(this.serverSlots);
+          if (slots >= 1) return slots;
+          const w = Math.max(1, Math.min(parseInt(this.workers) || 1, 4));
+          const c = Math.max(1, Math.min(parseInt(this.concurrency) || 5, 16));
+          return w * c;
+        },
         get currentApiKey() { return this.apiKeys[this.llmProvider] || ''; },
         set currentApiKey(v) { this.apiKeys[this.llmProvider] = v; },
         get modelSuggestions() { return MODEL_SUGGESTIONS[this.llmProvider] || []; },
@@ -2162,11 +2350,15 @@
         inpaintingSize: "2048",
         customUnclipRatio: 1.2,
         customBoxThreshold: 0.2,
-        maskDilationOffset: 40,
-        inpainter: "lama_mpe",
+        maskDilationOffset: 20,
+        inpainter: "lama_large",
         ocrModel: "mocr/gpu",
         fontSizeMinimum: "0",
         concurrency: "5",
+        workers: "1",   // Worker 進程數（server 啟動時 spawn N 個，各載一份模型；改了要重啟伺服器）
+        serverSlots: 0,  // 後端實際註冊 slot 數；啟動後以它為準，避免設定與 runtime 不一致
+        apiKeyRows: [''],   // 多 key UI：每把一行，存回 apiKeys[provider] 以換行分隔（後端會 split 輪換）
+        fontBorder: false,  // 文字加底色（描邊）：on → disable_font_border=false，譯文加對比描邊較好讀
 
         uploadController: null,
 
@@ -2176,6 +2368,29 @@
           this.llmTestState = 'idle';
           this.llmTestMessage = '';
           this.saveSettings();
+        },
+
+        // ---- 多 key 欄位（+號可一直加）----
+        loadApiKeyRows() {
+          // 從 apiKeys[provider]（逗號/換行分隔）拆成一行一把；至少留一個空框
+          const parts = (this.currentApiKey || '').split(/[\n,]+/).map(s => s.trim()).filter(Boolean);
+          this.apiKeyRows = parts.length ? parts : [''];
+        },
+        commitApiKeyRows() {
+          // 任一框改動 → 合併回 apiKeys[provider]（換行分隔），存檔
+          this.currentApiKey = this.apiKeyRows.map(s => s.trim()).filter(Boolean).join('\n');
+          this.onSettingChange();
+        },
+        addApiKeyRow() { this.apiKeyRows.push(''); },
+        removeApiKeyRow(i) {
+          this.apiKeyRows.splice(i, 1);
+          if (!this.apiKeyRows.length) this.apiKeyRows = [''];
+          this.commitApiKeyRows();
+        },
+        onProviderSwitched() {
+          // 切換服務商：存檔 + 重新載入該服務商的 key 列
+          this.onSettingChange();
+          this.loadApiKeyRows();
         },
 
         // 測試 LLM 連接：用目前設定發極小請求驗證 key / base URL / 模型名
@@ -2416,28 +2631,19 @@
         // Settings persistence
         _applySettings(settings) {
           if (!settings) return;
-          if (settings.uiLang) this.uiLang = settings.uiLang;
-          if (settings.llmProvider) this.llmProvider = settings.llmProvider;
-          if (settings.models) Object.assign(this.models, settings.models);
-          if (settings.apiKeys) Object.assign(this.apiKeys, settings.apiKeys);
-          if (settings.customBaseUrl) this.customBaseUrl = settings.customBaseUrl;
-          if (typeof settings.llmSendImage === 'boolean') this.llmSendImage = settings.llmSendImage;
-          if (typeof settings.darkMode === 'boolean') this.darkMode = settings.darkMode;
-          if (['blue', 'pink', 'amber'].includes(settings.accentColor)) this.accentColor = settings.accentColor;
-          if (settings.targetLanguage) this.targetLanguage = settings.targetLanguage;
-          if (settings.fontPath) this.fontPath = settings.fontPath;
-          if (settings.ocrModel) {
-            let om = settings.ocrModel;
-            if (om === "mocr") om = "mocr/gpu";                     // 舊值遷移：原 auto 在 GPU 機=GPU
-            else if (om === "paddle/auto") om = "paddle/auto/gpu";
-            this.ocrModel = om;
+          // 由 SETTINGS_FIELDS 統一驅動（型別強轉 / 物件合併 / enum 白名單 / 舊值遷移皆編碼在清單裡）
+          for (const f of SETTINGS_FIELDS) {
+            let v = settings[f.k];
+            if (v == null) continue;
+            if (f.assign) { Object.assign(this[f.k], v); continue; }
+            if (f.enum) { if (!f.enum.includes(v)) continue; }
+            else if (f.t === 'bool') { if (typeof v !== 'boolean') continue; }
+            else if (f.t === 'str') v = String(v);
+            else if (f.t === 'int') v = parseInt(v);
+            if (f.migrate) v = f.migrate(v);
+            this[f.k] = v;
           }
-          if (settings.renderTextDirection) this.renderTextDirection = settings.renderTextDirection;
-          if (settings.inpainter) this.inpainter = settings.inpainter;
-          if (settings.fontSizeMinimum != null) this.fontSizeMinimum = String(settings.fontSizeMinimum);
-          if (settings.concurrency != null) this.concurrency = String(settings.concurrency);
-          if (typeof settings.advancedMode === 'boolean') this.advancedMode = settings.advancedMode;
-          if (typeof settings.autoRetryFailed === 'boolean') this.autoRetryFailed = settings.autoRetryFailed;
+          this.loadApiKeyRows();   // 多 key UI：把 apiKeys[provider] 拆成可編輯的多行
         },
 
         loadSettings() {
@@ -2449,33 +2655,25 @@
           } catch {}
           fetch('/ui-settings').then(r => r.json()).then(settings => {
             if (settings && Object.keys(settings).length) {
+              this.serverSlots = parseInt(settings.serverSlots) || 0;
               this._applySettings(settings);
               // 回寫 localStorage 讓下次刷新立即可用
-              try { localStorage.setItem('manga-translator-settings', JSON.stringify(settings)); } catch {}
+              try {
+                const cachedSettings = { ...settings };
+                delete cachedSettings.serverSlots;
+                delete cachedSettings.serverFreeSlots;
+                delete cachedSettings.serverWorkers;
+                delete cachedSettings.serverConcurrency;
+                localStorage.setItem('manga-translator-settings', JSON.stringify(cachedSettings));
+              } catch {}
             }
           }).catch(() => {});
         },
 
         saveSettings() {
-          const settings = {
-            uiLang: this.uiLang,
-            llmProvider: this.llmProvider,
-            models: this.models,
-            apiKeys: this.apiKeys,
-            customBaseUrl: this.customBaseUrl,
-            llmSendImage: this.llmSendImage,
-            darkMode: this.darkMode,
-            accentColor: this.accentColor,
-            targetLanguage: this.targetLanguage,
-            fontPath: this.fontPath,
-            ocrModel: this.ocrModel,
-            renderTextDirection: this.renderTextDirection,
-            inpainter: this.inpainter,
-            fontSizeMinimum: this.fontSizeMinimum,
-            concurrency: this.concurrency,
-            advancedMode: this.advancedMode,
-            autoRetryFailed: this.autoRetryFailed,
-          };
+          // 由 SETTINGS_FIELDS 統一驅動：存的欄位一定 = 讀的欄位，不會再漏存/漏讀
+          const settings = {};
+          for (const f of SETTINGS_FIELDS) settings[f.k] = this[f.k];
           // 同時寫入 localStorage（即時）和伺服器（持久）
           try { localStorage.setItem('manga-translator-settings', JSON.stringify(settings)); } catch {}
           fetch('/ui-settings', {
@@ -2791,9 +2989,11 @@
               llm_model: this.currentModel || null,
               llm_base_url: this.llmProvider === 'custom' ? (this.customBaseUrl || null) : null,
               llm_send_image: this.llmSendImage,
+              parallel_bands: this.parallelBands,
               post_check_max_retry_attempts: 0,
               enable_post_translation_check: false,
             },
+            translate_only_in_bubbles: this.onlyTranslateBubbles,
             detector: {
               detector: "default",
               detection_size: 2048,
@@ -2822,7 +3022,7 @@
             render: {
               renderer: "manga2eng",
               alignment: "auto",
-              disable_font_border: true,
+              disable_font_border: !this.fontBorder,
               direction: (this.renderTextDirection && this.renderTextDirection !== 'auto') ? this.renderTextDirection : (isLatin ? "horizontal" : "auto"),
               bubble_layout_english: isLatin,
               font_path: this.fontPath || null,
@@ -2851,12 +3051,13 @@
               paste_mask_dilation_pixels: 10,
               ai_renderer_concurrency: 1,
             },
-            mask_dilation_offset: parseInt(this.maskDilationOffset) || 40,
+            mask_dilation_offset: (this.maskDilationOffset === 0 || this.maskDilationOffset) ? parseInt(this.maskDilationOffset) : 20,
           });
 
           formData.append("config", config);
           formData.append("advanced", this.advancedMode ? "1" : "0");
           formData.append("priority", queuedImage._priority ? "1" : "0");   // 重新翻譯插隊到伺服器佇列最前面
+          const translateBaseUri = nextTranslateBaseUri();
 
           const processChunk = (value) => {
             const newBuffer = new Uint8Array(buffer.length + value.length);
@@ -2953,10 +3154,62 @@
             }
           };
 
-          const uploadWithProgress = async (formData) => {
+          const applyJobStatus = (job) => {
+            if (!job) return;
+            const statusCode = Number(job.code);
+            const processingItemIndex = this.queuedImages.findIndex(item => item.id === queuedImage.id);
+            if (job.folder && !_myFolder) _myFolder = job.folder;
+
+            if (statusCode === 1) {
+              const newStatus = job.message || job.status || "processing";
+              if (newStatus.startsWith("rendering_folder:")) {
+                _myFolder = newStatus.substring(17);
+              } else if (newStatus.startsWith("final_ready:")) {
+                const readyFolder = newStatus.substring(12);
+                if (!_myFolder) _myFolder = readyFolder;
+                this._finishQueuedItem(queuedImage, _myFolder);
+                _finalShown = true;
+              } else if (processingItemIndex !== -1) {
+                this.queuedImages[processingItemIndex] = {
+                  ...this.queuedImages[processingItemIndex],
+                  status: newStatus,
+                  progress: newStatus
+                };
+              }
+            } else if (statusCode === 2 || job.status === "error") {
+              if (processingItemIndex !== -1) {
+                this.queuedImages[processingItemIndex] = {
+                  ...this.queuedImages[processingItemIndex],
+                  status: "error",
+                  error: job.error || job.message || "Translation failed"
+                };
+              }
+            } else if (statusCode === 3) {
+              if (processingItemIndex !== -1) {
+                this.queuedImages[processingItemIndex] = {
+                  ...this.queuedImages[processingItemIndex],
+                  queuePos: job.queuePos || job.message || "0"
+                };
+              }
+            } else if (statusCode === 4) {
+              if (processingItemIndex !== -1) {
+                this.queuedImages[processingItemIndex] = {
+                  ...this.queuedImages[processingItemIndex],
+                  queuePos: null
+                };
+              }
+            }
+
+            if (job.done && job.folder && !_finalShown) {
+              this._finishQueuedItem(queuedImage, job.folder);
+              _finalShown = true;
+            }
+          };
+
+          const uploadWithProgress = async (formData, baseUri = translateBaseUri, retriedBase = false) => {
             try {
               const response = await fetch(
-                `${BASE_URI}translate/with-form/image/stream/web`,
+                `${baseUri}translate/with-form/image/async-web`,
                 {
                   method: "POST",
                   body: formData,
@@ -2976,18 +3229,29 @@
                 return;
               }
 
-              const reader = response.body.getReader();
+              const data = await response.json();
+              const jobId = data && data.jobId;
+              if (!jobId) throw new Error("Missing job id");
               while (true) {
-                const { done, value } = await reader.read();
-                if (done) break;
+                await new Promise(resolve => setTimeout(resolve, 650));
+                const poll = await fetch(`${BASE_URI}translate/jobs/${jobId}`, {
+                  signal: queuedImage._controller.signal,
+                });
+                if (!poll.ok) throw new Error(`Job status HTTP ${poll.status}`);
+                const job = await poll.json();
                 lastActivity = Date.now();
-                processChunk(value);
+                applyJobStatus(job);
+                if (job.done) break;
               }
 
             } catch (error) {
               if (error.name === 'AbortError') {
                 console.log('Fetch aborted');
                 return;
+              }
+              if (!retriedBase && baseUri !== BASE_URI) {
+                console.warn(`Translation upload failed via ${baseUri}; retrying ${BASE_URI}`, error);
+                return uploadWithProgress(formData, BASE_URI, true);
               }
               console.error(error);
               const processingItemIndex = this.queuedImages.findIndex(item => item.id === queuedImage.id);
@@ -3001,7 +3265,7 @@
             }
           };
 
-          // ---- 看門狗：180s 無 stream 進度或總時 900s → abort，避免單張卡死整條佇列 ----
+          // ---- 看門狗：90s 無 stream 進度或總時 600s → abort，避免單張卡死整條佇列（abort 後由自動重試接手）----
           const startedAt = Date.now();
           let lastActivity = Date.now();
           const controller = queuedImage._controller;
@@ -3012,8 +3276,8 @@
               clearInterval(watchdog);
               return;
             }
-            if (Date.now() - lastActivity > 180000 || Date.now() - startedAt > 900000) {
-              console.warn('Watchdog: translation stalled, aborting');
+            if (Date.now() - lastActivity > 90000 || Date.now() - startedAt > 600000) {
+              console.warn('Watchdog: translation stalled (90s no progress), aborting → 自動重試接手');
               controller.abort();
             }
           }, 5000);
@@ -3123,8 +3387,9 @@
           const url = `${BASE_URI}result/${folder}/final.png`;
           this.queuedImages[idx] = { ...this.queuedImages[idx], status: 'finished', result: url };
           this.addToFinishedImages({ name: queuedImage.file.name, result: url });
-          this.currentFolder = folder; // 主檢視器顯示最近完成的那張
-          this.result = url;           // 補：每張翻好就立刻更新主檢視器（resultUri 靠 currentFolder 取 final.png）
+          this.currentFolder = folder; // 記住最近完成的那張（給編輯器/結果分頁參照）
+          // 不再每張翻好就把主卡切成「單張結果＋再翻一張」蓋掉上傳區——批次時很煩。
+          // 上傳區（拖放/選檔）維持顯示，翻好的圖都在下方「翻譯結果」分頁看，不打斷繼續丟圖。
           // 進階模式 + 沒有其他待處理/進行中 → 自動開編輯器（只在單張流程時）。
           const othersBusy = this.queuedImages.some(it => it.id !== queuedImage.id && it.status !== 'finished' && it.status !== 'error');
           if (this.advancedMode && !othersBusy && !this.editorOpen) {
@@ -3134,9 +3399,11 @@
           setTimeout(() => this.clearFinishedItems(), 3000);  // 延遲清掉已完成項
         },
 
-    // 並發排程：把空槽填到「並發數」上限（最多同時 conc 張）。ingest / 完成 / 失敗 / 重試共用。
+    // 並發排程：把空槽填到「同時處理張數」上限。ingest / 完成 / 失敗 / 重試共用。
+    // 上限 = 伺服器 slot 總數 = worker 進程數 × 並發數（每個 worker 各註冊「並發數」個 slot）。
+    // 之前只用 concurrency → 開了多 worker 時 client 餵不滿，多出來的 slot 空等（使用者回報的「等待處理中」）。
     processNextInQueue() {
-      const conc = Math.max(1, Math.min(parseInt(this.concurrency) || 5, 16));
+      const conc = this.effectiveConcurrency;
       // 「進行中」= 狀態不是 queued/finished/error。伺服器會串出 textline_merge / after-translating /
       // downscaling / colorizing 等很多中間狀態，不能用白名單（會誤判成空槽 → 超發超過上限）。
       const countActive = () => this.queuedImages.filter(it => it.status && !['queued','finished','error'].includes(it.status)).length;
@@ -3149,11 +3416,11 @@
       };
       while (countActive() < conc && guard++ < 64) {
         let nextItemIndex = pickNext();
-        // 自動重試：沒有 queued 時，把 error 項重排回佇列（勾選才做，不限次數）。
+        // 自動重試：沒有 queued 時，把 error 項重排回佇列（勾選才做；上限 3 次後留在錯誤＝重翻列表）。
         if (nextItemIndex === -1 && this.autoRetryFailed) {
           let requeued = false;
           this.queuedImages.forEach((item, idx) => {
-            if (item.status === 'error' && (item.retryCount || 0) < 8) {   // 上限 8 次，避免死錯誤 300ms 無限重試風暴
+            if (item.status === 'error' && (item.retryCount || 0) < 3) {   // 上限 3 次：壞掉的頁別無限重試，留在錯誤清單供手動處理
               this.queuedImages[idx] = {
                 ...item, status: 'queued', error: null, progress: null,
                 queuePos: null, retryCount: (item.retryCount || 0) + 1,
@@ -3303,10 +3570,12 @@
     },
 
     nextImage() {
+      // 用 sortedFinishedImages（畫面上看到的順序），否則排序後右箭頭會跟視覺順序對不上（像反了）
       if (this.selectedImage) {
-        const currentIndex = this.finishedImages.findIndex(img => img.id === this.selectedImage.id);
-        if (currentIndex < this.finishedImages.length - 1) {
-          this.selectedImage = this.finishedImages[currentIndex + 1];
+        const list = this.sortedFinishedImages;
+        const currentIndex = list.findIndex(img => img.id === this.selectedImage.id);
+        if (currentIndex > -1 && currentIndex < list.length - 1) {
+          this.selectedImage = list[currentIndex + 1];
           // Reset transform when switching images
           this.isImageZoomed = false;
           this.imageTransform = { scale: 1, translateX: 0, translateY: 0 };
@@ -3316,9 +3585,10 @@
 
     previousImage() {
       if (this.selectedImage) {
-        const currentIndex = this.finishedImages.findIndex(img => img.id === this.selectedImage.id);
+        const list = this.sortedFinishedImages;
+        const currentIndex = list.findIndex(img => img.id === this.selectedImage.id);
         if (currentIndex > 0) {
-          this.selectedImage = this.finishedImages[currentIndex - 1];
+          this.selectedImage = list[currentIndex - 1];
           // Reset transform when switching images
           this.isImageZoomed = false;
           this.imageTransform = { scale: 1, translateX: 0, translateY: 0 };
@@ -3522,6 +3792,23 @@
       if (this.allSelected) this.selectedGallery = [];
       else this.selectedGallery = this.finishedImages.map(im => im.id);
     },
+    // 把 blob 用 canvas 重編成 webp（q90）；解碼/編碼失敗或反而更大就回 null，呼叫端退回原圖。
+    async _reencodeWebp(blob, quality = 0.9) {
+      try {
+        const bmp = await createImageBitmap(blob);
+        const canvas = document.createElement('canvas');
+        canvas.width = bmp.width;
+        canvas.height = bmp.height;
+        canvas.getContext('2d').drawImage(bmp, 0, 0);
+        if (bmp.close) bmp.close();
+        const out = await new Promise(res => canvas.toBlob(res, 'image/webp', quality));
+        if (!out || out.size >= blob.size) return null;  // 編碼失敗 / 沒變小（超大長圖超 canvas 上限等）→ 用原圖
+        return out;
+      } catch (e) {
+        console.warn('webp reencode failed:', e);
+        return null;
+      }
+    },
     async downloadGalleryZip() {
       if (!this.selectedGallery.length || this.zipping) return;
       this.zipping = true;
@@ -3534,17 +3821,19 @@
           try {
             const resp = await fetch(im.result);
             if (!resp.ok) continue;
-            const blob = await resp.blob();
-            // 維持原檔名；只在重名時補後綴避免覆蓋
-            let name = im.originalName || `page_${String(n).padStart(3, '0')}.png`;
-            if (used[name]) {
-              const dot = name.lastIndexOf('.');
-              const stem = dot > 0 ? name.slice(0, dot) : name;
-              const ext = dot > 0 ? name.slice(dot) : '';
-              name = `${stem}_${used[name] + 1}${ext}`;
-            }
-            used[im.originalName || name] = (used[im.originalName || name] || 0) + 1;
-            zip.file(name, blob);
+            const pngBlob = await resp.blob();
+            // 成品在伺服器存成無損 PNG（final.png）。原樣打包會讓有損 webp 原檔膨脹成 PNG（10MB→89MB）。
+            // 改成重編 webp q90 再入 zip：檔案大小回到原檔量級，且副檔名與真實內容一致。
+            let outBlob = pngBlob, ext = 'png';
+            const webp = await this._reencodeWebp(pngBlob);
+            if (webp) { outBlob = webp; ext = 'webp'; }
+            // 檔名一律用「真實格式」的副檔名，杜絕「叫 .webp 內容卻是 PNG」的不一致
+            const stem = (im.originalName || `page_${String(n).padStart(3, '0')}`).replace(/\.[^.]+$/, '');
+            const base = `${stem}.${ext}`;
+            let name = base;
+            if (used[base]) name = `${stem}_${used[base] + 1}.${ext}`;
+            used[base] = (used[base] || 0) + 1;
+            zip.file(name, outBlob);
             n++;
           } catch (e) { console.warn('zip add failed:', e); }
         }
