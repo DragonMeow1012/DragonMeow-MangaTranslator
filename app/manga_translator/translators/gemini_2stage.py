@@ -1219,8 +1219,12 @@ class Gemini2StageTranslator(CommonTranslator):
             mocr_text = (region.text or '').replace('"', '\\"').replace('\n', ' ')
             anchor = f'"{mocr_text}"' if mocr_text else '"(空)"'
             if getattr(region, '_synth_bubble', False):
-                # 空泡泡補抓：OCR 完全漏抓，anchor 是佔位符。明示 LLM 必須讀圖。
-                anchor = '"(OCR 漏抓的泡泡，裡面有字：請看圖逐字讀出，含點點與假名)"'
+                # 空泡泡補抓：mocr 漏抓。給 vision 一條「沒字就別編」的出路——bubble 偵測器有時把
+                # 沒字的臉/留白誤判成泡泡，舊 anchor 斷定「裡面有字、逐字讀出」會逼 vision 硬編一句
+                # 台詞（莫名其妙的句子）。改成：真有字才讀，沒字就留空。
+                anchor = ('"(可能漏抓的泡泡：看圖，**只有框內真的有文字**才逐字讀出（含點點與假名）；'
+                          '若框內其實是臉/背景/留白、沒有可辨識文字，corrected_text 與 '
+                          'translated_text 都留空字串，絕對不要硬編或猜內容)"')
             role = _layout_role(region)
             if role == 'dialogue':
                 bubble_hint = 'role=dialogue 泡泡內台詞'

@@ -105,7 +105,7 @@ class ModelPaddleOCR(OfflineOCR):
             except Exception:
                 continue
         self.logger.info(f'PaddleOCR auto-detect lang={best} (conf={best_conf:.3f})')
-        return best
+        return best, best_conf
 
     @staticmethod
     def _parse_ocr_result(r0):
@@ -164,9 +164,14 @@ class ModelPaddleOCR(OfflineOCR):
         if lang == 'auto':
             # 語言偵測快取（#2 提速）：同批 webtoon 同語言，偵測一次重用，省每頁 3 次探測 predict。
             # 換系列會經 _unload 清掉重偵；想最穩可在 UI 直接選語言（完全略過偵測）。
-            if self._auto_lang is None:
-                self._auto_lang = self._detect_lang(image, quadrilaterals)
-            lang = self._auto_lang
+            if self._auto_lang is not None:
+                lang = self._auto_lang
+            else:
+                lang, _conf = self._detect_lang(image, quadrilaterals)
+                # 只鎖定高信心偵測；低信心（例：把韓文誤判成 ch、conf~0.78）不快取，下一頁重偵，
+                # 避免整批被一次誤判鎖死整本變亂碼。最穩仍是在 UI 直接手選語言（完全略過偵測）。
+                if _conf >= 0.85:
+                    self._auto_lang = lang
         engine = self._get_engine(lang)
         is_quadrilaterals = isinstance(quadrilaterals[0][0], Quadrilateral)
 
