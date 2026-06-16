@@ -417,6 +417,9 @@
                 <option value="4">4</option>
               </select>
               <div style="font-size:11px;opacity:.55;margin-top:3px;line-height:1.35">{{ t('workersHint') }}</div>
+              <div style="font-size:11px;margin-top:4px;line-height:1.35;opacity:.9">
+                {{ t('effectiveConcLabel') }}<b>{{ workers }} × {{ concurrency }} = {{ effectiveConcurrency }}</b> {{ t('effectiveConcUnit') }}
+              </div>
               <div style="font-size:11px;margin-top:4px;line-height:1.35;opacity:.8">
                 {{ t('workersVramLabel') }}<b>{{ workerVramEstimate }}</b>
               </div>
@@ -1394,7 +1397,7 @@
           labelOcr: 'OCR 模型', labelDir: '輸出排版', labelInpaint: '抹字模型',
           labelFontMin: '最小字級', fmAuto: '自動（縮到塞下）',
           labelConcurrency: '並發數', concurrencyTip: '整批／擴充翻譯同時送幾張（對齊伺服器 slot；改了伺服器要重啟才生效）。',
-          labelWorkers: 'Worker 進程數', workersTip: 'Server 啟動時 spawn 幾個 worker 進程，各自載一份模型到 VRAM、各有獨立 GPU 排程。改了要重啟伺服器才生效。', workersHint: '多進程：各載一份模型、各跑一條 pipeline。單 GPU 主要益處是某 worker 等 LLM 時另一個能算圖。', workersVramLabel: '預估 VRAM：',
+          labelWorkers: 'Worker 進程數', workersTip: 'Server 啟動時 spawn 幾個 worker 進程，各自載一份模型到 VRAM、各有獨立 GPU 排程。改了要重啟伺服器才生效。', workersHint: '多進程：各載一份模型、各跑一條 pipeline。單 GPU 主要益處是某 worker 等 LLM 時另一個能算圖。', workersVramLabel: '預估 VRAM：', effectiveConcLabel: '同時處理：', effectiveConcUnit: '張（= 伺服器 slot 總數）',
           dirAuto: '自動', dirH: '橫式', dirV: '直式',
           inpClean: 'lama_large（通用）', inpFast: 'lama_mpe（漫畫專用·推薦）',
           ocrMocrGpu: 'manga-ocr GPU（日漫專用）', ocrMocrCpu: 'manga-ocr CPU（日漫專用）', ocrPaddleGpu: 'PaddleOCR GPU（中/日/英/韓）', ocrPaddleCpu: 'PaddleOCR CPU（中/日/英/韓）', ocrHint: '💡 GPU 較快；CPU 較慢但相容性好（GPU 出狀況時的逃生口）。日漫選 manga-ocr、韓漫選 PaddleOCR。單一語言建議直接手選對應語言（韓/中/日）——自動模式首次要偵測語言、會載多個引擎，冷啟動較慢。',
@@ -1581,7 +1584,7 @@
           labelOcr: 'OCR 模型', labelDir: '输出排版', labelInpaint: '抹字模型',
           labelFontMin: '最小字级', fmAuto: '自动（缩到塞下）',
           labelConcurrency: '并发数', concurrencyTip: '整批／扩展翻译同时送几张（对齐服务器 slot；改了服务器要重启才生效）。',
-          labelWorkers: 'Worker 进程数', workersTip: 'Server 启动时 spawn 几个 worker 进程，各自载一份模型到 VRAM、各有独立 GPU 排程。改了要重启服务器才生效。', workersHint: '多进程：各载一份模型、各跑一条 pipeline。单 GPU 主要益处是某 worker 等 LLM 时另一个能算图。', workersVramLabel: '预估 VRAM：',
+          labelWorkers: 'Worker 进程数', workersTip: 'Server 启动时 spawn 几个 worker 进程，各自载一份模型到 VRAM、各有独立 GPU 排程。改了要重启服务器才生效。', workersHint: '多进程：各载一份模型、各跑一条 pipeline。单 GPU 主要益处是某 worker 等 LLM 时另一个能算图。', workersVramLabel: '预估 VRAM：', effectiveConcLabel: '同时处理：', effectiveConcUnit: '张（= 服务器 slot 总数）',
           dirAuto: '自动', dirH: '横式', dirV: '竖式',
           inpClean: 'lama_large（通用）', inpFast: 'lama_mpe（漫画专用·推荐）',
           ocrMocrGpu: 'manga-ocr GPU（日漫专用）', ocrMocrCpu: 'manga-ocr CPU（日漫专用）', ocrPaddleGpu: 'PaddleOCR GPU（中/日/英/韩）', ocrPaddleCpu: 'PaddleOCR CPU（中/日/英/韩）', ocrHint: '💡 GPU 更快；CPU 较慢但兼容性好（GPU 出问题时的逃生口）。日漫选 manga-ocr、韩漫选 PaddleOCR。',
@@ -1768,7 +1771,7 @@
           labelOcr: 'OCR model', labelDir: 'Text layout', labelInpaint: 'Text removal',
           labelFontMin: 'Min font size', fmAuto: 'Auto (shrink to fit)',
           labelConcurrency: 'Concurrency', concurrencyTip: 'How many images to translate at once (batch / extension). Match the server slots; restart the server to apply.',
-          labelWorkers: 'Worker processes', workersTip: 'How many worker processes the server spawns at startup. Each loads its own copy of the models into VRAM and runs its own GPU scheduler. Restart the server to apply.', workersHint: 'Multi-process: each loads its own models and runs its own pipeline. On a single GPU the main gain is one worker computing while another waits on the LLM.', workersVramLabel: 'Est. VRAM: ',
+          labelWorkers: 'Worker processes', workersTip: 'How many worker processes the server spawns at startup. Each loads its own copy of the models into VRAM and runs its own GPU scheduler. Restart the server to apply.', workersHint: 'Multi-process: each loads its own models and runs its own pipeline. On a single GPU the main gain is one worker computing while another waits on the LLM.', workersVramLabel: 'Est. VRAM: ', effectiveConcLabel: 'Processed at once: ', effectiveConcUnit: ' (= total server slots)',
           dirAuto: 'Auto', dirH: 'Horizontal', dirV: 'Vertical',
           inpClean: 'lama_large (general)', inpFast: 'lama_mpe (manga, recommended)',
           ocrMocrGpu: 'manga-ocr GPU (Japanese)', ocrMocrCpu: 'manga-ocr CPU (Japanese)', ocrPaddleGpu: 'PaddleOCR GPU (CN/JP/EN/KO)', ocrPaddleCpu: 'PaddleOCR CPU (CN/JP/EN/KO)', ocrHint: '💡 GPU is faster; CPU is slower but more compatible (escape hatch if GPU fails). manga-ocr for JP, PaddleOCR for KR.',
@@ -1955,7 +1958,7 @@
           labelOcr: 'OCR モデル', labelDir: 'レイアウト', labelInpaint: '文字消去',
           labelFontMin: '最小フォント', fmAuto: '自動（収まるまで縮小）',
           labelConcurrency: '並列数', concurrencyTip: '一括／拡張翻訳で同時に送る枚数（サーバーのslotに合わせる。変更後はサーバー再起動）。',
-          labelWorkers: 'Worker プロセス数', workersTip: 'サーバー起動時に spawn する worker プロセス数。各プロセスがモデルを個別に VRAM に読み込み、独立した GPU スケジューラを持つ。変更後はサーバー再起動。', workersHint: 'マルチプロセス：各々がモデルを読み込み独自のパイプラインを実行。単一 GPU では「あるworkerがLLM待ちの間に別のworkerがGPU計算」が主な利点。', workersVramLabel: '推定 VRAM：',
+          labelWorkers: 'Worker プロセス数', workersTip: 'サーバー起動時に spawn する worker プロセス数。各プロセスがモデルを個別に VRAM に読み込み、独立した GPU スケジューラを持つ。変更後はサーバー再起動。', workersHint: 'マルチプロセス：各々がモデルを読み込み独自のパイプラインを実行。単一 GPU では「あるworkerがLLM待ちの間に別のworkerがGPU計算」が主な利点。', workersVramLabel: '推定 VRAM：', effectiveConcLabel: '同時処理：', effectiveConcUnit: '枚（= サーバー slot 総数）',
           dirAuto: '自動', dirH: '横書き', dirV: '縦書き',
           inpClean: 'lama_large（汎用）', inpFast: 'lama_mpe（漫画専用·推奨）',
           ocrMocrGpu: 'manga-ocr GPU（日本語）', ocrMocrCpu: 'manga-ocr CPU（日本語）', ocrPaddleGpu: 'PaddleOCR GPU（中/日/英/韓）', ocrPaddleCpu: 'PaddleOCR CPU（中/日/英/韓）', ocrHint: '💡 GPU が高速；CPU は遅いが互換性が高い（GPU 不調時の逃げ道）。日本語は manga-ocr、韓国語は PaddleOCR。',
@@ -2294,6 +2297,13 @@
           const lo = (n * (base + extra)).toFixed(1);
           const hi = (n * (base + extra + 0.8)).toFixed(1);
           return `${n} × ~${(base + extra).toFixed(1)}GB ≈ ${lo}–${hi} GB`;
+        },
+        // 伺服器同時處理張數 = worker 進程數 × 並發數（= 伺服器註冊的 slot 總數）。
+        // client 餵圖、佇列排程都以此為上限，多 worker 才不會空等 slot。
+        get effectiveConcurrency() {
+          const w = Math.max(1, Math.min(parseInt(this.workers) || 1, 4));
+          const c = Math.max(1, Math.min(parseInt(this.concurrency) || 5, 16));
+          return w * c;
         },
         get currentApiKey() { return this.apiKeys[this.llmProvider] || ''; },
         set currentApiKey(v) { this.apiKeys[this.llmProvider] = v; },
@@ -3286,9 +3296,11 @@
           setTimeout(() => this.clearFinishedItems(), 3000);  // 延遲清掉已完成項
         },
 
-    // 並發排程：把空槽填到「並發數」上限（最多同時 conc 張）。ingest / 完成 / 失敗 / 重試共用。
+    // 並發排程：把空槽填到「同時處理張數」上限。ingest / 完成 / 失敗 / 重試共用。
+    // 上限 = 伺服器 slot 總數 = worker 進程數 × 並發數（每個 worker 各註冊「並發數」個 slot）。
+    // 之前只用 concurrency → 開了多 worker 時 client 餵不滿，多出來的 slot 空等（使用者回報的「等待處理中」）。
     processNextInQueue() {
-      const conc = Math.max(1, Math.min(parseInt(this.concurrency) || 5, 16));
+      const conc = this.effectiveConcurrency;
       // 「進行中」= 狀態不是 queued/finished/error。伺服器會串出 textline_merge / after-translating /
       // downscaling / colorizing 等很多中間狀態，不能用白名單（會誤判成空槽 → 超發超過上限）。
       const countActive = () => this.queuedImages.filter(it => it.status && !['queued','finished','error'].includes(it.status)).length;

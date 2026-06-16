@@ -19,6 +19,7 @@ const DEFAULT_SETTINGS = {
   renderTextDirection: "auto",
   fontSizeMinimum: "0",
   concurrency: "5",
+  workers: "1",                  // 唯讀同步：伺服器 worker 進程數（網頁 UI 設定）；餵圖上限 = workers × concurrency
   maskDilationOffset: 20,        // 抹字遮罩外擴像素：大蓋殘字但會抹到框/糊邊，小乾淨但會殘字
   inpaintingSize: "2048"
 };
@@ -326,6 +327,7 @@ function normalizeUiSettings(raw, apiBase) {
     renderTextDirection: raw.renderTextDirection || DEFAULT_SETTINGS.renderTextDirection,
     fontSizeMinimum: raw.fontSizeMinimum || DEFAULT_SETTINGS.fontSizeMinimum,
     concurrency: raw.concurrency || DEFAULT_SETTINGS.concurrency,
+    workers: raw.workers || DEFAULT_SETTINGS.workers,   // 唯讀同步自網頁 UI，用來算餵圖上限
     maskDilationOffset: (raw.maskDilationOffset != null) ? raw.maskDilationOffset : DEFAULT_SETTINGS.maskDilationOffset,
     inpaintingSize: raw.inpaintingSize || DEFAULT_SETTINGS.inpaintingSize
   };
@@ -550,10 +552,14 @@ function notifyPrefetchProgress(tabId) {
 
 async function prefetchTranslate(items, referer, tabId) {
   const settings = await loadSettings();
-  const conc = Math.max(1, Math.min(parseInt(settings.concurrency) || 5, 16)); // 並發數（對齊伺服器 slot）
+  // 餵圖上限 = 伺服器 slot 總數 = worker 進程數 × 並發數（每個 worker 各註冊「並發數」個 slot）。
+  // 只用 concurrency 的話，開了多 worker 時會餵不滿、多出來的 slot 空等（使用者回報的「等待處理中」）。
+  const baseConc = Math.max(1, Math.min(parseInt(settings.concurrency) || 5, 16));
+  const workers = Math.max(1, Math.min(parseInt(settings.workers) || 1, 4));
+  const conc = baseConc * workers;
   // Over-send：實際同時送 conc+2，讓伺服器佇列永遠有下一張等著 → GPU 一放鎖立刻有活，不必等
   // client round-trip。對齊 SDMDCBOT「pipeline 深度 + 2 buffer」的餵滿策略（client.py:77）。
-  const inflightCap = Math.min(conc + 2, 18);
+  const inflightCap = Math.min(conc + 2, 66);
   let lastPage = 0; // 已預翻到的最遠頁碼（含這次新翻的）
   let prevOrig = null; // 上一張抓到的原圖，用來偵測「站一直回同一張＝已到底」
   const myGen = _abortGen;

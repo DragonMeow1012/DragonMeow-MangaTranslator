@@ -88,9 +88,14 @@ let _showQueuePanel = true; // 顯示翻譯進度浮窗（縮圖佇列）；popu
 let _lastPrefetchPage = 0;
 let _pfProg = null;         // 頁碼翻譯預抓即時進度 {done,total}，顯示在泡泡 tooltip
 // 並發送出數：從同步設定讀（網頁 UI「並發數」→ user_settings.json → background 存進 dmmtSyncedSettings）。
+// 餵圖上限 = 伺服器 slot 總數 = worker 進程數 × 並發數（每個 worker 各註冊「並發數」個 slot）。
+// 只用 concurrency 的話，開了多 worker 時會餵不滿、多出來的 slot 空等。
 function _applyConcurrency(synced) {
-  const n = parseInt(synced?.concurrency);
-  if (n >= 1 && n <= 16) PAGE_TRANSLATE_CONCURRENCY = n;
+  const c = parseInt(synced?.concurrency);
+  const w = parseInt(synced?.workers);
+  const conc = (c >= 1 && c <= 16) ? c : 5;
+  const workers = (w >= 1 && w <= 4) ? w : 1;
+  PAGE_TRANSLATE_CONCURRENCY = conc * workers;
 }
 // 快取上限（張）：可自訂 1–9999，存 chrome.storage 的 dmmtCacheMax；放大後整本長條漫都能留快取。
 function _applyCacheMax(v) {

@@ -401,6 +401,13 @@ class Gemini2StageTranslator(CommonTranslator):
         self._batch_max_tokens_per_page = max(2000, int(os.getenv('GEMINI_2STAGE_BATCH_TOKENS_PER_PAGE', '4000')))
         self._batch_buffer: '_UnifiedBatchBuffer | None' = None  # lazy-init in event loop
 
+        # 送圖(vision)看圖 LLM 呼叫 timeout：送圖 token 多、比純文字慢。env 可調，預設 90s。
+        # 注意：送圖路徑本來就是 90s（>60），刻意不降到 60——長頁/多 bbox 在 60s 容易逾時漏翻。
+        # 要更短可設 GEMINI_2STAGE_VISION_TIMEOUT=60。
+        self._vision_timeout_s = max(15.0, float(os.getenv('GEMINI_2STAGE_VISION_TIMEOUT', '90')))
+        # 純文字 LLM 呼叫（補譯/校對）timeout，預設 45s。
+        self._text_timeout_s = max(10.0, float(os.getenv('GEMINI_2STAGE_TEXT_TIMEOUT', '45')))
+
     def parse_args(self, args):
         """每次請求由 dispatch() 呼叫：套用網頁端送來的 provider / API key / 模型覆寫。
 
@@ -1352,7 +1359,8 @@ class Gemini2StageTranslator(CommonTranslator):
 
     async def _call_llm_single(self, payload: dict) -> list:
         """單頁 unified vision call → bboxes 列表。失敗 raise（caller 處理 GT fallback）。
-        90s 上限。包 retry/換 key/503 storm 兜底（在 _gemini_json_call 裡）。
+        timeout = self._vision_timeout_s（env GEMINI_2STAGE_VISION_TIMEOUT，預設 90s）。
+        包 retry/換 key/503 storm 兜底（在 _gemini_json_call 裡）。
         """
         response = await asyncio.wait_for(
             self._gemini_json_call(
@@ -1363,7 +1371,7 @@ class Gemini2StageTranslator(CommonTranslator):
                 temperature=self.translate_temperature,
                 schema=UnifiedResponse,
             ),
-            timeout=90.0,
+            timeout=self._vision_timeout_s,
         )
         return response.bboxes
 
@@ -1758,14 +1766,18 @@ JSON: bboxes array, each {{bbox_id, corrected_text, translated_text}}. Every bbo
                 f"and include all {len(src_texts)} text_ids.\n\n"
             )
         try:
-            resp = await self._gemini_json_call(
-                model=self.translate_model,
-                system_instruction=self._get_unified_system_instruction(from_lang, to_lang),
-                user_text=directive + payload,
-                temperature=self.translate_temperature,
-                schema=self.translate_response_schema,
+            resp = await asyncio.wait_for(
+                self._gemini_json_call(
+                    model=self.translate_model,
+                    system_instruction=self._get_unified_system_instruction(from_lang, to_lang),
+                    user_text=directive + payload,
+                    temperature=self.translate_temperature,
+                    schema=self.translate_response_schema,
+                ),
+                timeout=self._text_timeout_s,
             )
         except Exception as e:
+            # asyncio.TimeoutError 也是 Exception 子類，會被接住 → 回等長空字串（既有「失敗回空」契約）
             self.logger.warning(f'Gemini 補譯失敗: {type(e).__name__}: {e}')
             return [''] * len(src_texts)
         out = [''] * len(src_texts)
