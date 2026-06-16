@@ -3433,10 +3433,12 @@
     },
 
     nextImage() {
+      // 用 sortedFinishedImages（畫面上看到的順序），否則排序後右箭頭會跟視覺順序對不上（像反了）
       if (this.selectedImage) {
-        const currentIndex = this.finishedImages.findIndex(img => img.id === this.selectedImage.id);
-        if (currentIndex < this.finishedImages.length - 1) {
-          this.selectedImage = this.finishedImages[currentIndex + 1];
+        const list = this.sortedFinishedImages;
+        const currentIndex = list.findIndex(img => img.id === this.selectedImage.id);
+        if (currentIndex > -1 && currentIndex < list.length - 1) {
+          this.selectedImage = list[currentIndex + 1];
           // Reset transform when switching images
           this.isImageZoomed = false;
           this.imageTransform = { scale: 1, translateX: 0, translateY: 0 };
@@ -3446,9 +3448,10 @@
 
     previousImage() {
       if (this.selectedImage) {
-        const currentIndex = this.finishedImages.findIndex(img => img.id === this.selectedImage.id);
+        const list = this.sortedFinishedImages;
+        const currentIndex = list.findIndex(img => img.id === this.selectedImage.id);
         if (currentIndex > 0) {
-          this.selectedImage = this.finishedImages[currentIndex - 1];
+          this.selectedImage = list[currentIndex - 1];
           // Reset transform when switching images
           this.isImageZoomed = false;
           this.imageTransform = { scale: 1, translateX: 0, translateY: 0 };

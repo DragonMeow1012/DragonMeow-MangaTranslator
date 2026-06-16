@@ -23,6 +23,7 @@ class QueueElement:
         else:
             self.image = image
         self.config = config
+        self._retries = 0  # idle watchdog 逾時重翻次數（上限 MT_PAGE_RETRIES）
 
     def get_image(self)-> Image:
         if isinstance(self.image, str):
@@ -52,6 +53,7 @@ class BatchQueueElement:
         self.images = images
         self.config = config
         self.batch_size = batch_size
+        self._retries = 0  # idle watchdog 逾時重翻次數（上限 MT_PAGE_RETRIES）
 
     async def is_client_disconnected(self) -> bool:
         if await self.req.is_disconnected():
@@ -135,6 +137,27 @@ async def wait_in_queue(task: QueueElement | BatchQueueElement, notify: NotifyTy
                     return
                 else:
                     return result
+
+            except asyncio.TimeoutError:
+                # Idle watchdog 觸發：worker 超過 MT_IDLE_TIMEOUT 秒連心跳都沒吐 → 視為卡死。
+                # 先釋放 slot（否則 busy 永久 leak、整個佇列停擺），再把這頁「插隊到最前面」重翻
+                # （使用者要求：單張逾時直接重新插隊優先翻譯）。有重試上限避免真壞頁無限迴圈。
+                await executor_instances.free_executor(instance)
+                _idle = os.getenv('MT_IDLE_TIMEOUT', '30')
+                _max = int(os.getenv('MT_PAGE_RETRIES', '3'))
+                if task._retries < _max:
+                    task._retries += 1
+                    task_queue.add_task(task, priority=True)
+                    if notify:
+                        notify(1, f'逾時重翻（第 {task._retries}/{_max} 次）'.encode('utf-8'))
+                    continue  # 回到迴圈頂端，slot 一空就立刻重新派發（插隊在最前）
+                # 重試用盡 → 回錯誤 frame，讓前端自己決定要不要再排一次
+                error_msg = f'翻譯逾時：worker {_idle}s 無回應，已重試 {_max} 次仍失敗。'
+                if notify:
+                    notify(2, error_msg.encode('utf-8'))
+                    return
+                else:
+                    raise HTTPException(504, detail=error_msg)
 
             except Exception as e:
                 # 确保实例被释放
