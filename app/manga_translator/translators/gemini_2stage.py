@@ -956,11 +956,55 @@ class Gemini2StageTranslator(CommonTranslator):
         assert last_err is not None
         raise last_err
 
+    @staticmethod
+    def _gt_lang_code(lang: str) -> str:
+        """把 app 的目標語言（CHT/繁中/Traditional…）對映成 Google Translate 的語言碼。"""
+        s = (lang or '').strip().lower()
+        if any(k in s for k in ('cht', 'traditional', '繁', 'zh-tw', 'zh_tw', 'zh-hant')):
+            return 'zh-TW'
+        if any(k in s for k in ('chs', 'simplified', '简', '簡体', 'zh-cn', 'zh_cn', 'zh-hans')):
+            return 'zh-CN'
+        if any(k in s for k in ('jpn', 'japan', '日', 'ja')):
+            return 'ja'
+        if any(k in s for k in ('kor', 'korea', '韓', '韩')) or s == 'ko':
+            return 'ko'
+        if any(k in s for k in ('eng', 'english')) or s == 'en':
+            return 'en'
+        if 'zh' in s or '中' in s:
+            return 'zh-TW'
+        return 'zh-TW'
+
+    @staticmethod
+    def _gt_one_sync(text: str, sl: str, tl: str) -> str:
+        """免費 GT web 端點（translate_a/single），單句翻譯，無需 API key。"""
+        import urllib.request, urllib.parse, json as _json
+        url = 'https://translate.googleapis.com/translate_a/single?' + urllib.parse.urlencode({
+            'client': 'gtx', 'sl': sl, 'tl': tl, 'dt': 't', 'q': text,
+        })
+        req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            data = _json.loads(resp.read().decode('utf-8'))
+        segs = data[0] if (isinstance(data, list) and data) else []
+        return ''.join(s[0] for s in segs if isinstance(s, list) and s and s[0])
+
     async def _google_translate_fallback(
         self, texts: list[str], from_lang: str, to_lang: str,
     ) -> list[str]:
-        """Online Google Translate fallback is intentionally disabled for manga translation."""
-        raise RuntimeError('Online translation fallback is disabled for manga translation')
+        """免費 Google Translate web 端點機翻（固定不送圖、純文字、自動偵測來源語言）。
+        用作 LLM 翻不出（含連續 3 次 500 INTERNAL）的兜底，避免整頁回填原文（漏翻）。逐句翻。"""
+        tl = self._gt_lang_code(to_lang)
+        out = []
+        for t in texts:
+            tt = (t or '').strip()
+            if not tt:
+                out.append('')
+                continue
+            try:
+                out.append((await asyncio.to_thread(self._gt_one_sync, tt, 'auto', tl)) or '')
+            except Exception as e:
+                self.logger.warning(f'GT 單句失敗: {type(e).__name__}: {e}')
+                out.append('')
+        return out
 
 
     async def _gt_then_polish(
@@ -1801,19 +1845,35 @@ JSON: bboxes array, each {{bbox_id, corrected_text, translated_text}}. Every bbo
                 if k < len(fill) and fill[k].strip():
                     translations[i] = fill[k]
 
-        # ---- 保底：LLM 沒回的格子回填原文（explicit_skip 例外，保持空翻譯）----
-        # explicit_skip 的 bbox 已是 LLM 主動跳過 → 不要塞 mocr 錯字進來。
-        # 翻譯填 LLM corrected_text（若有，原假名）或留空，讓 post-filter 處理。
+        # ---- GT 兜底：LLM 翻不出的格子（含連續 3 次 500 INTERNAL）先用 Google 翻譯機翻（不送圖），
+        #      而非直接回填原文（使用者指定）。explicit_skip 例外（LLM 主動跳過＝SFX，保持空翻譯）。----
+        gt_idx = [
+            i for i, t in enumerate(translations)
+            if not t.strip() and i not in explicit_skip
+            and (refine_sentences[i] or (query_regions[i].text if i < len(query_regions) else '')).strip()
+        ]
+        if gt_idx:
+            gt_src = [(refine_sentences[i] or query_regions[i].text or '').strip() for i in gt_idx]
+            self.logger.warning(f'LLM 翻不出 {len(gt_idx)} 格 → 改用 Google 翻譯機翻（不送圖）兜底')
+            try:
+                gt_out = await self._google_translate_fallback(gt_src, from_lang, to_lang)
+            except Exception as e:
+                self.logger.warning(f'GT 兜底失敗: {type(e).__name__}: {e}')
+                gt_out = [''] * len(gt_idx)
+            for k, i in enumerate(gt_idx):
+                if k < len(gt_out) and gt_out[k].strip():
+                    translations[i] = gt_out[k].strip()
+
+        # ---- 最後保底：GT 也救不回的格子才回填原文（explicit_skip 保持空翻譯）----
         for i, t in enumerate(translations):
             if t.strip():
                 continue
             if i in explicit_skip:
-                # LLM 主動 skip → 用 LLM 看圖讀的字（無則空）
                 translations[i] = refine_sentences[i] or ''
                 continue
             fallback = refine_sentences[i] or (query_regions[i].text if i < len(query_regions) else '')
             translations[i] = fallback or '…'
-            self.logger.warning(f'  #{i} 全部失敗，回填原文: {translations[i][:30]!r}')
+            self.logger.warning(f'  #{i} GT 也失敗，回填原文: {translations[i][:30]!r}')
 
         # 框外短擬聲詞 Python 啟發式（純假名 ≤6 字 = SFX 不翻）**預設關**：
         # 它會把手寫台詞/喘息（は、ん、ヤダ、もう…）整批清空 → 使用者看到整頁「沒翻譯到」。
