@@ -331,6 +331,11 @@
     <input class="field" id="set-maskdilation" type="number" min="0" max="60" step="2">
     <div class="hint" id="txt-maskdilation-hint" style="margin:2px 0 6px">抹字遮罩往外擴的像素。越大越能蓋住殘字，但太大會抹到對話框邊線、邊緣糊掉；越小越乾淨銳利，但太小會殘留原文邊緣。不是越低越好，建議 10~25。</div>
 
+    <div class="switch-row small" id="set-fontborder" title="開啟後譯文加上對比描邊底色，壓在畫面/雜背景上較好讀；乾淨白底泡泡可關。">
+      <span id="txt-fontborder">文字加底色（描邊增可讀）</span>
+      <span class="switch"><span class="knob"></span></span>
+    </div>
+
     <button id="set-save"><span id="txt-save">💾 儲存設定</span></button>
     <span id="set-status"></span>
     <button id="open-web" class="secondary" style="margin-top:8px"><span id="txt-open-web">🌐 同步翻譯網站</span></button>

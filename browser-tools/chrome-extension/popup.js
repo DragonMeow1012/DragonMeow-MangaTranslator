@@ -662,6 +662,7 @@ const baseurlLabel = document.getElementById("txt-baseurl");
 const sendimageRow = document.getElementById("set-sendimage");
 const onlyBubblesRow = document.getElementById("set-onlybubbles");
 const parallelBandsRow = document.getElementById("set-parallelbands");
+const fontBorderRow = document.getElementById("set-fontborder");
 const langSetSelect = document.getElementById("set-lang");
 const ocrSelect = document.getElementById("set-ocr");
 const dirSelect = document.getElementById("set-dir");
@@ -693,6 +694,7 @@ function applyViewToFields() {
   sendimageRow.classList.toggle("on", _view.llmSendImage !== false);
   onlyBubblesRow.classList.toggle("on", _view.onlyTranslateBubbles === true);
   parallelBandsRow.classList.toggle("on", _view.parallelBands === true);
+  fontBorderRow.classList.toggle("on", _view.fontBorder === true);
 }
 
 function refreshProviderDependentFields() {
@@ -734,6 +736,7 @@ providerSelect.addEventListener("change", refreshProviderDependentFields);
 sendimageRow.addEventListener("click", () => sendimageRow.classList.toggle("on"));
 onlyBubblesRow.addEventListener("click", () => onlyBubblesRow.classList.toggle("on"));
 parallelBandsRow.addEventListener("click", () => parallelBandsRow.classList.toggle("on"));
+fontBorderRow.addEventListener("click", () => fontBorderRow.classList.toggle("on"));
 document.getElementById("set-apikey-eye").addEventListener("click", () => {
   _apikeyShown = !_apikeyShown;
   apikeyRowsEl.querySelectorAll("input").forEach((i) => { i.type = _apikeyShown ? "text" : "password"; });
@@ -750,6 +753,7 @@ document.getElementById("set-save").addEventListener("click", async () => {
     llmSendImage: sendimageRow.classList.contains("on"),
     onlyTranslateBubbles: onlyBubblesRow.classList.contains("on"),
     parallelBands: parallelBandsRow.classList.contains("on"),
+    fontBorder: fontBorderRow.classList.contains("on"),
     targetLanguage: langSetSelect.value,
     ocrModel: ocrSelect.value,
     renderTextDirection: dirSelect.value,

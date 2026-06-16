@@ -11,6 +11,7 @@ const DEFAULT_SETTINGS = {
   llmSendImage: true,
   onlyTranslateBubbles: false,
   parallelBands: false,
+  fontBorder: false,
   fontPath: "",
   // 以下各項對齊網頁 UI（index.html）預設；翻譯時會即時抓 /ui-settings 覆蓋成你在 127.0.0.1:8501 的設定。
   ocrModel: "mocr/gpu",
@@ -206,6 +207,7 @@ async function loadRawSettings() {
     if (norm.llmApiKey) raw.apiKeys[p] = norm.llmApiKey;
     if (typeof norm.llmSendImage === "boolean") raw.llmSendImage = norm.llmSendImage;
     if (typeof norm.onlyTranslateBubbles === "boolean") raw.onlyTranslateBubbles = norm.onlyTranslateBubbles;
+    if (typeof norm.fontBorder === "boolean") raw.fontBorder = norm.fontBorder;
     if (typeof norm.parallelBands === "boolean") raw.parallelBands = norm.parallelBands;
     if (norm.maskDilationOffset != null) raw.maskDilationOffset = norm.maskDilationOffset;
     if (norm.inpaintingSize != null) raw.inpaintingSize = norm.inpaintingSize;
@@ -232,6 +234,7 @@ async function getSettingsView() {
     apiKeySet,
     llmSendImage: raw.llmSendImage,
     onlyTranslateBubbles: raw.onlyTranslateBubbles,
+    fontBorder: raw.fontBorder,
     parallelBands: raw.parallelBands,
     targetLanguage: raw.targetLanguage,
     customBaseUrl: raw.customBaseUrl,
@@ -254,6 +257,7 @@ async function saveSettings(patch) {
   if (typeof patch.apiKey === "string" && patch.apiKey !== "") raw.apiKeys[provider] = patch.apiKey;
   if (typeof patch.llmSendImage === "boolean") raw.llmSendImage = patch.llmSendImage;
   if (typeof patch.onlyTranslateBubbles === "boolean") raw.onlyTranslateBubbles = patch.onlyTranslateBubbles;
+  if (typeof patch.fontBorder === "boolean") raw.fontBorder = patch.fontBorder;
   if (typeof patch.parallelBands === "boolean") raw.parallelBands = patch.parallelBands;
   if (typeof patch.targetLanguage === "string") raw.targetLanguage = patch.targetLanguage;
   if (typeof patch.customBaseUrl === "string") raw.customBaseUrl = patch.customBaseUrl;
@@ -313,6 +317,7 @@ function normalizeUiSettings(raw, apiBase) {
     llmBaseUrl: raw.customBaseUrl || raw.llmBaseUrl || "",
     llmSendImage: typeof raw.llmSendImage === "boolean" ? raw.llmSendImage : true,
     onlyTranslateBubbles: typeof raw.onlyTranslateBubbles === "boolean" ? raw.onlyTranslateBubbles : false,
+    fontBorder: typeof raw.fontBorder === "boolean" ? raw.fontBorder : false,
     parallelBands: typeof raw.parallelBands === "boolean" ? raw.parallelBands : false,
     fontPath: raw.fontPath || "",
     // OCR / 抹字 / 輸出排版：完全跟隨網頁 UI（user_settings.json），不在擴充寫死。
@@ -408,7 +413,7 @@ function buildConfig(settings) {
     render: {
       renderer: "manga2eng",
       alignment: "auto",
-      disable_font_border: true,
+      disable_font_border: !settings.fontBorder,
       direction: (settings.renderTextDirection && settings.renderTextDirection !== "auto") ? settings.renderTextDirection : (isLatin ? "horizontal" : "auto"),
       bubble_layout_english: isLatin,
       font_path: settings.fontPath || null,
