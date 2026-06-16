@@ -143,7 +143,7 @@
           <div class="space-y-3">
             <div :title="t('providerTooltip')">
               <label class="side-label">{{ t('labelProvider') }}</label>
-              <select class="side-field" v-model="llmProvider" @change="onSettingChange">
+              <select class="side-field" v-model="llmProvider" @change="onProviderSwitched">
                 <option value="gemini">Gemini</option>
                 <option value="openai">ChatGPT (OpenAI)</option>
                 <option value="claude">Claude (Anthropic)</option>
@@ -185,16 +185,27 @@
               />
             </div>
             <div :title="t('apiKeyTooltip')">
-              <label class="side-label">API key</label>
-              <div class="relative">
+              <label class="side-label">API key <span style="opacity:.5;font-weight:400">（多把可輪換、避 429）</span></label>
+              <div v-for="(k, i) in apiKeyRows" :key="i" class="relative" style="margin-bottom:6px">
                 <input
                   :type="showApiKey ? 'text' : 'password'"
                   autocomplete="off"
-                  class="side-field pr-9"
-                  v-model="currentApiKey"
+                  class="side-field"
+                  style="padding-right:3.8rem"
+                  v-model="apiKeyRows[i]"
                   :placeholder="t('apiKeyPlaceholder')"
-                  @change="onSettingChange"
+                  @input="commitApiKeyRows"
                 />
+                <button
+                  v-if="apiKeyRows.length > 1"
+                  type="button"
+                  class="absolute top-1/2 -translate-y-1/2 text-stone-400 hover:text-rose-400"
+                  style="right:2.1rem"
+                  title="移除這把 key"
+                  @click="removeApiKeyRow(i)"
+                >
+                  <i class="iconify" data-icon="carbon:close"></i>
+                </button>
                 <button
                   type="button"
                   class="absolute right-2 top-1/2 -translate-y-1/2 text-stone-400 hover:text-stone-200"
@@ -204,6 +215,12 @@
                   <i class="iconify" :data-icon="showApiKey ? 'carbon:view-off' : 'carbon:view'"></i>
                 </button>
               </div>
+              <button
+                type="button"
+                class="side-field"
+                style="cursor:pointer;text-align:center;opacity:.85;border-style:dashed"
+                @click="addApiKeyRow"
+              >＋ 加一把 key</button>
             </div>
             <!-- 是否傳圖給 LLM 校對（提高準確度，需視覺模型） -->
             <label class="flex items-center justify-between cursor-pointer select-none" :title="t('sendImageTooltip')">
@@ -2202,6 +2219,7 @@
         ocrModel: "mocr/gpu",
         fontSizeMinimum: "0",
         concurrency: "5",
+        apiKeyRows: [''],   // 多 key UI：每把一行，存回 apiKeys[provider] 以換行分隔（後端會 split 輪換）
 
         uploadController: null,
 
@@ -2211,6 +2229,29 @@
           this.llmTestState = 'idle';
           this.llmTestMessage = '';
           this.saveSettings();
+        },
+
+        // ---- 多 key 欄位（+號可一直加）----
+        loadApiKeyRows() {
+          // 從 apiKeys[provider]（逗號/換行分隔）拆成一行一把；至少留一個空框
+          const parts = (this.currentApiKey || '').split(/[\n,]+/).map(s => s.trim()).filter(Boolean);
+          this.apiKeyRows = parts.length ? parts : [''];
+        },
+        commitApiKeyRows() {
+          // 任一框改動 → 合併回 apiKeys[provider]（換行分隔），存檔
+          this.currentApiKey = this.apiKeyRows.map(s => s.trim()).filter(Boolean).join('\n');
+          this.onSettingChange();
+        },
+        addApiKeyRow() { this.apiKeyRows.push(''); },
+        removeApiKeyRow(i) {
+          this.apiKeyRows.splice(i, 1);
+          if (!this.apiKeyRows.length) this.apiKeyRows = [''];
+          this.commitApiKeyRows();
+        },
+        onProviderSwitched() {
+          // 切換服務商：存檔 + 重新載入該服務商的 key 列
+          this.onSettingChange();
+          this.loadApiKeyRows();
         },
 
         // 測試 LLM 連接：用目前設定發極小請求驗證 key / base URL / 模型名
@@ -2478,6 +2519,7 @@
           if (settings.inpaintingSize != null) this.inpaintingSize = String(settings.inpaintingSize);
           if (typeof settings.advancedMode === 'boolean') this.advancedMode = settings.advancedMode;
           if (typeof settings.autoRetryFailed === 'boolean') this.autoRetryFailed = settings.autoRetryFailed;
+          this.loadApiKeyRows();   // 多 key UI：把 apiKeys[provider] 拆成可編輯的多行
         },
 
         loadSettings() {
