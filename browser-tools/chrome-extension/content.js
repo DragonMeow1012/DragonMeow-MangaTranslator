@@ -139,9 +139,9 @@ function refreshBubbleTitle() {
     state.button.title = "點一下翻譯這頁（合併翻譯）";
   } else if (_pageTranslate) {
     const pt = _pageTranslate;
-    let t = pt.total > 0 ? `整頁翻譯：已完成 ${pt.ok}/${pt.total}` : "整頁翻譯啟用中…";
-    if (pt.blocked) t += `，防盜圖 ${pt.blocked}`;
-    state.button.title = t;
+    let proc = 0;
+    for (const [, it] of pt.items) if (it.status === "processing") proc++;
+    state.button.title = proc > 0 ? `整頁翻譯中…處理 ${proc} 張` : "整頁翻譯啟用中…";
   } else if (_showPrefetch && autoOn) {
     state.button.title = _pfProg ? `頁碼翻譯：已完成 ${_pfProg.done} 頁` : "頁碼翻譯啟用中";
   } else {
@@ -163,6 +163,32 @@ chrome.runtime.onMessage.addListener((message) => {
   refreshBubbleTitle();
   updateQueuePanel();
 });
+
+// 伺服器分階段進度（偵測/OCR/翻譯/抹字/嵌字…）→ 對回正確的縮圖/進度條，顯示得跟網頁版一樣。
+chrome.runtime.onMessage.addListener((message) => {
+  if (message?.type !== "translate-progress") return;
+  // 單張/框選翻譯：把階段顯示在滑動進度條上。
+  if (_singleStageTask && message.taskId === _singleStageTask) {
+    showProgress(stageLabel(message.stage));
+  }
+  // 整頁翻譯：把階段寫進對應縮圖的徽章。
+  const pt = _pageTranslate;
+  if (pt && pt.taskItems) {
+    const it = pt.taskItems.get(message.taskId);
+    if (it) { it.stage = message.stage || ""; updateQueuePanel(); }
+  }
+});
+
+// 單張/框選翻譯的送出包裝：配一個 taskId 並開啟階段進度（自動在結束後關閉）。
+async function translateWithStageProgress(dataUrl) {
+  const taskId = "t" + (++_taskSeq);
+  _singleStageTask = taskId;
+  try {
+    return await sendMessage({ type: "translate-data-url", image: dataUrl, taskId });
+  } finally {
+    if (_singleStageTask === taskId) _singleStageTask = null;
+  }
+}
 function imageDims(dataUrl) {
   return new Promise((resolve, reject) => {
     const im = new Image();
@@ -449,6 +475,8 @@ let PAGE_TRANSLATE_CONCURRENCY = 5;
 // round-trip 與逐張抓圖空檔（對齊 SDMDCBOT「pipeline 深度 + 2 buffer」餵滿策略）。
 const PAGE_TRANSLATE_OVERSEND = 2;
 let _pageTranslate = null; // 持續模式狀態物件；null = 未啟用
+let _taskSeq = 0; // 每次送翻譯給背景的唯一編號，用來把伺服器回報的分階段進度對回正確的縮圖
+let _singleStageTask = null; // 單張/框選翻譯目前的 taskId（階段進度顯示在滑動進度條上）
 
 // 是否為「值得整頁翻譯」的圖：已載入、自然或顯示尺寸夠大（過濾圖示/頭像/廣告），且尚未替換。
 function pageImageTranslatable(el) {
@@ -475,7 +503,8 @@ function translatePage() {
     queue: [],
     active: 0,
     total: 0, done: 0, ok: 0, blocked: 0, failed: 0,
-    items: new Map(), // el -> {src, status}（給縮圖進度面板）
+    items: new Map(), // el -> {src, status, stage, taskId}（給縮圖進度面板）
+    taskItems: new Map(), // taskId -> item（把伺服器回報的分階段進度對回縮圖；只存進行中的，完成即移除）
     observer: null, onScroll: null, rescanTimer: 0
   };
   _pageTranslate = pt;
@@ -600,7 +629,7 @@ function scheduleQueueDoneRemoval(pt, el) {
 }
 
 function markQueueDone(pt, el, it) {
-  if (it) it.status = "done";
+  if (it) { it.status = "done"; it.doneAt = Date.now(); }
   scheduleQueueDoneRemoval(pt, el);
 }
 
@@ -608,13 +637,22 @@ async function pageTranslateWorker(pt) {
   while (_pageTranslate === pt && pt.queue.length) {
     const el = pt.queue.shift();
     const it = pt.items && pt.items.get(el);
-    if (it) { it.status = "processing"; updatePageStatus(); }
-    if (!el || state.replacements.has(el) || !document.contains(el)) { markQueueDone(pt, el, it); pt.done++; updatePageStatus(); continue; }
+    let taskId;
+    if (it) {
+      it.status = "processing"; it.stage = "";
+      taskId = it.taskId = "t" + (++_taskSeq);
+      pt.taskItems.set(taskId, it); // 讓 translate-progress 能對回這張縮圖
+      updatePageStatus();
+    }
+    if (!el || state.replacements.has(el) || !document.contains(el)) {
+      if (taskId) pt.taskItems.delete(taskId);
+      markQueueDone(pt, el, it); pt.done++; updatePageStatus(); continue;
+    }
     const dataUrl = await getFullResImageDataUrl(el);
     if (_pageTranslate !== pt) return;          // 期間已關閉
-    if (!dataUrl) { if (it) it.status = "blocked"; pt.blocked++; pt.done++; updatePageStatus(); continue; } // 防盜圖，無法讀取像素
+    if (!dataUrl) { if (it) it.status = "blocked"; if (taskId) pt.taskItems.delete(taskId); pt.blocked++; pt.done++; updatePageStatus(); continue; } // 防盜圖，無法讀取像素
     try {
-      const resp = await sendMessage({ type: "translate-data-url", image: dataUrl });
+      const resp = await sendMessage({ type: "translate-data-url", image: dataUrl, taskId });
       if (_pageTranslate !== pt) return;        // 期間已關閉，別套用
       if (!state.replacements.has(el) && document.contains(el)) {
         replaceImgElement(el, resp.image);
@@ -625,6 +663,7 @@ async function pageTranslateWorker(pt) {
       pt.failed++;
       if (it) it.status = "failed";
     }
+    if (taskId) pt.taskItems.delete(taskId);
     pt.done++;
     updatePageStatus();
   }
@@ -632,9 +671,43 @@ async function pageTranslateWorker(pt) {
 
 function updatePageStatus() {
   const pt = _pageTranslate;
-  if (pt && pt.done < pt.total) showStatus(`整頁翻譯中… ${pt.done}/${pt.total}`);
+  if (pt) {
+    // 只報「目前」在處理幾張（不是整本累計、也不報待翻總數），避免長圖一路滑下來變成幾千張的嚇人數字。
+    let proc = 0;
+    for (const [, it] of pt.items) if (it.status === "processing") proc++;
+    if (proc > 0) showStatus(`整頁翻譯中… 處理 ${proc} 張`);
+  }
   refreshBubbleTitle(); // 進度也寫進「譯」泡泡 tooltip（與頁碼翻譯一致，指著泡泡即可看）
   updateQueuePanel();
+}
+
+// 伺服器分階段字串 → 顯示標籤（用詞對齊網頁 UI 的 st* zh-TW，讓兩邊一致）。
+const STAGE_LABELS = {
+  "upload": "上傳中",
+  "pending": "準備中",
+  "running_pre_translation_hooks": "前處理中",
+  "colorizing": "上色中",
+  "upscaling": "放大處理中",
+  "detection": "偵測文字中",
+  "ocr": "辨識文字中（OCR）",
+  "textline_merge": "合併文字行中",
+  "translating": "翻譯中",
+  "after-translating": "翻譯後處理中",
+  "mask-generation": "產生文字遮罩中",
+  "inpainting": "抹除原文中",
+  "rendering": "嵌字渲染中",
+  "downscaling": "縮回尺寸中",
+  "finished": "完成",
+  "skip-no-text": "無文字",
+  "skip-no-regions": "無文字",
+  "error-translating": "翻譯無回應",
+  "cancelled": "已取消",
+  "waiting": "等待翻譯器",
+};
+function stageLabel(stage) {
+  if (!stage) return "處理中";
+  if (stage.startsWith("queue:")) { const n = stage.slice(6); return n ? `排隊中 #${n}` : "排隊中"; }
+  return STAGE_LABELS[stage] || "處理中";
 }
 
 // 翻譯進度面板：常駐浮窗，內容比照網頁 UI 佇列（整頁：完成/總數/待翻/失敗/防盜；頁碼：已抓頁），
@@ -649,27 +722,44 @@ function updateQueuePanel() {
     done: ["✓ 完成", "d"], failed: ["✗ 失敗", "f"], blocked: ["🛡 防盜", "b"],
   };
   if (pt && pt.items && pt.items.size) {
-    const pct = pt.total ? Math.round((pt.done / pt.total) * 100) : 0;
-    let rows = "", shown = 0;
-    for (const [, it] of pt.items) {
-      if (shown >= 80) { rows += `<div class="dmmt-q-more">…還有 ${pt.items.size - shown} 張</div>`; break; }
-      const [label, cls] = LABELS[it.status] || LABELS.queued;
-      const thumb = it.src
-        ? `<img class="dmmt-q-thumb" src="${String(it.src).replace(/"/g, "&quot;")}" loading="lazy">`
-        : `<span class="dmmt-q-thumb"></span>`;
-      rows += `<div class="dmmt-q-item">${thumb}<span class="dmmt-q-badge dmmt-q-${cls}">${label}</span></div>`;
-      shown++;
+    // 面板固定大小、用滾輪捲動（CSS 控制高度）。列表「依插入順序」顯示、不依狀態重排，
+    // 縮圖才不會跳來跳去——只就地更新各列徽章。完成逾 5 秒就地清掉，避免累積。
+    // 標題只放小數字（目前處理中張數），不顯示會漲到上千的待翻/完成總數。
+    const now = Date.now();
+    let proc = 0, failN = 0, blockN = 0, shown = 0, rows = "";
+    for (const [el, it] of pt.items) {
+      const s = it.status;
+      if (s === "done" && (!it.doneAt || now - it.doneAt > 5000)) { pt.items.delete(el); continue; }
+      if (s === "processing") proc++;
+      else if (s === "failed") failN++;
+      else if (s === "blocked") blockN++;
+      if (shown < 40) {
+        let label, cls;
+        if (s === "processing") { label = stageLabel(it.stage); cls = "p"; } // 顯示伺服器回報的階段
+        else { [label, cls] = LABELS[s] || LABELS.queued; }
+        const thumb = it.src
+          ? `<img class="dmmt-q-thumb" src="${String(it.src).replace(/"/g, "&quot;")}" loading="lazy">`
+          : `<span class="dmmt-q-thumb"></span>`;
+        rows += `<div class="dmmt-q-item">${thumb}<span class="dmmt-q-badge dmmt-q-${cls}">${label}</span></div>`;
+        shown++;
+      }
     }
-    p.innerHTML =
-      `<div class="dmmt-q-title">📄 整頁翻譯　${pct}%（${pt.done}/${pt.total}）</div>` +
-      `<div class="dmmt-q-list">${rows}</div>`;
+    if (!shown) { p.classList.add("dmmt-ext-hidden"); return; }
+    let head = proc > 0 ? `📄 整頁翻譯中　處理 ${proc}` : "📄 整頁翻譯";
+    if (failN) head += `・✗ ${failN}`;
+    if (blockN) head += `・🛡 ${blockN}`;
+    p.innerHTML = `<div class="dmmt-q-title">${head}</div><div class="dmmt-q-list">${rows}</div>`;
+    p.classList.add("dmmt-q-fixed");        // 縮圖多 → 固定高度＋滾輪，不跳動
     p.classList.remove("dmmt-ext-hidden");
   } else if (_pfProg && _pfProg.total > 0) {
+    // 頁碼翻譯是背景預抓「還沒捲到的頁」，沒有縮圖可顯示，只報已抓頁數 → 用緊湊高度，別撐成大空盒。
     p.innerHTML =
       `<div class="dmmt-q-title">🔁 頁碼翻譯</div>` +
       `<div class="dmmt-q-row"><span>已抓頁</span><b>${_pfProg.done}/${_pfProg.total}</b></div>`;
+    p.classList.remove("dmmt-q-fixed");
     p.classList.remove("dmmt-ext-hidden");
   } else {
+    p.classList.remove("dmmt-q-fixed");
     p.classList.add("dmmt-ext-hidden");
   }
 }
@@ -694,6 +784,12 @@ function stopPageTranslate() {
   try { pt.observer?.disconnect(); } catch {}
   if (pt.onScroll) window.removeEventListener("scroll", pt.onScroll, true);
   window.clearInterval(pt.rescanTimer);
+  // UI 收尾：清掉縮圖佇列資料、隱藏面板、抹掉「整頁翻譯中… X/Y」那行殘留字串
+  //（它是 timeout=0 永久顯示，不主動清會一直卡在畫面上 → 使用者以為沒清乾淨）。
+  if (pt.items) pt.items.clear();
+  if (pt.taskItems) pt.taskItems.clear();
+  if (state.progressPanel) state.progressPanel.classList.add("dmmt-ext-hidden");
+  hideStatus();
 }
 
 // 把已載入的 <img> 以原解析度畫到 canvas 取出 dataURL；跨域受污染時回傳 null。
@@ -1428,7 +1524,7 @@ async function translateBoxRects(rects) {
     });
     const composite = canvas.toDataURL("image/png");
     showProgress("翻譯中");
-    const resp = await sendMessage({ type: "translate-data-url", image: composite });
+    const resp = await translateWithStageProgress(composite);
     const union = { left: minL, top: minT, width: maxR - minL, height: maxB - minT };
     addResultOverlay(resp.image, union, null, null);
     _boxCache.set(_pageIdx, { image: resp.image, union }); // 記住這頁翻譯，滾回來能重貼
@@ -1651,7 +1747,7 @@ async function translateImgFullRes(img, dataUrl) {
   maybeDumpInput(dataUrl);
   showProgress("翻譯中");
   try {
-    const resp = await sendMessage({ type: "translate-data-url", image: dataUrl });
+    const resp = await translateWithStageProgress(dataUrl);
     // 翻譯期間若已換頁或換圖就放棄，避免貼錯。
     if (location.href !== pageToken) return;
     const curSrc = img.getAttribute("src") || "";
@@ -1685,10 +1781,7 @@ async function captureAndTranslateWithoutExtensionUi(rect) {
   await reportDiag("截圖" + (_imgDiag ? `（無法取原圖：${_imgDiag}）` : ""), crop.image);
   maybeDumpInput(crop.image);
   showProgress("翻譯中");
-  return sendMessage({
-    type: "translate-data-url",
-    image: crop.image
-  });
+  return translateWithStageProgress(crop.image);
 }
 
 function waitForPaint() {
@@ -2281,13 +2374,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       stopPageTranslate();
     }
     if (message.action === "clear-current") {
-      // 清除目前頁面的翻譯：還原所有替換並刪掉它們的快取，避免又被掃回來。
+      // 「清除所有翻譯」：還原所有替換並刪掉它們的快取，避免又被掃回來。
       clearOverlays();
       for (const el of Array.from(state.replacements.keys())) {
         restoreInPlaceReplacement(el, true);
       }
-      stopAutoMode();
-      stopPageTranslate();
+      // 全停：連持久化監看、預抓、伺服器進行中的任務一起終止（清除＝全部停掉，
+      // 否則監看/預抓還在背景跑，使用者會覺得「清了還在動、數字沒清乾淨」）。
+      terminateAllTasks();
     }
     if (message.action === "translate-page") translatePage();
     if (message.action === "toggle-page") translatePage();

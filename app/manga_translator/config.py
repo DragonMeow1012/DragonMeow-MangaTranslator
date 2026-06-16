@@ -339,12 +339,16 @@ class DetectorConfig(BaseModel):
     """How much to extend text skeleton to form bounding box"""
 
 class InpainterConfig(BaseModel):
-    inpainter: Inpainter = Inpainter.lama_mpe
-    """Inpainting model to use"""
+    inpainter: Inpainter = Inpainter.lama_large
+    """Inpainting model to use. lama_large = 18-block 漫畫微調版，平塗泡泡填補乾淨銳利；
+    lama_mpe = 2022 舊版 9 塊 + MPE 位置偏置，會在整塊抹除區糊出灰霾（已知較髒，僅省顯存時用）。"""
     inpainting_size: int = 2048
     """Size of image used for inpainting (too large will result in OOM)"""
     inpainting_precision: InpaintPrecision = InpaintPrecision.bf16
     """Inpainting precision for lama, use bf16 while you can."""
+    inpaint_flat_fill: bool = True
+    """均勻底色（對話框）的抹除區直接用背景色實心填，免跑神經網路 → 平塗泡泡完美乾淨、零殘渣、
+    零顯存；背景有紋理/漸層的區塊變異大會自動退回 LaMa。關掉則全部走 LaMa。"""
 
 class ColorizerConfig(BaseModel):
     colorization_size: int = 576

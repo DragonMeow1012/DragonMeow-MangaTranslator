@@ -352,6 +352,11 @@
               <div style="font-size:11px;opacity:.55;margin-top:3px;line-height:1.35">{{ t('inpaintHint') }}</div>
             </div>
             <div>
+              <label class="side-label">遮罩擴張 / Mask dilation</label>
+              <input class="side-field" type="number" min="0" max="60" step="2" v-model.number="maskDilationOffset" @change="onSettingChange">
+              <div style="font-size:11px;opacity:.55;margin-top:3px;line-height:1.35">抹字遮罩往外擴張的像素。<b>越大</b>越能蓋住殘字，但太大會抹到對話框邊線、邊緣糊掉；<b>越小</b>越乾淨銳利，但太小會殘留原文邊緣。不是越低越好，建議 10~25。</div>
+            </div>
+            <div>
               <label class="side-label">{{ t('labelFontMin') }}</label>
               <select class="side-field" v-model="fontSizeMinimum" @change="onSettingChange">
                 <option value="0">{{ t('fmAuto') }}</option>
@@ -2189,8 +2194,8 @@
         inpaintingSize: "2048",
         customUnclipRatio: 1.2,
         customBoxThreshold: 0.2,
-        maskDilationOffset: 40,
-        inpainter: "lama_mpe",
+        maskDilationOffset: 20,
+        inpainter: "lama_large",
         ocrModel: "mocr/gpu",
         fontSizeMinimum: "0",
         concurrency: "5",
@@ -2462,9 +2467,12 @@
             this.ocrModel = om;
           }
           if (settings.renderTextDirection) this.renderTextDirection = settings.renderTextDirection;
-          if (settings.inpainter) this.inpainter = settings.inpainter;
+          // lama_mpe 是 db230de 誤設的舊版預設（平塗泡泡會糊出灰霾），自動升級成乾淨的 lama_large。
+          if (settings.inpainter) this.inpainter = settings.inpainter === "lama_mpe" ? "lama_large" : settings.inpainter;
           if (settings.fontSizeMinimum != null) this.fontSizeMinimum = String(settings.fontSizeMinimum);
           if (settings.concurrency != null) this.concurrency = String(settings.concurrency);
+          if (settings.maskDilationOffset != null) this.maskDilationOffset = parseInt(settings.maskDilationOffset);
+          if (settings.inpaintingSize != null) this.inpaintingSize = String(settings.inpaintingSize);
           if (typeof settings.advancedMode === 'boolean') this.advancedMode = settings.advancedMode;
           if (typeof settings.autoRetryFailed === 'boolean') this.autoRetryFailed = settings.autoRetryFailed;
         },
@@ -2884,7 +2892,7 @@
               paste_mask_dilation_pixels: 10,
               ai_renderer_concurrency: 1,
             },
-            mask_dilation_offset: parseInt(this.maskDilationOffset) || 40,
+            mask_dilation_offset: (this.maskDilationOffset === 0 || this.maskDilationOffset) ? parseInt(this.maskDilationOffset) : 20,
           });
 
           formData.append("config", config);

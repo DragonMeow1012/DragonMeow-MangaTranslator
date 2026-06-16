@@ -634,6 +634,7 @@ const langSetSelect = document.getElementById("set-lang");
 const ocrSelect = document.getElementById("set-ocr");
 const dirSelect = document.getElementById("set-dir");
 const inpaintSelect = document.getElementById("set-inpaint");
+const maskDilationInput = document.getElementById("set-maskdilation");
 const saveStatus = document.getElementById("set-status");
 
 let _view = null; // 後端回傳的設定視圖（含 models 與 apiKeySet）
@@ -653,8 +654,10 @@ function applyViewToFields() {
   if (_om === "mocr") _om = "mocr/gpu";                  // 舊值遷移
   else if (_om === "paddle/auto") _om = "paddle/auto/gpu";
   ocrSelect.value = _om;
+  if (!ocrSelect.value) ocrSelect.value = "mocr/gpu";   // 伺服器值不在清單時不要留空白（OCR 沒更新到）
   dirSelect.value = _view.renderTextDirection || "auto";
-  inpaintSelect.value = _view.inpainter || "lama_mpe";
+  inpaintSelect.value = _view.inpainter || "lama_large";
+  maskDilationInput.value = (_view.maskDilationOffset != null) ? _view.maskDilationOffset : 20;
   sendimageRow.classList.toggle("on", _view.llmSendImage !== false);
   onlyBubblesRow.classList.toggle("on", _view.onlyTranslateBubbles === true);
   parallelBandsRow.classList.toggle("on", _view.parallelBands === true);
@@ -716,7 +719,8 @@ document.getElementById("set-save").addEventListener("click", async () => {
     targetLanguage: langSetSelect.value,
     ocrModel: ocrSelect.value,
     renderTextDirection: dirSelect.value,
-    inpainter: inpaintSelect.value
+    inpainter: inpaintSelect.value,
+    maskDilationOffset: maskDilationInput.value === "" ? 20 : parseInt(maskDilationInput.value)
   };
   if (apikeyInput.value.trim() !== "") patch.apiKey = apikeyInput.value.trim();
   if (providerSelect.value === "custom") patch.customBaseUrl = baseurlInput.value.trim();

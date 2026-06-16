@@ -168,6 +168,18 @@
         <span class="switch"><span class="knob"></span></span>
       </div>
     </div>
+    <div class="switch-row small" id="set-onlybubbles" title="只翻譯對話框內；框外 SFX／旁白／誤偵測一律保留原圖。美術重的 webtoon 建議開。">
+      <span id="txt-onlybubbles">只翻泡泡內（框外保留原圖）</span>
+      <span class="switch"><span class="knob"></span></span>
+    </div>
+    <div class="switch-row small" id="set-parallelbands" title="長圖／密集頁時，把一頁文字分帶平行翻譯以縮短等待。實驗功能。">
+      <span id="txt-parallelbands">長圖/密集頁加速 (beta)</span>
+      <span class="switch"><span class="knob"></span></span>
+    </div>
+    <div class="switch-row small" id="set-queuepanel" title="整頁/頁碼翻譯時，頁面右下角顯示縮圖進度佇列（處理中/排隊中/完成），一看就知道進度。">
+      <span id="txt-queuepanel">顯示翻譯進度面板（縮圖）</span>
+      <span class="switch"><span class="knob"></span></span>
+    </div>
   </div>
 
   <div class="group">
@@ -274,20 +286,8 @@
       <span id="txt-sendimage">傳圖給 AI 校對</span>
       <span class="switch"><span class="knob"></span></span>
     </div>
-    <div class="switch-row small" id="set-onlybubbles" title="只翻譯對話框內；框外 SFX／旁白／誤偵測一律保留原圖。美術重的 webtoon 建議開。">
-      <span id="txt-onlybubbles">只翻泡泡內（框外保留原圖）</span>
-      <span class="switch"><span class="knob"></span></span>
-    </div>
-    <div class="switch-row small" id="set-parallelbands" title="長圖／密集頁時，把一頁文字分帶平行翻譯以縮短等待。實驗功能。">
-      <span id="txt-parallelbands">長圖/密集頁加速 (beta)</span>
-      <span class="switch"><span class="knob"></span></span>
-    </div>
     <div class="switch-row small" id="set-retry">
       <span id="txt-retry">翻譯失敗自動重試</span>
-      <span class="switch"><span class="knob"></span></span>
-    </div>
-    <div class="switch-row small" id="set-queuepanel" title="整頁/頁碼翻譯時，頁面右下角顯示縮圖進度佇列（處理中/排隊中/完成），一看就知道進度。">
-      <span id="txt-queuepanel">顯示翻譯進度面板（縮圖）</span>
       <span class="switch"><span class="knob"></span></span>
     </div>
     <button id="test-conn" class="secondary" style="margin-top:8px"><span id="txt-test">🔌 測試連接</span></button>
@@ -306,8 +306,11 @@
     <select class="field" id="set-ocr">
       <option value="mocr/gpu">manga-ocr GPU（日漫專用）</option>
       <option value="mocr/cpu">manga-ocr CPU（日漫專用）</option>
-      <option value="paddle/auto/gpu">PaddleOCR GPU（中/日/英/韓）</option>
-      <option value="paddle/auto/cpu">PaddleOCR CPU（中/日/英/韓）</option>
+      <option value="paddle/auto/gpu">PaddleOCR 自動（中/日/英/韓 GPU）</option>
+      <option value="paddle/korean/gpu">PaddleOCR 한국어 / 韓文 (GPU)</option>
+      <option value="paddle/ch/gpu">PaddleOCR 中文 (GPU)</option>
+      <option value="paddle/japan/gpu">PaddleOCR 日本語 (GPU)</option>
+      <option value="paddle/auto/cpu">PaddleOCR 自動（中/日/英/韓 CPU）</option>
     </select>
 
     <div class="field-label" id="txt-dir">輸出排版</div>
@@ -319,9 +322,13 @@
 
     <div class="field-label" id="txt-inpaint">抹字模型</div>
     <select class="field" id="set-inpaint">
-      <option value="lama_mpe">漫畫專用·推薦（lama_mpe）</option>
-      <option value="lama_large">通用（lama_large）</option>
+      <option value="lama_large">乾淨·推薦（lama_large）</option>
+      <option value="lama_mpe">舊版省顯存（lama_mpe，平塗泡泡較糊）</option>
     </select>
+
+    <div class="field-label" id="txt-maskdilation">遮罩擴張（抹字範圍）</div>
+    <input class="field" id="set-maskdilation" type="number" min="0" max="60" step="2">
+    <div class="hint" id="txt-maskdilation-hint" style="margin:2px 0 6px">抹字遮罩往外擴的像素。越大越能蓋住殘字，但太大會抹到對話框邊線、邊緣糊掉；越小越乾淨銳利，但太小會殘留原文邊緣。不是越低越好，建議 10~25。</div>
 
     <button id="set-save"><span id="txt-save">💾 儲存設定</span></button>
     <span id="set-status"></span>

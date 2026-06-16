@@ -70,9 +70,10 @@
   bottom: 16px;
   z-index: 2147483647;
   pointer-events: auto;
-  width: 220px;
-  max-height: 70vh;
+  width: 240px;
+  max-height: min(70vh, 380px); /* 預設依內容撐高、最多這麼高就捲動（頁碼翻譯只有數字 → 不留空） */
   overflow-y: auto;
+  overflow-x: hidden;
   border-radius: 10px;
   padding: 10px 12px;
   background: rgba(17, 24, 39, 0.94);
@@ -81,6 +82,7 @@
   line-height: 1.5;
   box-shadow: 0 12px 30px rgba(15, 23, 42, 0.4);
 }
+.dmmt-ext-queue.dmmt-q-fixed { height: min(70vh, 380px); } /* 整頁縮圖模式：固定高度，內容多用滾輪捲動，不隨張數忽大忽小 */
 .dmmt-ext-queue .dmmt-q-title { font-weight: 800; color: #5eead4; margin-bottom: 6px; position: sticky; top: -10px; background: rgba(17, 24, 39, 0.94); padding: 2px 0 5px; }
 .dmmt-ext-queue .dmmt-q-row { display: flex; justify-content: space-between; gap: 18px; }
 .dmmt-ext-queue .dmmt-q-row b { font-weight: 700; }

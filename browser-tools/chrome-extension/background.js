@@ -12,12 +12,14 @@ const DEFAULT_SETTINGS = {
   onlyTranslateBubbles: false,
   parallelBands: false,
   fontPath: "",
-  // 以下三項對齊網頁 UI（index.html）預設；翻譯時會即時抓 /ui-settings 覆蓋成你在 127.0.0.1:8501 的設定。
+  // 以下各項對齊網頁 UI（index.html）預設；翻譯時會即時抓 /ui-settings 覆蓋成你在 127.0.0.1:8501 的設定。
   ocrModel: "mocr/gpu",
-  inpainter: "lama_mpe",
+  inpainter: "lama_large",       // 漫畫微調版，平塗泡泡抹得乾淨；lama_mpe 是舊版會糊出灰霾
   renderTextDirection: "auto",
   fontSizeMinimum: "0",
-  concurrency: "5"
+  concurrency: "5",
+  maskDilationOffset: 20,        // 抹字遮罩外擴像素：大蓋殘字但會抹到框/糊邊，小乾淨但會殘字
+  inpaintingSize: "2048"
 };
 
 const SETTINGS_KEY = "dmmtSyncedSettings";
@@ -58,8 +60,10 @@ function defaultRawSettings() {
     targetLanguage: "CHT",
     customBaseUrl: "",
     ocrModel: "mocr/gpu",
-    inpainter: "lama_mpe",
-    renderTextDirection: "auto"
+    inpainter: "lama_large",
+    renderTextDirection: "auto",
+    maskDilationOffset: 20,
+    inpaintingSize: "2048"
   };
 }
 
@@ -111,8 +115,21 @@ async function handleMessage(message, sender) {
   if (message?.type === "translate-data-url") {
     const settings = await loadSettings();
     _manualActive += 1; // 手動補翻譯插隊：暫停預抓，把伺服器讓給這個請求
+    // 分階段進度回報：帶 taskId 時，把伺服器串流回來的每個階段（detection/ocr/translating/
+    // inpainting/rendering…）即時推回原分頁，讓進度面板顯示得跟網頁版一樣（沿用 prefetch-progress 模式）。
+    const tabId = sender.tab?.id;
+    const taskId = message.taskId;
+    const onStage = (tabId != null && taskId)
+      ? (status, text) => {
+          let stage;
+          if (status === 3) stage = text ? `queue:${text}` : "queue"; // 排隊位置
+          else if (status === 4) stage = "waiting";                   // 等待翻譯器
+          else stage = text;                                          // status 1 = 階段字串
+          chrome.tabs.sendMessage(tabId, { type: "translate-progress", taskId, stage }).catch(() => {});
+        }
+      : null;
     try {
-      const r = await translateWithRetry(message.image, settings);
+      const r = await translateWithRetry(message.image, settings, onStage);
       return {
         image: await blobToDataUrl(r.blob),
         noText: r.noText
@@ -190,6 +207,10 @@ async function loadRawSettings() {
     if (typeof norm.llmSendImage === "boolean") raw.llmSendImage = norm.llmSendImage;
     if (typeof norm.onlyTranslateBubbles === "boolean") raw.onlyTranslateBubbles = norm.onlyTranslateBubbles;
     if (typeof norm.parallelBands === "boolean") raw.parallelBands = norm.parallelBands;
+    if (norm.maskDilationOffset != null) raw.maskDilationOffset = norm.maskDilationOffset;
+    if (norm.inpaintingSize != null) raw.inpaintingSize = norm.inpaintingSize;
+    if (norm.inpainter) raw.inpainter = norm.inpainter;
+    if (norm.ocrModel) raw.ocrModel = norm.ocrModel;
     if (norm.targetLang) raw.targetLanguage = norm.targetLang;
     if (norm.llmBaseUrl) raw.customBaseUrl = norm.llmBaseUrl;
   }
@@ -215,8 +236,10 @@ async function getSettingsView() {
     targetLanguage: raw.targetLanguage,
     customBaseUrl: raw.customBaseUrl,
     ocrModel: raw.ocrModel || DEFAULT_SETTINGS.ocrModel,
-    inpainter: raw.inpainter || DEFAULT_SETTINGS.inpainter,
+    inpainter: (raw.inpainter === "lama_mpe" ? "lama_large" : raw.inpainter) || DEFAULT_SETTINGS.inpainter,
     renderTextDirection: raw.renderTextDirection || DEFAULT_SETTINGS.renderTextDirection,
+    maskDilationOffset: (raw.maskDilationOffset != null) ? raw.maskDilationOffset : DEFAULT_SETTINGS.maskDilationOffset,
+    inpaintingSize: raw.inpaintingSize || DEFAULT_SETTINGS.inpaintingSize,
     providerDefaults: PROVIDER_DEFAULT_MODELS
   };
 }
@@ -237,6 +260,8 @@ async function saveSettings(patch) {
   if (typeof patch.ocrModel === "string") raw.ocrModel = patch.ocrModel;
   if (typeof patch.inpainter === "string") raw.inpainter = patch.inpainter;
   if (typeof patch.renderTextDirection === "string") raw.renderTextDirection = patch.renderTextDirection;
+  if (patch.maskDilationOffset != null && patch.maskDilationOffset !== "") raw.maskDilationOffset = parseInt(patch.maskDilationOffset);
+  if (patch.inpaintingSize != null && patch.inpaintingSize !== "") raw.inpaintingSize = String(patch.inpaintingSize);
 
   const stored = await chrome.storage.local.get(SETTINGS_KEY);
   const apiBase = stored[SETTINGS_KEY]?.apiBase || DEFAULT_SETTINGS.apiBase;
@@ -292,10 +317,12 @@ function normalizeUiSettings(raw, apiBase) {
     fontPath: raw.fontPath || "",
     // OCR / 抹字 / 輸出排版：完全跟隨網頁 UI（user_settings.json），不在擴充寫死。
     ocrModel: raw.ocrModel || DEFAULT_SETTINGS.ocrModel,
-    inpainter: raw.inpainter || DEFAULT_SETTINGS.inpainter,
+    inpainter: (raw.inpainter === "lama_mpe" ? "lama_large" : raw.inpainter) || DEFAULT_SETTINGS.inpainter,
     renderTextDirection: raw.renderTextDirection || DEFAULT_SETTINGS.renderTextDirection,
     fontSizeMinimum: raw.fontSizeMinimum || DEFAULT_SETTINGS.fontSizeMinimum,
-    concurrency: raw.concurrency || DEFAULT_SETTINGS.concurrency
+    concurrency: raw.concurrency || DEFAULT_SETTINGS.concurrency,
+    maskDilationOffset: (raw.maskDilationOffset != null) ? raw.maskDilationOffset : DEFAULT_SETTINGS.maskDilationOffset,
+    inpaintingSize: raw.inpaintingSize || DEFAULT_SETTINGS.inpaintingSize
   };
 }
 
@@ -374,8 +401,8 @@ function buildConfig(settings) {
       ignore_bubble: 0
     },
     inpainter: {
-      inpainter: settings.inpainter || "lama_mpe",
-      inpainting_size: 2048,
+      inpainter: settings.inpainter || "lama_large",
+      inpainting_size: parseInt(settings.inpaintingSize) || 2048,
       inpainting_precision: "bf16"
     },
     render: {
@@ -410,7 +437,7 @@ function buildConfig(settings) {
       paste_mask_dilation_pixels: 10,
       ai_renderer_concurrency: 1
     },
-    mask_dilation_offset: 40
+    mask_dilation_offset: (settings.maskDilationOffset != null && settings.maskDilationOffset !== "") ? parseInt(settings.maskDilationOffset) : 20
   };
 }
 
@@ -469,14 +496,14 @@ async function fetchOriginalImage(url, referer) {
 const AUTO_RETRY_KEY = "dmmtAutoRetry";
 
 // 翻譯失敗自動重試（可由 popup 勾選關閉，預設開啟）。逾時/網路抖動再試 2 次。
-async function translateWithRetry(dataUrl, settings) {
+async function translateWithRetry(dataUrl, settings, onStage) {
   const stored = await chrome.storage.local.get(AUTO_RETRY_KEY);
   const enabled = stored[AUTO_RETRY_KEY] !== false; // 預設開啟
   const maxAttempts = enabled ? 3 : 1;
   let lastErr;
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
-      return await translateImageDataUrl(dataUrl, settings);
+      return await translateImageDataUrl(dataUrl, settings, onStage);
     } catch (e) {
       lastErr = e;
       // 使用者中止 → 立即停止，不重試。
@@ -650,7 +677,7 @@ async function testConnection() {
   }
 }
 
-async function translateImageDataUrl(dataUrl, settings) {
+async function translateImageDataUrl(dataUrl, settings, onStage) {
   const apiBase = String(settings.apiBase || DEFAULT_SETTINGS.apiBase).replace(/\/+$/, "");
   // 永遠以 http://127.0.0.1:8501 的最新設定為準：OCR / 抹字 / 排版 / 翻譯 / 目標語言全部跟網頁 UI
   // 即時同步，不在擴充寫死。取不到時（伺服器未存設定或暫時離線）才沿用本地快取的 settings。
@@ -679,36 +706,53 @@ async function translateImageDataUrl(dataUrl, settings) {
     if (!response.ok) {
       throw new Error(`API ${response.status}`);
     }
-    return parseTranslationStream(await response.arrayBuffer());
+    return await readTranslationStream(response, onStage);
   } finally {
     _activeTranslateAborts.delete(controller);
   }
 }
 
-function parseTranslationStream(arrayBuffer) {
-  let buffer = new Uint8Array(arrayBuffer || 0);
-  let offset = 0;
+function concatU8(a, b) {
+  if (!a.length) return b;
+  if (!b.length) return a;
+  const out = new Uint8Array(a.length + b.length);
+  out.set(a, 0);
+  out.set(b, a.length);
+  return out;
+}
+
+// 邊收邊解析串流：伺服器每完成一個階段就送一個 status-1 文字框（detection/ocr/translating/
+// inpainting/rendering…）。舊版用 response.arrayBuffer() 整包收完才解析 → 中間階段全被丟掉，
+// 擴充只看得到「處理中」。改成 response.body.getReader() 逐塊解析（比照網頁 UI processChunk），
+// 每解到一個階段就即時 onStage 回報，最後一張 status-0 才是成品圖。
+async function readTranslationStream(response, onStage) {
+  const reader = response.body.getReader();
+  let buf = new Uint8Array(0);
   let lastProgress = "";
-  // /web 端點為了「秒回」會先送一張空白佔位圖（status 0），最後才送真正的成品圖（status 0）。
-  // 因此不能拿「第一張」status 0，要拿「最後一張」，否則會得到全白圖。
   let lastImage = null;
   let noText = false; // 伺服器偵測不到文字會送 skip-no-text / skip-no-regions 進度訊息
-  while (offset + 5 <= buffer.length) {
-    const status = buffer[offset];
-    const size = new DataView(buffer.buffer, buffer.byteOffset + offset + 1, 4).getUint32(0, false);
-    offset += 5;
-    if (offset + size > buffer.length) break;
-    const data = buffer.slice(offset, offset + size);
-    offset += size;
-
-    if (status === 0) {
-      lastImage = new Blob([data], { type: detectImageMime(data) });
-    } else if (status === 1 || status === 3 || status === 4) {
-      lastProgress = decodeUtf8(data);
-      if (/skip-no-text|skip-no-regions/i.test(lastProgress)) noText = true;
-    } else if (status === 2) {
-      throw new Error(decodeUtf8(data) || "翻譯失敗");
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    if (value && value.length) buf = concatU8(buf, value);
+    let offset = 0;
+    while (offset + 5 <= buf.length) {
+      const status = buf[offset];
+      const size = new DataView(buf.buffer, buf.byteOffset + offset + 1, 4).getUint32(0, false);
+      if (offset + 5 + size > buf.length) break; // 這一框還沒收完，等下一塊
+      const data = buf.slice(offset + 5, offset + 5 + size);
+      offset += 5 + size;
+      if (status === 0) {
+        lastImage = new Blob([data], { type: detectImageMime(data) });
+      } else if (status === 1 || status === 3 || status === 4) {
+        lastProgress = decodeUtf8(data);
+        if (/skip-no-text|skip-no-regions/i.test(lastProgress)) noText = true;
+        if (onStage) { try { onStage(status, lastProgress); } catch {} }
+      } else if (status === 2) {
+        throw new Error(decodeUtf8(data) || "翻譯失敗");
+      }
     }
+    if (offset > 0) buf = offset >= buf.length ? new Uint8Array(0) : buf.slice(offset);
   }
   if (lastImage) return { blob: lastImage, noText };
   throw new Error(lastProgress ? `翻譯未完成：${lastProgress}` : "API 沒有回傳翻譯圖片");
