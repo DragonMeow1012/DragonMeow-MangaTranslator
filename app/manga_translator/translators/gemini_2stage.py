@@ -555,16 +555,27 @@ class Gemini2StageTranslator(CommonTranslator):
 
     @staticmethod
     def _validate_loose(content: str, schema):
-        """Gemini/Gemma 常忽略 schema 吐純陣列；schema 是 {single_field: list[...]} 時自動包起來。"""
+        """Gemini/Gemma 常忽略 schema 吐純陣列；schema 是 {single_field: list[...]} 時自動包起來。
+        Gemma 還常在合法 JSON 後面多吐垃圾（"Extra data" JSONDecodeError）或前面加說明 → 用 raw_decode
+        從第一個 { 或 [ 起只解析「第一個合法 JSON 值」、忽略尾端多餘資料，救回 Gemma 的補譯（否則整頁漏翻）。"""
         try:
             return schema.model_validate_json(content)
         except ValidationError:
-            parsed = json.loads(content)
-            if isinstance(parsed, list):
-                fields = list(schema.model_fields.keys())
-                if len(fields) == 1:
-                    return schema.model_validate({fields[0]: parsed})
-            raise
+            pass
+        text = (content or '').strip()
+        m = re.search(r'[\[{]', text)            # 跳過 JSON 前的說明文字
+        if m:
+            text = text[m.start():]
+        try:
+            parsed, _end = json.JSONDecoder().raw_decode(text)  # 只取第一個合法 JSON、丟掉尾巴垃圾
+        except json.JSONDecodeError:
+            parsed = json.loads(content)         # 救不了就照原樣拋原始錯誤
+        if isinstance(parsed, list):
+            fields = list(schema.model_fields.keys())
+            if len(fields) == 1:
+                return schema.model_validate({fields[0]: parsed})
+            raise ValueError('list JSON but schema expects multiple fields')
+        return schema.model_validate(parsed)
 
     async def _call_gemini_native(
         self, key: str, model: str, system_instruction: str, user_text: str,
