@@ -502,7 +502,16 @@ def prepare(args):
         # Multi-worker：spawn N 個獨立 worker 進程在 args.port+1, +2, ..., +N。
         # 每個 worker 自己載一份模型到 VRAM，獨立 event loop 跟 _PriorityGpuLock。
         # MT_WORKER_CONCURRENCY 控每個 worker 內部 slot 數（會在 start_translator_client_proc 註冊到 orchestrator）。
+        # Worker 進程數：優先吃網頁 UI 的「Worker 進程數」設定（user_settings.json.workers），
+        # 其次環境變數 MT_NUM_WORKERS。每個 worker 各載「一份」模型到 VRAM（~3-4GB，含放大/上色再 +~2GB），
+        # 故 clamp 1..4，預設 1（單 worker 行為不變）。**改了要重啟伺服器才生效。**
         num_workers = max(1, int(os.getenv('MT_NUM_WORKERS', '1')))
+        try:
+            _w = load_user_settings().get('workers')
+            if _w is not None:
+                num_workers = max(1, min(int(_w), 4))
+        except Exception:
+            pass
         procs = []
         for i in range(num_workers):
             procs.append(start_translator_client_proc(args.host, args.port + 1 + i, nonce, args))

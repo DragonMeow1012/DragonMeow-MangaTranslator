@@ -408,6 +408,22 @@
                 ⚠ 並發 &gt; 1：單一免費 API key 配額低（如 15 次/分鐘），並發會撞每分鐘速率限制 → 大量 429、整批漏翻。多加幾把 API key 再調高才安全。
               </div>
             </div>
+            <div :title="t('workersTip')">
+              <label class="side-label">{{ t('labelWorkers') }}</label>
+              <select class="side-field" v-model="workers" @change="onSettingChange">
+                <option value="1">1（預設，單進程）</option>
+                <option value="2">2</option>
+                <option value="3">3</option>
+                <option value="4">4</option>
+              </select>
+              <div style="font-size:11px;opacity:.55;margin-top:3px;line-height:1.35">{{ t('workersHint') }}</div>
+              <div style="font-size:11px;margin-top:4px;line-height:1.35;opacity:.8">
+                {{ t('workersVramLabel') }}<b>{{ workerVramEstimate }}</b>
+              </div>
+              <div v-if="Number(workers) > 1" style="font-size:11px;margin-top:4px;line-height:1.35;color:#ea580c;font-weight:600">
+                ⚠ 每個 worker 各載「一份完整模型」到 VRAM。單張 GPU 開多 worker，CUDA 仍序列化算圖，主要益處是「某 worker 等 LLM 回應時另一個能用 GPU」；建議顯存 ≥12GB 才開 2 以上。**改了要重啟伺服器才生效。**
+              </div>
+            </div>
           </div>
         </div>
 
@@ -1346,6 +1362,7 @@
           labelOcr: 'OCR 模型', labelDir: '輸出排版', labelInpaint: '抹字模型',
           labelFontMin: '最小字級', fmAuto: '自動（縮到塞下）',
           labelConcurrency: '並發數', concurrencyTip: '整批／擴充翻譯同時送幾張（對齊伺服器 slot；改了伺服器要重啟才生效）。',
+          labelWorkers: 'Worker 進程數', workersTip: 'Server 啟動時 spawn 幾個 worker 進程，各自載一份模型到 VRAM、各有獨立 GPU 排程。改了要重啟伺服器才生效。', workersHint: '多進程：各載一份模型、各跑一條 pipeline。單 GPU 主要益處是某 worker 等 LLM 時另一個能算圖。', workersVramLabel: '預估 VRAM：',
           dirAuto: '自動', dirH: '橫式', dirV: '直式',
           inpClean: 'lama_large（通用）', inpFast: 'lama_mpe（漫畫專用·推薦）',
           ocrMocrGpu: 'manga-ocr GPU（日漫專用）', ocrMocrCpu: 'manga-ocr CPU（日漫專用）', ocrPaddleGpu: 'PaddleOCR GPU（中/日/英/韓）', ocrPaddleCpu: 'PaddleOCR CPU（中/日/英/韓）', ocrHint: '💡 GPU 較快；CPU 較慢但相容性好（GPU 出狀況時的逃生口）。日漫選 manga-ocr、韓漫選 PaddleOCR。單一語言建議直接手選對應語言（韓/中/日）——自動模式首次要偵測語言、會載多個引擎，冷啟動較慢。',
@@ -1532,6 +1549,7 @@
           labelOcr: 'OCR 模型', labelDir: '输出排版', labelInpaint: '抹字模型',
           labelFontMin: '最小字级', fmAuto: '自动（缩到塞下）',
           labelConcurrency: '并发数', concurrencyTip: '整批／扩展翻译同时送几张（对齐服务器 slot；改了服务器要重启才生效）。',
+          labelWorkers: 'Worker 进程数', workersTip: 'Server 启动时 spawn 几个 worker 进程，各自载一份模型到 VRAM、各有独立 GPU 排程。改了要重启服务器才生效。', workersHint: '多进程：各载一份模型、各跑一条 pipeline。单 GPU 主要益处是某 worker 等 LLM 时另一个能算图。', workersVramLabel: '预估 VRAM：',
           dirAuto: '自动', dirH: '横式', dirV: '竖式',
           inpClean: 'lama_large（通用）', inpFast: 'lama_mpe（漫画专用·推荐）',
           ocrMocrGpu: 'manga-ocr GPU（日漫专用）', ocrMocrCpu: 'manga-ocr CPU（日漫专用）', ocrPaddleGpu: 'PaddleOCR GPU（中/日/英/韩）', ocrPaddleCpu: 'PaddleOCR CPU（中/日/英/韩）', ocrHint: '💡 GPU 更快；CPU 较慢但兼容性好（GPU 出问题时的逃生口）。日漫选 manga-ocr、韩漫选 PaddleOCR。',
@@ -1718,6 +1736,7 @@
           labelOcr: 'OCR model', labelDir: 'Text layout', labelInpaint: 'Text removal',
           labelFontMin: 'Min font size', fmAuto: 'Auto (shrink to fit)',
           labelConcurrency: 'Concurrency', concurrencyTip: 'How many images to translate at once (batch / extension). Match the server slots; restart the server to apply.',
+          labelWorkers: 'Worker processes', workersTip: 'How many worker processes the server spawns at startup. Each loads its own copy of the models into VRAM and runs its own GPU scheduler. Restart the server to apply.', workersHint: 'Multi-process: each loads its own models and runs its own pipeline. On a single GPU the main gain is one worker computing while another waits on the LLM.', workersVramLabel: 'Est. VRAM: ',
           dirAuto: 'Auto', dirH: 'Horizontal', dirV: 'Vertical',
           inpClean: 'lama_large (general)', inpFast: 'lama_mpe (manga, recommended)',
           ocrMocrGpu: 'manga-ocr GPU (Japanese)', ocrMocrCpu: 'manga-ocr CPU (Japanese)', ocrPaddleGpu: 'PaddleOCR GPU (CN/JP/EN/KO)', ocrPaddleCpu: 'PaddleOCR CPU (CN/JP/EN/KO)', ocrHint: '💡 GPU is faster; CPU is slower but more compatible (escape hatch if GPU fails). manga-ocr for JP, PaddleOCR for KR.',
@@ -1904,6 +1923,7 @@
           labelOcr: 'OCR モデル', labelDir: 'レイアウト', labelInpaint: '文字消去',
           labelFontMin: '最小フォント', fmAuto: '自動（収まるまで縮小）',
           labelConcurrency: '並列数', concurrencyTip: '一括／拡張翻訳で同時に送る枚数（サーバーのslotに合わせる。変更後はサーバー再起動）。',
+          labelWorkers: 'Worker プロセス数', workersTip: 'サーバー起動時に spawn する worker プロセス数。各プロセスがモデルを個別に VRAM に読み込み、独立した GPU スケジューラを持つ。変更後はサーバー再起動。', workersHint: 'マルチプロセス：各々がモデルを読み込み独自のパイプラインを実行。単一 GPU では「あるworkerがLLM待ちの間に別のworkerがGPU計算」が主な利点。', workersVramLabel: '推定 VRAM：',
           dirAuto: '自動', dirH: '横書き', dirV: '縦書き',
           inpClean: 'lama_large（汎用）', inpFast: 'lama_mpe（漫画専用·推奨）',
           ocrMocrGpu: 'manga-ocr GPU（日本語）', ocrMocrCpu: 'manga-ocr CPU（日本語）', ocrPaddleGpu: 'PaddleOCR GPU（中/日/英/韓）', ocrPaddleCpu: 'PaddleOCR CPU（中/日/英/韓）', ocrHint: '💡 GPU が高速；CPU は遅いが互換性が高い（GPU 不調時の逃げ道）。日本語は manga-ocr、韓国語は PaddleOCR。',
@@ -2235,6 +2255,14 @@
           });
           return arr;
         },
+        get workerVramEstimate() {
+          // 粗估：每 worker ~3.5GB（detector+OCR+inpainter）；開放大/上色再 +~2GB/worker。
+          const n = Math.max(1, Math.min(parseInt(this.workers) || 1, 4));
+          const base = 3.5, extra = (this.colorize || this.upscaleRatio) ? 2 : 0;
+          const lo = (n * (base + extra)).toFixed(1);
+          const hi = (n * (base + extra + 0.8)).toFixed(1);
+          return `${n} × ~${(base + extra).toFixed(1)}GB ≈ ${lo}–${hi} GB`;
+        },
         get currentApiKey() { return this.apiKeys[this.llmProvider] || ''; },
         set currentApiKey(v) { this.apiKeys[this.llmProvider] = v; },
         get modelSuggestions() { return MODEL_SUGGESTIONS[this.llmProvider] || []; },
@@ -2255,6 +2283,7 @@
         ocrModel: "mocr/gpu",
         fontSizeMinimum: "0",
         concurrency: "5",
+        workers: "1",   // Worker 進程數（server 啟動時 spawn N 個，各載一份模型；改了要重啟伺服器）
         apiKeyRows: [''],   // 多 key UI：每把一行，存回 apiKeys[provider] 以換行分隔（後端會 split 輪換）
         fontBorder: false,  // 文字加底色（描邊）：on → disable_font_border=false，譯文加對比描邊較好讀
 
@@ -2552,6 +2581,7 @@
           if (settings.inpainter) this.inpainter = settings.inpainter === "lama_mpe" ? "lama_large" : settings.inpainter;
           if (settings.fontSizeMinimum != null) this.fontSizeMinimum = String(settings.fontSizeMinimum);
           if (settings.concurrency != null) this.concurrency = String(settings.concurrency);
+          if (settings.workers != null) this.workers = String(settings.workers);
           if (settings.maskDilationOffset != null) this.maskDilationOffset = parseInt(settings.maskDilationOffset);
           if (settings.inpaintingSize != null) this.inpaintingSize = String(settings.inpaintingSize);
           if (typeof settings.advancedMode === 'boolean') this.advancedMode = settings.advancedMode;
@@ -2596,6 +2626,7 @@
             inpainter: this.inpainter,
             fontSizeMinimum: this.fontSizeMinimum,
             concurrency: this.concurrency,
+            workers: this.workers,
             advancedMode: this.advancedMode,
             autoRetryFailed: this.autoRetryFailed,
             fontBorder: this.fontBorder,
