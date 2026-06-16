@@ -273,9 +273,10 @@
     <div class="field-label" id="txt-model">模型</div>
     <input class="field" id="set-model" type="text" autocomplete="off">
 
-    <div class="field-label" id="txt-apikey">API key</div>
-    <div class="field-row">
-      <input class="field" id="set-apikey" type="password" autocomplete="off">
+    <div class="field-label" id="txt-apikey">API key（多把可輪換避 429）</div>
+    <div id="apikey-rows"></div>
+    <div class="field-row" style="margin-top:4px">
+      <button id="apikey-add" class="secondary" type="button" style="flex:1;margin:0;padding:6px;font-size:12px;text-align:center">＋ 加一把 key</button>
       <button class="icon-btn" id="set-apikey-eye" type="button">👁</button>
     </div>
 

@@ -624,7 +624,39 @@ function setServerStatus(status) {
 
 const providerSelect = document.getElementById("set-provider");
 const modelInput = document.getElementById("set-model");
-const apikeyInput = document.getElementById("set-apikey");
+const apikeyRowsEl = document.getElementById("apikey-rows");
+let _apikeyShown = false;
+function makeApiKeyRow(val) {
+  const row = document.createElement("div");
+  row.className = "field-row";
+  row.style.marginBottom = "4px";
+  const inp = document.createElement("input");
+  inp.className = "field";
+  inp.type = _apikeyShown ? "text" : "password";
+  inp.autocomplete = "off";
+  inp.value = val || "";
+  const del = document.createElement("button");
+  del.className = "icon-btn";
+  del.type = "button";
+  del.textContent = "✕";
+  del.title = "移除這把 key";
+  del.addEventListener("click", () => {
+    row.remove();
+    if (!apikeyRowsEl.children.length) apikeyRowsEl.appendChild(makeApiKeyRow(""));
+  });
+  row.appendChild(inp);
+  row.appendChild(del);
+  return row;
+}
+function renderApiKeyRows(keys) {
+  const list = (keys && keys.length) ? keys : [""];
+  apikeyRowsEl.innerHTML = "";
+  for (const k of list) apikeyRowsEl.appendChild(makeApiKeyRow(k));
+  updateApiKeyPlaceholder();
+}
+function collectApiKeys() {
+  return [...apikeyRowsEl.querySelectorAll("input")].map((i) => i.value.trim()).filter(Boolean).join("\n");
+}
 const baseurlInput = document.getElementById("set-baseurl");
 const baseurlLabel = document.getElementById("txt-baseurl");
 const sendimageRow = document.getElementById("set-sendimage");
@@ -641,8 +673,8 @@ let _view = null; // 後端回傳的設定視圖（含 models 與 apiKeySet）
 
 function updateApiKeyPlaceholder() {
   const p = providerSelect.value;
-  const isSet = _view?.apiKeySet?.[p];
-  apikeyInput.placeholder = isSet ? t("apikeyKeep") : t("apikeyEmpty");
+  const ph = _view?.apiKeySet?.[p] ? t("apikeyKeep") : t("apikeyEmpty");
+  apikeyRowsEl.querySelectorAll("input").forEach((i) => { i.placeholder = ph; });
 }
 
 function applyViewToFields() {
@@ -667,10 +699,8 @@ function refreshProviderDependentFields() {
   const p = providerSelect.value;
   const model = _view?.models?.[p];
   modelInput.value = model || _view?.providerDefaults?.[p] || "";
-  // 回填該服務商目前的金鑰（密碼遮罩，需點眼睛才看明文）。
-  apikeyInput.value = _view?.apiKeys?.[p] || "";
-  apikeyInput.type = "password";
-  updateApiKeyPlaceholder();
+  // 回填該服務商目前的金鑰，拆成多行（密碼遮罩，需點眼睛才看明文）。
+  renderApiKeyRows((_view?.apiKeys?.[p] || "").split(/[,\n]+/).map((s) => s.trim()).filter(Boolean));
   const isCustom = p === "custom";
   baseurlInput.style.display = isCustom ? "block" : "none";
   baseurlLabel.style.display = isCustom ? "block" : "none";
@@ -705,7 +735,11 @@ sendimageRow.addEventListener("click", () => sendimageRow.classList.toggle("on")
 onlyBubblesRow.addEventListener("click", () => onlyBubblesRow.classList.toggle("on"));
 parallelBandsRow.addEventListener("click", () => parallelBandsRow.classList.toggle("on"));
 document.getElementById("set-apikey-eye").addEventListener("click", () => {
-  apikeyInput.type = apikeyInput.type === "password" ? "text" : "password";
+  _apikeyShown = !_apikeyShown;
+  apikeyRowsEl.querySelectorAll("input").forEach((i) => { i.type = _apikeyShown ? "text" : "password"; });
+});
+document.getElementById("apikey-add").addEventListener("click", () => {
+  apikeyRowsEl.appendChild(makeApiKeyRow(""));
 });
 
 document.getElementById("set-save").addEventListener("click", async () => {
@@ -722,7 +756,8 @@ document.getElementById("set-save").addEventListener("click", async () => {
     inpainter: inpaintSelect.value,
     maskDilationOffset: maskDilationInput.value === "" ? 20 : parseInt(maskDilationInput.value)
   };
-  if (apikeyInput.value.trim() !== "") patch.apiKey = apikeyInput.value.trim();
+  const _ak = collectApiKeys();
+  if (_ak) patch.apiKey = _ak;
   if (providerSelect.value === "custom") patch.customBaseUrl = baseurlInput.value.trim();
   try {
     const result = await bg({ type: "save-settings", patch });
