@@ -804,12 +804,19 @@
               <button v-if="finishedImages.length > 0" @click="clearGallery" class="ink-btn ink-btn-red">
                 {{ t('deleteAll') }}
               </button>
+              <select v-if="finishedImages.length > 1" v-model="resultSort"
+                      class="ink-btn" style="cursor:pointer;padding-top:6px;padding-bottom:6px" title="排序方式">
+                <option value="name-asc">名稱 ↑（1→9）</option>
+                <option value="name-desc">名稱 ↓（9→1）</option>
+                <option value="time-desc">時間 ↓（新→舊）</option>
+                <option value="time-asc">時間 ↑（舊→新）</option>
+              </select>
             </div>
           
           <!-- Gallery Grid -->
           <div v-if="finishedImages.length > 0"
                class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
-            <div v-for="image in finishedImages" :key="image.id"
+            <div v-for="image in sortedFinishedImages" :key="image.id"
                  class="group cursor-pointer bg-white rounded-lg border acc-hover-border hover:shadow-md transition-all duration-200"
                  :class="{'acc-ring': selectedGallery.includes(image.id)}"
                  @click="openImageModal(image)">
@@ -2083,6 +2090,7 @@
         // New features: Queue and Gallery
         queuedImages: [],
         finishedImages: [],
+        resultSort: 'name-asc',   // 翻譯結果排序：name/time × asc/desc（名稱用自然數字排序，5 在 10 前）
         showGallery: true,
         selectedFiles: [], // Store multiple selected files before adding to queue
         
@@ -2211,6 +2219,22 @@
         _customSeq: 0,
         get currentModel() { return this.models[this.llmProvider] || ''; },
         set currentModel(v) { this.models[this.llmProvider] = v; },
+        get sortedFinishedImages() {
+          const arr = [...this.finishedImages];
+          const [key, dir] = (this.resultSort || 'name-asc').split('-');
+          const sign = dir === 'desc' ? -1 : 1;
+          arr.sort((a, b) => {
+            if (key === 'time') {
+              const ta = a.finishedAt ? new Date(a.finishedAt).getTime() : 0;
+              const tb = b.finishedAt ? new Date(b.finishedAt).getTime() : 0;
+              return sign * (ta - tb);
+            }
+            // 名稱：自然數字排序（5.webp 在 10.webp 前）
+            return sign * String(a.originalName || '').localeCompare(
+              String(b.originalName || ''), undefined, { numeric: true, sensitivity: 'base' });
+          });
+          return arr;
+        },
         get currentApiKey() { return this.apiKeys[this.llmProvider] || ''; },
         set currentApiKey(v) { this.apiKeys[this.llmProvider] = v; },
         get modelSuggestions() { return MODEL_SUGGESTIONS[this.llmProvider] || []; },
@@ -2533,6 +2557,7 @@
           if (typeof settings.advancedMode === 'boolean') this.advancedMode = settings.advancedMode;
           if (typeof settings.autoRetryFailed === 'boolean') this.autoRetryFailed = settings.autoRetryFailed;
           if (typeof settings.fontBorder === 'boolean') this.fontBorder = settings.fontBorder;
+          if (settings.resultSort) this.resultSort = settings.resultSort;
           this.loadApiKeyRows();   // 多 key UI：把 apiKeys[provider] 拆成可編輯的多行
         },
 
@@ -2574,6 +2599,7 @@
             advancedMode: this.advancedMode,
             autoRetryFailed: this.autoRetryFailed,
             fontBorder: this.fontBorder,
+            resultSort: this.resultSort,
             maskDilationOffset: this.maskDilationOffset,   // 補：原本漏存 → 網頁端改了不持久
             inpaintingSize: this.inpaintingSize,
           };
