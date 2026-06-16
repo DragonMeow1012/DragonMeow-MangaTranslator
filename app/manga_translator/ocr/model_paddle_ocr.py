@@ -33,6 +33,7 @@ class ModelPaddleOCR(OfflineOCR):
         super().__init__(*args, **kwargs)
         self._engines = {}        # lang -> PaddleOCR（多語各快取一份）
         self.device = 'cpu'
+        self._auto_lang = None    # 自動偵測語言快取：同批 webtoon 同語言，偵測一次重用，省每頁 3 次探測 predict
 
     async def _load(self, device: str):
         # 實際建構延後到首次 _infer（依語言），這裡只記裝置。
@@ -40,6 +41,7 @@ class ModelPaddleOCR(OfflineOCR):
 
     async def _unload(self):
         self._engines = {}
+        self._auto_lang = None
 
     def _get_engine(self, lang: str):
         if lang in self._engines:
@@ -99,6 +101,27 @@ class ModelPaddleOCR(OfflineOCR):
         self.logger.info(f'PaddleOCR auto-detect lang={best} (conf={best_conf:.3f})')
         return best
 
+    @staticmethod
+    def _parse_ocr_result(r0, prob_threshold: float):
+        """從單一 PaddleOCR 結果物件抽出 (text, prob)。供逐框與批次共用。"""
+        if r0 is None:
+            return '', 0.0
+        data = r0.json.get('res', r0.json) if hasattr(r0, 'json') else (r0 if isinstance(r0, dict) else {})
+        rec_texts = data.get('rec_texts', []) or []
+        rec_scores = data.get('rec_scores', []) or []
+        parts, scores = [], []
+        for t, s in zip(rec_texts, rec_scores):
+            try:
+                s = float(s)
+            except (TypeError, ValueError):
+                continue
+            if s >= prob_threshold and str(t).strip():
+                parts.append(str(t))
+                scores.append(s)
+        if not parts:
+            return '', 0.0
+        return ''.join(parts), sum(scores) / len(scores)
+
     def _recognize_crop(self, engine, crop: np.ndarray, prob_threshold: float):
         try:
             res = engine.predict(crop)
@@ -107,19 +130,7 @@ class ModelPaddleOCR(OfflineOCR):
             return '', 0.0
         if not res:
             return '', 0.0
-        r0 = res[0]
-        data = r0.json.get('res', r0.json) if hasattr(r0, 'json') else (r0 if isinstance(r0, dict) else {})
-        rec_texts = data.get('rec_texts', []) or []
-        rec_scores = data.get('rec_scores', []) or []
-        parts, scores = [], []
-        for t, s in zip(rec_texts, rec_scores):
-            s = float(s)
-            if s >= prob_threshold and str(t).strip():
-                parts.append(str(t))
-                scores.append(s)
-        if not parts:
-            return '', 0.0
-        return ''.join(parts), sum(scores) / len(scores)
+        return self._parse_ocr_result(res[0], prob_threshold)
 
     async def _infer(self, image: np.ndarray, textlines: List[Quadrilateral], config: OcrConfig,
                      verbose: bool = False, ignore_bubble: int = 0) -> List[Quadrilateral]:
@@ -145,15 +156,42 @@ class ModelPaddleOCR(OfflineOCR):
     def _infer_sync(self, image, quadrilaterals, lang, prob_threshold,
                     min_text_length, verbose, textlines):
         if lang == 'auto':
-            lang = self._detect_lang(image, quadrilaterals)
+            # 語言偵測快取（#2 提速）：同批 webtoon 同語言，偵測一次重用，省每頁 3 次探測 predict。
+            # 換系列會經 _unload 清掉重偵；想最穩可在 UI 直接選語言（完全略過偵測）。
+            if self._auto_lang is None:
+                self._auto_lang = self._detect_lang(image, quadrilaterals)
+            lang = self._auto_lang
         engine = self._get_engine(lang)
         is_quadrilaterals = isinstance(quadrilaterals[0][0], Quadrilateral)
 
         text_height = 48
+        crops = [q.get_transformed_region(image, d, text_height) for q, d in quadrilaterals]
+
+        # 批次推論（#1 提速）：一次把所有 crop 丟給 PaddleOCR，省掉「逐框 predict」的固定開銷
+        # —— webtoon 一頁多框時最有感（N 次序列 GPU 呼叫 → 1 次）。回傳筆數對不上或丟例外
+        # → 退回逐框，正確性不受影響。
+        batched = None
+        if len(crops) > 1:
+            try:
+                res = engine.predict(crops)
+                batched = list(res) if res is not None else None
+                if batched is not None and len(batched) != len(crops):
+                    self.logger.warning(
+                        f'PaddleOCR batch 回 {len(batched)} 筆 != {len(crops)} crop，退回逐框')
+                    batched = None
+            except Exception as e:
+                self.logger.warning(
+                    f'PaddleOCR batch predict failed ({type(e).__name__}: {e})；退回逐框')
+                batched = None
+
         output_regions = []
-        for q, d in quadrilaterals:
-            crop = q.get_transformed_region(image, d, text_height)
-            txt, prob = self._recognize_crop(engine, crop, prob_threshold)
+        for idx, (q, d) in enumerate(quadrilaterals):
+            if batched is not None:
+                r = batched[idx]
+                r0 = r[0] if isinstance(r, (list, tuple)) and len(r) else r
+                txt, prob = self._parse_ocr_result(r0, prob_threshold)
+            else:
+                txt, prob = self._recognize_crop(engine, crops[idx], prob_threshold)
             if min_text_length and len(txt) < min_text_length:
                 txt, prob = '', 0.0
             if verbose:

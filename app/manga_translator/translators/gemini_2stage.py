@@ -38,6 +38,15 @@ _PURE_KANA_SFX_RE = re.compile(r'^[\u3040-\u309f\u30a0-\u30ffー！？!？?．�
 
 _ANCHOR_LEAK_RE = re.compile(r'OCR\s*漏抓|漏抓的泡泡|逐字讀出|點點與假名|裡面有字')
 
+# LLM 沒輸出 [SKIP]，改用中文描述「這是裝飾字/擬聲詞…略過」把 prompt 指令回顯成譯文，
+# 結果被渲染上圖（例：「（手寫裝飾字，略過）」「（擬聲詞，略過）」）。整段是指令回顯
+# → 清空當 skip；後處理 filter（manga_translator：空譯文 → _skipped_regions）會保留原圖美術字。
+_SKIP_PARAPHRASE_RE = re.compile(
+    r'[（(][^（()）]{0,24}(?:略過|跳過|省略|忽略|不(?:翻|譯|處理)|保留原|skip)[^（()）]{0,6}[)）]'
+    r'|手寫裝飾字|手寫塗鴉|斜寫裝飾字',
+    re.IGNORECASE,
+)
+
 
 def clean_synonym_parens(text: str) -> str:
     """
@@ -48,7 +57,7 @@ def clean_synonym_parens(text: str) -> str:
     # 空泡泡（_synth_bubble）的錨點指示「(OCR 漏抓的泡泡…請看圖逐字讀出，含點點與假名)」
     # 有時會被 LLM 照抄回 corrected/translated_text。這些字串絕不會出現在真對白，命中即視為
     # 「LLM 沒讀出內容」→ 清空，避免把 prompt 指示渲染到圖上。
-    if _ANCHOR_LEAK_RE.search(text):
+    if _ANCHOR_LEAK_RE.search(text) or _SKIP_PARAPHRASE_RE.search(text):
         return ''
     # 純假名（SFX 回填的原文）不要動
     if re.match(r'^[぀-ゟ゠-ヿー…．.\s]+$', text):
