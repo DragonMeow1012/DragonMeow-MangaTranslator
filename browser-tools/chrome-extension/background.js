@@ -649,7 +649,14 @@ async function prefetchTranslate(items, referer, tabId) {
     await Promise.all(_pending); // 等所有已 fire 的並發翻譯收尾
   } finally {
     _pfActive -= 1;
-    notifyPrefetchProgress(tabId);
+    // 整輪預抓全部結束 → 帶 idle 旗標讓前端把進度面板收尾。不能只靠 done==total，因為遇 404/
+    // 重複頁會砍 _pfTotal，done 可能永遠不等於 total，面板就會卡在最後的數字（如 27/29）。
+    if (_pfActive <= 0) {
+      _pfActive = 0;
+      chrome.tabs.sendMessage(tabId, { type: "prefetch-progress", done: _pfDone, total: _pfTotal, idle: true }).catch(() => {});
+    } else {
+      notifyPrefetchProgress(tabId);
+    }
   }
   return { prefetched: _pfDone, lastPage };
 }

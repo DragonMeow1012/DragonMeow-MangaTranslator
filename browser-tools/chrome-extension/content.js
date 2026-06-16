@@ -159,6 +159,7 @@ function updateBubblePrefetchTitle(lastPage) {
 }
 
 // 背景預抓的即時進度 → 顯示在泡泡 tooltip（頁碼翻譯中… done/total）。
+let _pfClearTimer = null;
 chrome.runtime.onMessage.addListener((message) => {
   if (message?.type !== "prefetch-progress") return;
   _pfProg = { done: message.done, total: message.total };
@@ -167,6 +168,16 @@ chrome.runtime.onMessage.addListener((message) => {
   }
   refreshBubbleTitle();
   updateQueuePanel();
+  // 全部抓完 / 整輪閒置(idle) → 顯示完成數字數秒後自動清掉面板，避免永遠卡在最後的 done/total
+  // （使用者回報的「進度視窗卡在 27/29」就是這裡少了收尾）。新一輪預抓進來會 clearTimeout 取消。
+  clearTimeout(_pfClearTimer);
+  if (message.idle || (message.total > 0 && message.done >= message.total)) {
+    _pfClearTimer = setTimeout(() => {
+      _pfProg = null;
+      refreshBubbleTitle();
+      updateQueuePanel();
+    }, 4000);
+  }
 });
 
 // 伺服器分階段進度（偵測/OCR/翻譯/抹字/嵌字…）→ 對回正確的縮圖/進度條，顯示得跟網頁版一樣。
