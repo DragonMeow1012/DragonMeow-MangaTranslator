@@ -143,6 +143,8 @@ GPU 加速（強く推奨、**全自動**）：
 - **Windows**：`setup.bat` が GPU を自動検出 —— NVIDIA GPU があれば CUDA 版 PyTorch + PaddleOCR GPU を、なければ CPU 版を導入します。何もしなくて OK。
 - **macOS**：`-mac.zip` をダウンロードし、ターミナルで `bash setup.sh` → `bash start.sh`。Apple Silicon は MPS 加速が自動で有効になり、追加インストール不要です
 
+> GPU 加速の前提：**NVIDIA カードは CUDA 12 対応のドライバが必要**（Windows は約 527 以上、最新推奨。古すぎると自動で CPU にフォールバック）。CUDA Toolkit / cuDNN の追加インストールは不要（同梱）。RTX 50 シリーズ（Blackwell）は対応 GPU ビルドへ自動で切り替わります。**macOS は Apple Silicon（M シリーズ）専用で macOS 15 以上が必要**（Intel Mac は非対応）。
+
 ---
 
 ## その他のインストール方法（上級者向け）

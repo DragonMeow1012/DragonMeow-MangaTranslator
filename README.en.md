@@ -143,6 +143,8 @@ GPU acceleration (strongly recommended, **fully automatic**):
 - **Windows**: `setup.bat` auto-detects your GPU — with an NVIDIA card it installs the CUDA build of PyTorch + PaddleOCR GPU, otherwise the CPU build. Nothing to do.
 - **macOS**: download the `-mac.zip`, then run `bash setup.sh` → `bash start.sh` in Terminal; Apple Silicon enables MPS acceleration automatically — nothing extra to install
 
+> GPU prerequisites: **an NVIDIA card needs a driver new enough for CUDA 12** (Windows ~527+, newer is better; too old falls back to CPU automatically). No need to install the CUDA Toolkit / cuDNN (bundled). RTX 50-series (Blackwell) cards switch to the matching GPU build automatically. **macOS supports Apple Silicon (M-series) only and needs macOS 15+** (Intel Macs are unsupported).
+
 ---
 
 ## Other ways to install (advanced)

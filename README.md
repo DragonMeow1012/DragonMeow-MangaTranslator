@@ -143,6 +143,8 @@ v1.3 新增**瀏覽器擴充** —— 不必下載圖片，直接在漫畫網站
 - **Windows**：`setup.bat` 會自動偵測顯卡 —— 有 NVIDIA 就裝 CUDA 版 PyTorch + PaddleOCR GPU，沒有就用 CPU 版，你什麼都不用做
 - **macOS**：下載 `-mac.zip`，終端機跑 `bash setup.sh` → `bash start.sh`；Apple Silicon 會自動啟用 MPS 加速，不用另外裝
 
+> 顯卡加速前置：**NVIDIA 卡需安裝支援 CUDA 12 的驅動**（Windows 約 527 以上，建議更新到最新；太舊會自動退回 CPU）。不必另裝 CUDA Toolkit / cuDNN（已內附）。RTX 50 系列（Blackwell）會自動改用對應的 GPU 版。**macOS 僅支援 Apple Silicon（M 系列）且需 macOS 15 以上**（Intel Mac 不支援）。
+
 ---
 
 ## 其他安裝方式（進階）

@@ -234,7 +234,9 @@ goto :eof
 rem torch / cuDNN 在 import 時就會載入 Microsoft Visual C++ 執行階段；
 rem 乾淨的 Windows 沒裝它，import torch 會以
 rem   [WinError 126] 找不到指定的模組（或其相依）  失敗（常見於 cudnn*.dll）。
-if exist "%SystemRoot%\System32\vcruntime140_1.dll" goto :eof
+rem 同時檢查 vcruntime140_1.dll 與 msvcp140.dll：只看單一檔可能在「該檔在、但 msvcp140
+rem 系列缺失/過舊」的機器上被誤判為已裝而跳過，仍然 import torch 失敗。兩者皆在才算 OK。
+if exist "%SystemRoot%\System32\vcruntime140_1.dll" if exist "%SystemRoot%\System32\msvcp140.dll" goto :eof
 echo.
 echo [*] 未偵測到 Microsoft Visual C++ 執行階段（torch/cuDNN 需要），嘗試自動安裝 ...
 echo     Microsoft Visual C++ runtime missing (torch/cuDNN need it); installing ...
@@ -243,7 +245,7 @@ curl -L --fail -o "%VCR%" "https://aka.ms/vs/17/release/vc_redist.x64.exe"
 if errorlevel 1 goto :vcr_warn
 "%VCR%" /install /quiet /norestart
 del "%VCR%" 2>nul
-if exist "%SystemRoot%\System32\vcruntime140_1.dll" (
+if exist "%SystemRoot%\System32\vcruntime140_1.dll" if exist "%SystemRoot%\System32\msvcp140.dll" (
     echo [*] VC++ 執行階段已安裝。 / VC++ runtime installed.
     goto :eof
 )

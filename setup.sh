@@ -9,6 +9,22 @@ echo "============================================"
 echo " DragonMeow-MangaTranslator setup (macOS/Linux)"
 echo "============================================"
 
+# macOS：本專案的 torch / paddlepaddle / rusty 套件只有 Apple Silicon (arm64) wheel；
+# 且 rusty-manga-image-translator 0.12.1 的 mac wheel 需要 macOS 15+。先擋 Intel、提示舊系統，
+# 否則使用者只會看到 pip 噴一長串「no matching distribution」摸不著頭緒。
+if [ "$(uname)" = "Darwin" ]; then
+    if [ "$(uname -m)" != "arm64" ]; then
+        echo "[ERROR] macOS 版僅支援 Apple Silicon (M 系列)；偵測到 Intel ($(uname -m))，無法安裝。"
+        echo "        macOS build supports Apple Silicon (arm64) only; Intel Macs are unsupported."
+        exit 1
+    fi
+    macmajor="$(sw_vers -productVersion 2>/dev/null | cut -d. -f1)"
+    if [ -n "$macmajor" ] && [ "$macmajor" -lt 15 ] 2>/dev/null; then
+        echo "[WARN] 偵測到 macOS $(sw_vers -productVersion)；部分套件需 macOS 15 以上，安裝可能失敗。"
+        echo "       Some packages need macOS 15+; install may fail on this version."
+    fi
+fi
+
 # macOS：清除下載 zip 帶來的隔離屬性，否則 Gatekeeper 會擋未簽章的內建 Python（執行時直接被 kill）。
 if [ "$(uname)" = "Darwin" ] && [ -d "$ROOT/python" ]; then
     xattr -dr com.apple.quarantine "$ROOT/python" 2>/dev/null || true
@@ -52,9 +68,12 @@ else
     echo "[1/2] .venv already exists, skipping"
 fi
 
-echo "[2/2] Installing dependencies (first run takes several minutes) ..."
+echo "[2/3] Installing dependencies (first run takes several minutes) ..."
 .venv/bin/python -m pip install --upgrade pip
 .venv/bin/python -m pip install -r requirements.txt
+
+echo "[3/3] Verifying model files (missing/corrupt ones are re-downloaded) ..."
+.venv/bin/python download_models.py || echo "[WARN] 有模型未補齊；請檢查網路後重跑，或單獨執行：.venv/bin/python download_models.py"
 
 if [ ! -f .env ] && [ -f .env.example ]; then
     cp .env.example .env
