@@ -164,6 +164,18 @@ setup.bat
 
 ---
 
+## 疑难排解
+
+**启动时闪退，`logs\server.log` 出现 `[WinError 126] 找不到指定的模块`（加载 `cudnn*.dll` 失败）**
+
+torch 在 import 时需要 **Microsoft Visual C++ 运行库**，干净的 Windows 没装它就会这样。修法：
+1. 安装 [Microsoft Visual C++ 可再发行组件（x64）](https://aka.ms/vs/17/release/vc_redist.x64.exe)，装完重启。
+2. 若仍失败，删掉 `app\.venv` 文件夹后重跑 `setup.bat`（重建干净环境）。
+
+（新版 `setup.bat` 已会自动检测并安装 VC++ 运行库，多数情况不会再遇到。）
+
+---
+
 ## 文件夹结构
 
 根目录只放两个按钮，其余都在 `app/`：

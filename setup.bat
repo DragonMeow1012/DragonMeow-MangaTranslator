@@ -156,6 +156,9 @@ if not exist ".venv\Scripts\python.exe" (
     exit /b 1
 )
 
+rem ---- 1b. Microsoft Visual C++ runtime (torch/cuDNN load it at import) -----
+call :ensure_vcredist
+
 echo [2/4] Installing dependencies (first run takes several minutes) ...
 .venv\Scripts\python.exe -m pip install --upgrade pip
 .venv\Scripts\python.exe -m pip install -r requirements.txt
@@ -225,4 +228,29 @@ echo.
 echo   Option B: install Python 3.12 from https://www.python.org/downloads/
 echo   安裝 Python 3.12，安裝時請勾選 "Add python.exe to PATH"。
 pause
+goto :eof
+
+:ensure_vcredist
+rem torch / cuDNN 在 import 時就會載入 Microsoft Visual C++ 執行階段；
+rem 乾淨的 Windows 沒裝它，import torch 會以
+rem   [WinError 126] 找不到指定的模組（或其相依）  失敗（常見於 cudnn*.dll）。
+if exist "%SystemRoot%\System32\vcruntime140_1.dll" goto :eof
+echo.
+echo [*] 未偵測到 Microsoft Visual C++ 執行階段（torch/cuDNN 需要），嘗試自動安裝 ...
+echo     Microsoft Visual C++ runtime missing (torch/cuDNN need it); installing ...
+set "VCR=%TEMP%\dmmt_vc_redist.x64.exe"
+curl -L --fail -o "%VCR%" "https://aka.ms/vs/17/release/vc_redist.x64.exe"
+if errorlevel 1 goto :vcr_warn
+"%VCR%" /install /quiet /norestart
+del "%VCR%" 2>nul
+if exist "%SystemRoot%\System32\vcruntime140_1.dll" (
+    echo [*] VC++ 執行階段已安裝。 / VC++ runtime installed.
+    goto :eof
+)
+:vcr_warn
+echo.
+echo [WARN] 無法自動安裝 VC++ 執行階段（可能需要系統管理員權限）。
+echo        請手動下載安裝後再重跑 setup.bat： / Install manually, then re-run setup.bat:
+echo        https://aka.ms/vs/17/release/vc_redist.x64.exe
+echo.
 goto :eof

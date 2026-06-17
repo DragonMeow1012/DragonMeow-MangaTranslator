@@ -51,5 +51,9 @@ start "" /min powershell -NoProfile -WindowStyle Hidden -Command "$ok=$false;for
 
 echo.
 echo Server stopped. If this was unexpected, check logs\server.log
+echo.
+echo If the log shows  [WinError 126] ... cudnn ... .dll  on "import torch",
+echo install the Microsoft Visual C++ runtime, then run setup.bat again:
+echo     https://aka.ms/vs/17/release/vc_redist.x64.exe
 pause
 

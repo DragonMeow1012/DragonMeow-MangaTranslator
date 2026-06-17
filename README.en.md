@@ -164,6 +164,18 @@ Model weights download (and are verified) automatically on first run. A `git clo
 
 ---
 
+## Troubleshooting
+
+**Crashes on launch; `logs\server.log` shows `[WinError 126] The specified module could not be found` (failed to load `cudnn*.dll`)**
+
+torch needs the **Microsoft Visual C++ runtime** at import time; a clean Windows without it fails this way. Fix:
+1. Install the [Microsoft Visual C++ Redistributable (x64)](https://aka.ms/vs/17/release/vc_redist.x64.exe), then reboot.
+2. If it still fails, delete the `app\.venv` folder and run `setup.bat` again (rebuilds a clean environment).
+
+(Newer `setup.bat` auto-detects and installs the VC++ runtime, so most users won't hit this.)
+
+---
+
 ## Folder layout
 
 The root keeps just two buttons; everything else lives in `app/`:

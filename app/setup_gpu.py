@@ -59,6 +59,30 @@ def overlay_cudnn():
     return n > 0
 
 
+def _clean_overlaid_cudnn():
+    """移除先前 GPU 嘗試 overlay 到 torch/lib 的 cudnn DLL（回退 CPU 時呼叫）。
+
+    overlay_cudnn() 是用 shutil.copy2 手動把 cudnn DLL 複製進 torch/lib，這些檔案
+    不在 pip 的 RECORD 裡，故 `pip uninstall nvidia-cudnn-cu12` 不會移除它們。
+    若殘留，CPU 版 torch（不含 cudnn）在 import 時的 _load_dll_libraries() 仍會去
+    載入這些 GPU cudnn DLL；在缺 VC++ 執行階段 / 版本不符的機器上以 [WinError 126]
+    整個 import torch 失敗（連 CPU 模式都起不來）。
+    """
+    try:
+        dst = os.path.join(_site_packages(), "torch", "lib")
+    except Exception:
+        return
+    n = 0
+    for f in glob.glob(os.path.join(dst, "cudnn*.dll")):
+        try:
+            os.remove(f)
+            n += 1
+        except OSError:
+            pass
+    if n:
+        print(f"[setup-gpu] 清除殘留的 GPU cudnn DLL（{n} 個）→ CPU 版 torch 可正常 import")
+
+
 def verify_gpu():
     code = (
         "import torch, paddle;"
@@ -89,6 +113,7 @@ def install_cpu():
     pip("install", "torch==2.6.0", "torchvision==0.21.0")
     pip("uninstall", "-y", "paddlepaddle-gpu", "nvidia-cudnn-cu12")
     pip("install", "paddlepaddle==3.3.1")
+    _clean_overlaid_cudnn()
 
 
 def main():

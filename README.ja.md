@@ -164,6 +164,18 @@ setup.bat
 
 ---
 
+## トラブルシューティング
+
+**起動時に落ちる。`logs\server.log` に `[WinError 126] 指定されたモジュールが見つかりません`（`cudnn*.dll` の読み込み失敗）**
+
+torch は import 時に **Microsoft Visual C++ ランタイム** を必要とします。これが入っていないクリーンな Windows ではこのエラーになります。対処：
+1. [Microsoft Visual C++ 再頒布可能パッケージ（x64）](https://aka.ms/vs/17/release/vc_redist.x64.exe) をインストールし、再起動。
+2. それでも失敗する場合は `app\.venv` フォルダーを削除して `setup.bat` を再実行（クリーンな環境を作り直します）。
+
+（新しい `setup.bat` は VC++ ランタイムを自動で検出・インストールするため、ほとんどの場合は発生しません。）
+
+---
+
 ## フォルダ構成
 
 ルートにはボタン 2 つだけ。残りは全部 `app/` の中：

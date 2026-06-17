@@ -164,6 +164,18 @@ setup.bat
 
 ---
 
+## 疑難排解
+
+**啟動時閃退，`logs\server.log` 出現 `[WinError 126] 找不到指定的模組`（載入 `cudnn*.dll` 失敗）**
+
+torch 在 import 時需要 **Microsoft Visual C++ 執行階段**，乾淨的 Windows 沒裝它就會這樣。修法：
+1. 安裝 [Microsoft Visual C++ 可轉散發套件（x64）](https://aka.ms/vs/17/release/vc_redist.x64.exe)，裝完重開機。
+2. 若仍失敗，刪掉 `app\.venv` 資料夾後重跑 `setup.bat`（重建乾淨環境）。
+
+（新版 `setup.bat` 已會自動偵測並安裝 VC++ 執行階段，多數情況不會再遇到。）
+
+---
+
 ## 資料夾結構
 
 根目錄只放兩個按鈕，其餘都在 `app/`：
