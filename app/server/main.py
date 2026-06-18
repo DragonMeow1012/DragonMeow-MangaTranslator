@@ -523,6 +523,28 @@ async def post_ui_settings(request: Request):
         save_user_settings(merged)
     return {"ok": True}
 
+def _installed_version(name: str):
+    try:
+        import importlib.metadata as _md
+        return _md.version(name)
+    except Exception:
+        return None
+
+@app.get("/capabilities", tags=["ui"])
+async def get_capabilities():
+    """這台實際裝了什麼（setup 確認過的）→ 前端據此只顯示能跑的 OCR(GPU/CPU) 選項，其他藏掉。
+    用「已安裝套件」判斷，不 import torch/paddle（快，且正好反映 setup_gpu.py 的驗證結果）：
+      - torch 是 +cuXXX build（setup 只在 torch GPU 驗證通過時才保留 +cu，CPU 版是純版號無 +cu）→ MangaOCR 可 GPU
+      - 裝的是 paddlepaddle-gpu（而非 CPU 版 paddlepaddle）→ PaddleOCR 可 GPU
+        Blackwell / RTX 50 上 setup 會把 paddle 換成 CPU 版（與 torch cu128 的 CUDA DLL 互撞）→ 這裡自動回 False，
+        前端就藏掉所有 paddle GPU 選項，只留 CPU。
+    """
+    tv = _installed_version("torch") or ""
+    return {
+        "mocr_gpu": "+cu" in tv,
+        "paddle_gpu": _installed_version("paddlepaddle-gpu") is not None,
+    }
+
 @app.get("/", response_class=HTMLResponse,tags=["ui"])
 async def index() -> HTMLResponse:
     script_directory = Path(__file__).parent

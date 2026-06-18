@@ -353,12 +353,12 @@
             <div>
               <label class="side-label">{{ t('labelOcr') }}</label>
               <select class="side-field" v-model="ocrModel" @change="onSettingChange">
-                <option value="mocr/gpu">{{ t('ocrMocrGpu') }}</option>
+                <option v-if="caps.mocr_gpu" value="mocr/gpu">{{ t('ocrMocrGpu') }}</option>
                 <option value="mocr/cpu">{{ t('ocrMocrCpu') }}</option>
-                <option value="paddle/auto/gpu">{{ t('ocrPaddleGpu') }}</option>
-                <option value="paddle/korean/gpu">PaddleOCR 한국어 / 韓文 (GPU)</option>
-                <option value="paddle/ch/gpu">PaddleOCR 中文 (GPU)</option>
-                <option value="paddle/japan/gpu">PaddleOCR 日本語 (GPU)</option>
+                <option v-if="caps.paddle_gpu" value="paddle/auto/gpu">{{ t('ocrPaddleGpu') }}</option>
+                <option v-if="caps.paddle_gpu" value="paddle/korean/gpu">PaddleOCR 한국어 / 韓文 (GPU)</option>
+                <option v-if="caps.paddle_gpu" value="paddle/ch/gpu">PaddleOCR 中文 (GPU)</option>
+                <option v-if="caps.paddle_gpu" value="paddle/japan/gpu">PaddleOCR 日本語 (GPU)</option>
                 <option value="paddle/auto/cpu">{{ t('ocrPaddleCpu') }}</option>
               </select>
               <div style="font-size:11px;opacity:.55;margin-top:3px;line-height:1.35">{{ t('ocrHint') }}</div>
@@ -2141,6 +2141,7 @@
         onmounted() {
           window.addEventListener("paste", this.onpaste);
           this.loadSettings();
+          this.loadCapabilities();
           // 切回此分頁時重新讀取伺服器設定，讓擴充功能那邊的修改即時反映過來。
           document.addEventListener("visibilitychange", () => {
             if (document.visibilityState === "visible") this.loadSettings();
@@ -2353,6 +2354,7 @@
         maskDilationOffset: 20,
         inpainter: "lama_large",
         ocrModel: "mocr/gpu",
+        caps: { mocr_gpu: true, paddle_gpu: true },  // 由 /capabilities 帶回；過濾 OCR 下拉的 GPU 選項（預設全開，載入後再收斂）
         fontSizeMinimum: "0",
         concurrency: "5",
         workers: "1",   // Worker 進程數（server 啟動時 spawn N 個，各載一份模型；改了要重啟伺服器）
@@ -2657,6 +2659,7 @@
             if (settings && Object.keys(settings).length) {
               this.serverSlots = parseInt(settings.serverSlots) || 0;
               this._applySettings(settings);
+              this.ensureOcrSupported();
               // 回寫 localStorage 讓下次刷新立即可用
               try {
                 const cachedSettings = { ...settings };
@@ -2681,6 +2684,32 @@
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(settings)
           }).catch(() => {});
+        },
+
+        // 問後端這台確定支援什麼（torch 是否 +cu build、是否裝了 paddlepaddle-gpu），用來過濾 OCR 下拉
+        // 的 GPU 選項。並把「已存、但這台跑不了的 GPU 選擇」自動切回對應 CPU 選項。
+        // 只改本地值、不強制存檔：避免和 loadSettings 競態時用半套設定覆蓋伺服器；每次載入會自癒。
+        async loadCapabilities() {
+          try {
+            const r = await fetch('/capabilities');
+            if (!r.ok) return;
+            const c = await r.json();
+            if (c && typeof c === 'object') {
+              this.caps = { mocr_gpu: !!c.mocr_gpu, paddle_gpu: !!c.paddle_gpu };
+              this.ensureOcrSupported();
+            }
+          } catch (e) {}
+        },
+        ensureOcrSupported() {
+          const parts = (this.ocrModel || '').split('/');
+          const engine = parts[0], dev = parts[parts.length - 1];
+          if (dev !== 'gpu') return;
+          const ok = engine === 'mocr' ? this.caps.mocr_gpu
+                   : engine === 'paddle' ? this.caps.paddle_gpu : true;
+          if (ok) return;
+          // 該 GPU 選項在這台不支援 → 切到對應的 CPU 選項
+          this.ocrModel = engine === 'paddle' ? 'paddle/auto/cpu'
+                        : (this.caps.mocr_gpu ? 'mocr/gpu' : 'mocr/cpu');
         },
 
         _isZip(file) {
