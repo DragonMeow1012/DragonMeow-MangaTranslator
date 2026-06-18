@@ -497,7 +497,12 @@ function schedulePrefetchNextPages(originalSrc, countOverride, targetElement = n
   // 唯有「純爬 HTML（圖檔名無數字）」才真的無法預測，才不驗證。
   _predictedNext = buildImageUrl ? buildImageUrl(imgNum + 1) : "";
   const items = [];
-  for (let i = 1; i <= count; i++) {
+  // 起始頁：有 targetElement = runAutoTranslateOne 正在「直接翻當前頁」(translateRect) → 從下一頁(1)起，
+  // 不重複翻當前頁。無 targetElement = resume／翻頁後的續抓（此時 autoTargets 已被清空、沒人直接翻當前頁）
+  // → 從當前頁(0)起，把當前頁一併爬+翻+快取，交給 scanAndApplyImgCache 套用。修「頁碼翻譯翻頁後，
+  // 當前頁被略過沒翻到」（原本一律 i=1 跳過當前頁，當前頁只能靠前一頁 prefetch 的快取，跳頁/太快就 miss）。
+  const startI = targetElement ? 1 : 0;
+  for (let i = startI; i <= count; i++) {
     const page = baseNum + i;
     if (buildPageUrl) {
       const pageUrl = buildPageUrl(urlNum + i); // reader 頁網址照「網址自己的數字」遞增
@@ -709,6 +714,7 @@ function translatePage() {
 
   const pt = {
     seen: new WeakSet(), // 已排入佇列的圖（避免重複排入；防盜圖/失敗也不再重試）
+    seenUrls: new Set(), // 已排入的「圖網址 cache key」：防盜站常把同一張圖複製成大量 <img>，同網址只翻一次
     queue: [],
     active: 0,
     total: 0, done: 0, ok: 0, blocked: 0, failed: 0,
@@ -789,6 +795,14 @@ function collectNewPageImages() {
     if (pt.seen.has(el)) continue;
     if (!pageImageTranslatable(el)) continue;
     pt.seen.add(el);
+    // 按網址去重：防盜站常把同一張圖複製成大量 <img>（畫面上「整頁翻譯中 處理 N」一堆重複縮圖）。
+    // 同一張圖只排一次翻譯，其餘重複元素交給 scanAndApplyImgCache 從快取套用同一份結果 → 不重複翻、不拖慢。
+    const u = el.currentSrc || el.src || "";
+    const key = (u && !u.startsWith("data:")) ? imgCacheKey(u) : "";
+    if (key) {
+      if (pt.seenUrls.has(key)) continue;
+      pt.seenUrls.add(key);
+    }
     fresh.push(el);
   }
   if (!fresh.length) return 0;
