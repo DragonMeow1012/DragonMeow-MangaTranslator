@@ -5,8 +5,12 @@ setup.bat 在 `pip install -r requirements.txt`（已裝 CPU 版 torch/paddlepad
   有 NVIDIA GPU → 升級成 torch 2.7 cu126 + paddlepaddle-gpu + nvidia-cudnn 9.23（並把 cudnn DLL
                   覆蓋到 torch/lib，讓 torch 與 paddle 共用同一份 cudnn，避免 9.x 版本不相容當機），
                   驗證；失敗（驅動太舊）→ 提示更新驅動並回退 CPU 版。
-  Blackwell（RTX 50 系列，sm_120）→ cu126 沒有 sm_120 kernel，改用 torch cu128 + paddle cu129；
-                  paddle GPU 在 Blackwell 仍可能不通 → 單獨退 paddle CPU、torch 仍走 GPU。
+  Blackwell（RTX 50 系列，sm_120）→ torch cu128（唯一含 sm_120 的 torch build）走 GPU；PaddleOCR 固定 CPU。
+                  paddle 的 sm_120 只有 cu129 wheel，與 torch cu128 各自 bundle 一份「同名不同版」的 CUDA runtime
+                  （cudart64_12.dll / cublas64_12.dll，12.8 vs 12.9）。同 process 先載 torch(12.8)，paddle 的
+                  cu129 cublas 在已載入的 12.8 cudart 裡找不到進入點 → [WinError 127] → paddle 半初始化 →
+                  「circular import」（實機 RTX 5070 Ti 重現）。torch 只有 cu128、paddle 只有 cu129，湊不出相同
+                  CUDA minor 的配對，故單一 process 無法同時 GPU → paddle 退 CPU、且略過 cudnn overlay。
   無 NVIDIA GPU → 不動（requirements.txt 已裝好 CPU 版）。
 
 實測可共存組合（2026-06，RTX 4080 / driver CUDA 13.2）：torch 2.7.0+cu126（自帶 cudnn 9.7）、
@@ -23,7 +27,9 @@ PY = sys.executable
 TORCH_CU126 = "https://download.pytorch.org/whl/cu126"
 TORCH_CU128 = "https://download.pytorch.org/whl/cu128"        # Blackwell（sm_120）需要
 PADDLE_CU126 = "https://www.paddlepaddle.org.cn/packages/stable/cu126/"
-PADDLE_CU129 = "https://www.paddlepaddle.org.cn/packages/stable/cu129/"  # Blackwell：cu128 無 3.3.1，cu129 有 win_amd64
+# Blackwell 的 paddle GPU wheel（sm_120 在 cu129）。目前不裝（見 install_gpu：與 torch cu128 同 process 會
+# DLL 互撞）；保留供未來「把 paddle 放獨立 process / 服務」時用得到。
+PADDLE_CU129 = "https://www.paddlepaddle.org.cn/packages/stable/cu129/"
 CUDNN_PIN = "nvidia-cudnn-cu12==9.23.1.3"
 
 
@@ -133,21 +139,38 @@ def _verify_paddle_cuda():
 def install_gpu():
     cap = _max_compute_cap()
     blackwell = cap >= 10.0  # cu126 最高 sm_90；sm_100 / sm_120 需 cu128
+
+    # Blackwell（RTX 50 / sm_120）：torch 走 cu128（唯一含 sm_120 的 torch build），PaddleOCR 固定 CPU。
+    # 不裝 cu129 paddle-gpu —— paddle cu129 與 torch cu128 各自 bundle 同名不同版的 CUDA DLL
+    # （cudart64_12 / cublas64_12，12.8 vs 12.9），同一 process 先載 torch(12.8) 後，paddle 的 cu129
+    # cublas 找不到 12.9 進入點 → [WinError 127] → paddle 半初始化 → circular import（RTX 5070 Ti 實機重現）。
+    # torch 只有 cu128、paddle 只有 cu129，湊不出相同 CUDA minor 配對 → 單一 process 無法同時 GPU。
+    # 取捨：torch（偵測/抹字/manga-ocr，主要計算）保 GPU；paddle 退 CPU（韓漫仍可用，日文本就建議 manga-ocr）。
+    # 也略過 cudnn overlay：它唯一目的是讓 torch/paddle 共用 cudnn，paddle 走 CPU 後此需求消失，
+    # 而 9.23 overlay 蓋掉 torch cu128 自帶 cudnn 在 sm_120 上未驗證、徒增風險。
     if blackwell:
-        torch_idx, paddle_idx = TORCH_CU128, PADDLE_CU129
-        print(f"[setup-gpu] 偵測到新架構 GPU（compute capability {cap}，Blackwell / RTX 50 系列）→ "
-              "torch cu128 + paddle cu129（cu126 無 sm_120 kernel，會跑不動）...")
-    else:
-        torch_idx, paddle_idx = TORCH_CU126, PADDLE_CU126
-        print("[setup-gpu] 偵測到 NVIDIA GPU → 安裝 GPU 版 torch cu126 + paddlepaddle-gpu + cudnn 9.23 ...")
+        print(f"[setup-gpu] 偵測到 Blackwell / RTX 50（compute capability {cap}）→ torch cu128(GPU) + "
+              "PaddleOCR 強制 CPU（paddle cu129 與 torch cu128 的 CUDA DLL 會 WinError 127 互撞）...")
+        if pip("install", "torch==2.7.0", "torchvision==0.22.0", "--index-url", TORCH_CU128):
+            return False
+        pip("uninstall", "-y", "paddlepaddle-gpu")
+        pip("install", "paddlepaddle==3.3.1")
+        if not _verify_torch_cuda():
+            return False
+        print("[setup-gpu] ✅ Blackwell：torch 走 GPU(cu128)、PaddleOCR 走 CPU。")
+        return True
+
+    # 非 Blackwell（sm_89 及以下）：torch cu126 + paddlepaddle-gpu cu126 + cudnn 9.23 overlay。
+    # 同一 CUDA minor 12.6、torch-first import，不會踩上面 Blackwell 那種跨版 DLL 互撞（檔頭有實測組合）。
+    print("[setup-gpu] 偵測到 NVIDIA GPU → 安裝 GPU 版 torch cu126 + paddlepaddle-gpu + cudnn 9.23 ...")
 
     # 1) torch（主要計算，必須成功）
-    if pip("install", "torch==2.7.0", "torchvision==0.22.0", "--index-url", torch_idx):
+    if pip("install", "torch==2.7.0", "torchvision==0.22.0", "--index-url", TORCH_CU126):
         return False
 
     # 2) paddle-gpu（OCR；先裝，失敗稍後單獨退 CPU）
     pip("uninstall", "-y", "paddlepaddle", "paddlepaddle-gpu")
-    paddle_gpu_ok = pip("install", "paddlepaddle-gpu==3.3.1", "-i", paddle_idx) == 0
+    paddle_gpu_ok = pip("install", "paddlepaddle-gpu==3.3.1", "-i", PADDLE_CU126) == 0
 
     # 3) cudnn 9.23 覆蓋 torch/lib，讓 torch 與 paddle 共用（在兩者安裝後才 force）
     pip("install", "--no-deps", "--force-reinstall", CUDNN_PIN)
@@ -158,7 +181,7 @@ def install_gpu():
     if not _verify_torch_cuda():
         return False
 
-    # 5) paddle GPU 為加分項：裝失敗或驗證失敗（如 Blackwell 無 sm_120）→ 單獨退 paddle CPU，torch 仍 GPU
+    # 5) paddle GPU 為加分項：裝失敗或驗證失敗 → 單獨退 paddle CPU，torch 仍 GPU
     if not paddle_gpu_ok or not _verify_paddle_cuda():
         print("[setup-gpu] ⚠ paddle GPU 不可用（裝不起來 / sm 不符）→ paddle 改用 CPU；torch 仍走 GPU。")
         pip("uninstall", "-y", "paddlepaddle-gpu")

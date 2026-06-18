@@ -53,6 +53,10 @@ class ModelPaddleOCR(OfflineOCR):
         if lang in self._engines:
             return self._engines[lang]
         os.environ['FLAGS_use_mkldnn'] = '0'
+        # torch 必須先於 paddle 進 process：Windows 上 bare `import paddle`（GPU build）先載，會讓後續
+        # `import torch` 在 shm.dll 掛掉（[WinError 127]）；反向（paddle 先載 torch 的 CUDA DLL）也會炸
+        # paddle 的 cublas。app 正常流程偵測階段已先 import torch，這裡再卡一道讓順序「明確且防未來重構」。
+        import torch  # noqa: F401  -- DLL load-order guard, do not remove
         import paddle
         try:
             # import 後再硬關一次 oneDNN（不依賴環境變數時機）。
