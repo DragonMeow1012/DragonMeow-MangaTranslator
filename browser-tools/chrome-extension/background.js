@@ -920,31 +920,59 @@ async function translateImageDataUrl(dataUrl, settings, onStage) {
     const fresh = await fetchServerSettings(apiBase);
     settings = { ...settings, ...fresh };
   } catch (_) { /* 沿用傳入的 settings */ }
-  // 必須用 /translate/image/stream：它會把「真正的成品圖」直接放進串流回傳。
-  // 不能用網頁的 /web 端點——/web 是「佔位符優化」，只把成品存到伺服器硬碟（final.png）、
-  // 串流裡只送一張 1×1 白色佔位圖，真正的圖要另外去抓檔案。擴充功能沒抓檔案，就會得到全白圖。
   const controller = new AbortController();
   _activeTranslateAborts.add(controller);
   try {
-    const response = await fetch(`${apiBase}/translate/image/stream`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
-        image: dataUrl,
-        config: buildConfig(settings)
-      }),
-      signal: controller.signal
-    });
-
-    if (!response.ok) {
-      throw new Error(`API ${response.status}`);
-    }
-    return await readTranslationStream(response, onStage);
+    return await translateViaJob(apiBase, dataUrl, settings, onStage, controller.signal);
   } finally {
     _activeTranslateAborts.delete(controller);
   }
+}
+
+// async-job 模型（對齊網頁 UI 的 /translate/.../async-web）：上傳完連線立刻關閉，進度改用
+// jobId 短輪詢、成品再抓檔案。如此就不會像舊的 /translate/image/stream 那樣「整段翻譯期間
+// held 著一條長連線」——N 張同時翻會撞 Chrome『每來源 6 條 HTTP/1.1 連線』上限、把伺服器
+// slot 餓著。改成短請求後，有效並發 = 伺服器 slot（workers×concurrency），突破 6 的天花板。
+async function translateViaJob(apiBase, dataUrl, settings, onStage, signal) {
+  // 1) 上傳 multipart（image 檔 + config 字串）→ 立刻拿到 jobId，連線即關
+  const srcBlob = await (await fetch(dataUrl)).blob();
+  const form = new FormData();
+  form.append("image", srcBlob, "page.png");
+  form.append("config", JSON.stringify(buildConfig(settings)));
+  form.append("advanced", "0");
+  form.append("priority", "0");
+  const submit = await fetch(`${apiBase}/translate/with-form/image/async-web`, {
+    method: "POST", body: form, signal,
+  });
+  if (!submit.ok) throw new Error(`API ${submit.status}`);
+  const { jobId } = await submit.json();
+  if (!jobId) throw new Error("伺服器未回傳 jobId");
+
+  // 2) 短輪詢 jobId（650ms，對齊網頁 UI），把 code/status 轉成 onStage 進度；done 才往下。
+  let noText = false;
+  let folder = null;
+  for (;;) {
+    await sleep(650);
+    if (signal.aborted) { const e = new Error("aborted"); e.name = "AbortError"; throw e; }
+    const poll = await fetch(`${apiBase}/translate/jobs/${jobId}`, { signal });
+    if (!poll.ok) throw new Error(`Job 狀態 HTTP ${poll.status}`);
+    const job = await poll.json();
+    const code = Number(job.code);
+    const text = job.message || job.status || "";
+    if (job.folder && !folder) folder = job.folder;
+    if (/skip-no-text|skip-no-regions/i.test(text)) noText = true;
+    if (code === 2 || job.status === "error") throw new Error(job.error || text || "翻譯失敗");
+    if (onStage && (code === 1 || code === 3 || code === 4)) { try { onStage(code, text); } catch {} }
+    if (job.done) { folder = job.folder || folder; break; }
+  }
+
+  // 3) 取成品：async-web 是「佔位符優化」，成品存伺服器硬碟 /result/{folder}/final.png。
+  //    無 folder（偵測不到文字 → pipeline 在 render 前就結束、不產生成品夾）→ 結果＝原圖未動，
+  //    回原圖 blob，呼叫者依 noText 自行處理（沿用舊 stream 版「no-text 回原圖」行為）。
+  if (!folder) return { blob: srcBlob, noText: true };
+  const imgResp = await fetch(`${apiBase}/result/${folder}/final.png`, { signal });
+  if (!imgResp.ok) throw new Error(`成品圖 HTTP ${imgResp.status}`);
+  return { blob: await imgResp.blob(), noText };
 }
 
 function concatU8(a, b) {
@@ -956,10 +984,11 @@ function concatU8(a, b) {
   return out;
 }
 
+// [legacy / 目前未使用] 舊的 /translate/image/stream 串流解析；已改走 translateViaJob（async-job
+// 短輪詢）以突破 Chrome 每來源 6 連線上限。保留以備需要時參考；如確定不回退可整段刪除。
 // 邊收邊解析串流：伺服器每完成一個階段就送一個 status-1 文字框（detection/ocr/translating/
-// inpainting/rendering…）。舊版用 response.arrayBuffer() 整包收完才解析 → 中間階段全被丟掉，
-// 擴充只看得到「處理中」。改成 response.body.getReader() 逐塊解析（比照網頁 UI processChunk），
-// 每解到一個階段就即時 onStage 回報，最後一張 status-0 才是成品圖。
+// inpainting/rendering…）。改成 response.body.getReader() 逐塊解析，每解到一個階段就 onStage 回報，
+// 最後一張 status-0 才是成品圖。
 async function readTranslationStream(response, onStage) {
   const reader = response.body.getReader();
   let buf = new Uint8Array(0);
