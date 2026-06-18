@@ -202,11 +202,61 @@ def install_cpu():
     _clean_overlaid_cudnn()
 
 
+def _import_ok(stmt: str):
+    """在乾淨子行程實際跑一段 import，回 (ok, 最後一行錯誤)。
+    用子行程才抓得到「metadata 在、檔案/DLL 不在」的情況——本行程或 pip 的
+    『Requirement already satisfied』只看 metadata，被刪掉的 .py/.dll 它不會察覺。"""
+    env = dict(os.environ, FLAGS_use_mkldnn="0")  # CPU paddle 的 oneDNN 旗標，與執行期一致
+    r = subprocess.run([PY, "-c", stmt], capture_output=True, text=True, env=env)
+    if r.returncode == 0:
+        return True, ""
+    lines = (r.stderr or "").strip().splitlines()
+    return False, (lines[-1] if lines else "import failed")
+
+
+def verify_and_repair():
+    """收尾驗證：實際 import 各執行期關鍵套件，確認檔案都在、載得起來。
+    抓得到「No module named 'paddle'」這種 metadata 在但檔案被雙裝互刪的情況。
+    paddle / paddleocr 載入失敗 → 自動清掉 paddlepaddle(+gpu) 重裝一次再驗。
+    每項都先 import torch（與 app 啟動順序一致，避免 Windows 上 paddle 先載撞 torch DLL）。"""
+    checks = [
+        ("torch", "import torch"),
+        ("paddle", "import torch; import paddle"),
+        ("paddleocr", "import torch; import paddleocr"),
+        ("manga_ocr", "import torch; import manga_ocr"),
+    ]
+
+    def run_checks():
+        bad = []
+        for name, stmt in checks:
+            ok, err = _import_ok(stmt)
+            print(f"[setup-gpu]   import {name}: {'OK' if ok else 'FAIL — ' + err[:160]}")
+            if not ok:
+                bad.append(name)
+        return bad
+
+    print("[setup-gpu] 收尾驗證：實際載入關鍵套件（確認檔案都在）...")
+    failed = run_checks()
+
+    if "paddle" in failed or "paddleocr" in failed:
+        print("[setup-gpu] paddle 載入失敗 → 清掉 paddlepaddle(+gpu) 重裝一次再驗 ...")
+        pip("uninstall", "-y", "paddlepaddle", "paddlepaddle-gpu")
+        pip("install", "paddlepaddle==3.3.1")
+        failed = run_checks()
+
+    if failed:
+        print(f"[setup-gpu] ⚠ 仍無法載入：{', '.join(failed)}。建議重跑 setup.bat；paddle 可手動修：")
+        print("[setup-gpu]    .venv\\Scripts\\python.exe -m pip uninstall -y paddlepaddle paddlepaddle-gpu")
+        print("[setup-gpu]    .venv\\Scripts\\python.exe -m pip install paddlepaddle==3.3.1")
+    else:
+        print("[setup-gpu] ✅ 關鍵套件全部可正常載入（torch / paddle / paddleocr / manga_ocr）。")
+    return not failed
+
+
 def main():
     if not has_nvidia_gpu():
         print("[setup-gpu] 未偵測到 NVIDIA GPU → 使用 CPU 版（requirements.txt 已安裝，manga-ocr/PaddleOCR 走 CPU）。")
-        return
-    if install_gpu():
+    elif install_gpu():
         print("[setup-gpu] ✅ GPU 版就緒（torch 走 GPU；PaddleOCR 依上方訊息為 GPU 或已退 CPU）。")
     else:
         print("[setup-gpu] ⚠ GPU 版安裝或驗證失敗 → 回退 CPU 版。")
@@ -214,6 +264,9 @@ def main():
         print("[setup-gpu]    請更新 NVIDIA 驅動到支援 CUDA 12 的版本（Windows 約 527 以上，建議更新到最新），再重跑 setup.bat。")
         install_cpu()
         print("[setup-gpu] ✅ 已回退 CPU 版。")
+
+    # 收尾：不論 GPU/CPU/無顯卡，都實際 import 一次確認檔案都在（修得了 paddle 就地修）。
+    verify_and_repair()
 
 
 if __name__ == "__main__":
