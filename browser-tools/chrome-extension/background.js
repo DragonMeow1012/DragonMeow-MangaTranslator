@@ -941,6 +941,7 @@ async function translateViaJob(apiBase, dataUrl, settings, onStage, signal) {
   form.append("config", JSON.stringify(buildConfig(settings)));
   form.append("advanced", "0");
   form.append("priority", "0");
+  form.append("ephemeral", "1");   // 擴充：結果不落地伺服器圖庫；成品改從 job 記憶體取（擴充自存 chrome.storage 快取，與網頁互不汙染）
   const submit = await fetch(`${apiBase}/translate/with-form/image/async-web`, {
     method: "POST", body: form, signal,
   });
@@ -950,7 +951,6 @@ async function translateViaJob(apiBase, dataUrl, settings, onStage, signal) {
 
   // 2) 短輪詢 jobId（650ms，對齊網頁 UI），把 code/status 轉成 onStage 進度；done 才往下。
   let noText = false;
-  let folder = null;
   for (;;) {
     await sleep(650);
     if (signal.aborted) { const e = new Error("aborted"); e.name = "AbortError"; throw e; }
@@ -959,19 +959,19 @@ async function translateViaJob(apiBase, dataUrl, settings, onStage, signal) {
     const job = await poll.json();
     const code = Number(job.code);
     const text = job.message || job.status || "";
-    if (job.folder && !folder) folder = job.folder;
     if (/skip-no-text|skip-no-regions/i.test(text)) noText = true;
     if (code === 2 || job.status === "error") throw new Error(job.error || text || "翻譯失敗");
     if (onStage && (code === 1 || code === 3 || code === 4)) { try { onStage(code, text); } catch {} }
-    if (job.done) { folder = job.folder || folder; break; }
+    if (job.done) break;
   }
 
-  // 3) 取成品：async-web 是「佔位符優化」，成品存伺服器硬碟 /result/{folder}/final.png。
-  //    無 folder（偵測不到文字 → pipeline 在 render 前就結束、不產生成品夾）→ 結果＝原圖未動，
-  //    回原圖 blob，呼叫者依 noText 自行處理（沿用舊 stream 版「no-text 回原圖」行為）。
-  if (!folder) return { blob: srcBlob, noText: true };
-  const imgResp = await fetch(`${apiBase}/result/${folder}/final.png`, { signal });
-  if (!imgResp.ok) throw new Error(`成品圖 HTTP ${imgResp.status}`);
+  // 3) 取成品真圖：ephemeral 模式不落地、不進網頁圖庫，成品留在 job 記憶體 → 取一次（取完伺服器即清）。
+  //    取不到（理論上不會，連 no-text 都會回原圖）→ 退回原圖，呼叫者依 noText 處理。
+  const imgResp = await fetch(`${apiBase}/translate/jobs/${jobId}/result`, { signal });
+  if (!imgResp.ok) {
+    if (noText) return { blob: srcBlob, noText: true };
+    throw new Error(`成品 HTTP ${imgResp.status}`);
+  }
   return { blob: await imgResp.blob(), noText };
 }
 
