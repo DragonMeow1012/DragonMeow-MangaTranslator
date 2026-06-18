@@ -153,7 +153,11 @@ def install_gpu():
               "PaddleOCR 強制 CPU（paddle cu129 與 torch cu128 的 CUDA DLL 會 WinError 127 互撞）...")
         if pip("install", "torch==2.7.0", "torchvision==0.22.0", "--index-url", TORCH_CU128):
             return False
-        pip("uninstall", "-y", "paddlepaddle-gpu")
+        # 兩個套件都卸再實裝：requirements 先裝 CPU paddlepaddle、舊輪又裝過 paddle-gpu 蓋在同一個
+        # paddle/ 目錄；只卸 gpu 版會按它的 RECORD 連 CPU 的 paddle/ 檔一起刪，但 CPU metadata 還在 →
+        # 下面 install 判「已安裝」不補檔 → No module named 'paddle'（RTX 5070 Ti 實機踩到）。
+        # 全卸清掉 metadata，後面才會真的重裝、把 paddle/ 檔補回來。
+        pip("uninstall", "-y", "paddlepaddle", "paddlepaddle-gpu")
         pip("install", "paddlepaddle==3.3.1")
         if not _verify_torch_cuda():
             return False
@@ -184,7 +188,7 @@ def install_gpu():
     # 5) paddle GPU 為加分項：裝失敗或驗證失敗 → 單獨退 paddle CPU，torch 仍 GPU
     if not paddle_gpu_ok or not _verify_paddle_cuda():
         print("[setup-gpu] ⚠ paddle GPU 不可用（裝不起來 / sm 不符）→ paddle 改用 CPU；torch 仍走 GPU。")
-        pip("uninstall", "-y", "paddlepaddle-gpu")
+        pip("uninstall", "-y", "paddlepaddle", "paddlepaddle-gpu")  # 兩個都卸再實裝（理由同 Blackwell 分支：避免殘留 CPU metadata 擋住補檔）
         pip("install", "paddlepaddle==3.3.1")
     return True
 
@@ -192,7 +196,8 @@ def install_gpu():
 def install_cpu():
     print("[setup-gpu] 安裝 / 回退 CPU 版 torch + paddlepaddle ...")
     pip("install", "torch==2.6.0", "torchvision==0.21.0")
-    pip("uninstall", "-y", "paddlepaddle-gpu", "nvidia-cudnn-cu12")
+    # 連 CPU paddlepaddle 一起卸（不只 gpu 版）：避免殘留 metadata 讓重裝判「已安裝」而不補回 paddle/ 檔。
+    pip("uninstall", "-y", "paddlepaddle", "paddlepaddle-gpu", "nvidia-cudnn-cu12")
     pip("install", "paddlepaddle==3.3.1")
     _clean_overlaid_cudnn()
 
