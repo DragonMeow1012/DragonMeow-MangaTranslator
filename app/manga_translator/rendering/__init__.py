@@ -2565,8 +2565,21 @@ def render(
     elif not isinstance(fg, (tuple, list)):
         fg = (0, 0, 0) # Default to black if format is unexpected
 
+    # 是否有「進階編輯」手動指定字色（保留使用者選色，不被下面的固定二值覆蓋）
+    _manual_fg = (hasattr(region, 'font_color') and isinstance(region.font_color, str)
+                  and region.font_color.startswith('#'))
     if getattr(region, 'adjust_bg_color', True):
-        fg, bg = fg_bg_compare(fg, bg)
+        if (not disable_font_border) and (not _manual_fg):
+            # 「文字加底色」開啟 → 底色固定「白底黑字 / 黑底白字」二選一，依原文亮度自動挑：
+            # fg 已由 _sample_region_text_color 依原圖灰階中位數決定深/淺（亮底→黑字、暗底→白字），
+            # 這裡據此把底色補成對比最強的純黑/純白成對。可讀性優先，不保留彩色底。
+            _fg_lum = float(np.mean(fg)) if isinstance(fg, (tuple, list)) and len(fg) == 3 else 0.0
+            if _fg_lum < 128:
+                fg, bg = (0, 0, 0), (255, 255, 255)    # 白底黑字
+            else:
+                fg, bg = (255, 255, 255), (0, 0, 0)    # 黑底白字
+        else:
+            fg, bg = fg_bg_compare(fg, bg)
 
     # Centralized text preprocessing
     # 检查是否有富文本，并标记给渲染器
