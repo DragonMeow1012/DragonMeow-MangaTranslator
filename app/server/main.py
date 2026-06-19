@@ -387,7 +387,9 @@ async def get_translate_job_result(job_id: str):
     if not data:
         raise HTTPException(404, detail="Result not ready")
     _WEB_JOBS.pop(job_id, None)  # 取走即清
-    return Response(content=bytes(data), media_type=_img_media_type(data))
+    # 注意：本檔在 line ~174 有個 endpoint `async def bytes(...)` 遮蔽了內建 bytes，
+    # 所以這裡不能寫 bytes(data)（會呼叫到那個 endpoint 函式 → TypeError）。data 本來就是 bytes，直接用。
+    return Response(content=data, media_type=_img_media_type(data))
 
 @app.post("/queue-size", response_model=int, tags=["api", "json"])
 async def queue_size() -> int:
