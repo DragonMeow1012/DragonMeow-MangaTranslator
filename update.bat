@@ -47,7 +47,8 @@ if not exist "%SRC%\setup.bat" (
 )
 
 echo [3/5] Applying code update ...  套用程式更新（不動 模型/.venv/python/.env/字型）...
-robocopy "%SRC%" "%CD%" /E /NFL /NDL /NJH /NJS /NP /R:1 /W:1 /XD "%CD%\.venv" "%CD%\app\.venv" "%CD%\python" "%CD%\app\models" "%CD%\app\fonts\user" /XF ".env" "VERSION" >nul
+rem robocopy /XD 比對「來源端」路徑，排除清單須用 %SRC%\... 而非目的端，否則排除不生效（那幾個資料夾本就被 .gitignore、不在 zip 裡，改來源端是把保護做實）。
+robocopy "%SRC%" "%CD%" /E /NFL /NDL /NJH /NJS /NP /R:1 /W:1 /XD "%SRC%\.venv" "%SRC%\app\.venv" "%SRC%\python" "%SRC%\app\models" "%SRC%\app\fonts\user" /XF ".env" "VERSION" >nul
 if errorlevel 8 (
     echo [ERROR] Copy failed.  覆蓋失敗，可能有檔案被占用，請先關閉程式再試。
     pause

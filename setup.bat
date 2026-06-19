@@ -11,6 +11,7 @@ rem  re-entry (--updated) or --no-update skips this to avoid an endless loop.
 rem ================================================================
 if /i "%~1"=="--updated"   goto :after_update
 if /i "%~1"=="--no-update" goto :after_update
+if /i "%~1"=="--apply"     goto :apply_update
 
 echo ============================================
 echo  DragonMeow-MangaTranslator setup
@@ -43,20 +44,44 @@ if not exist "%SRC%\setup.bat" (
     goto :after_update
 )
 
-rem Record the version we updated to (best effort; matches the app's online-update check).
-rem robocopy /XF-excludes VERSION, so writing it here first means it won't be overwritten.
-powershell -NoProfile -Command "try { $s=(Invoke-RestMethod ('https://api.github.com/repos/%REPO%/commits/main') -Headers @{'User-Agent'='dmmt-setup'}).sha; Set-Content -Path '%ROOT%app\VERSION' -Value $s -NoNewline -Encoding ascii } catch {}"
+rem VERSION（版本號）改到 :apply_update 裡、robocopy 乾淨成功之後才寫（與 update.bat 一致），
+rem 避免「半套更新卻把版本標成最新」騙過 app 內建的線上更新檢查。
 
-echo [*] 套用程式更新（保留 模型 / .venv / python / .env / 你的字型）...
-robocopy "%SRC%" "%ROOT%." /E /NFL /NDL /NJH /NJS /NP /R:1 /W:1 /XD "%ROOT%.venv" "%ROOT%app\.venv" "%ROOT%python" "%ROOT%app\models" "%ROOT%app\fonts\user" /XF ".env" "VERSION" >nul
-if errorlevel 8 (
-    echo [WARN] 套用更新時有檔案被占用；改用現有檔案繼續安裝。
+rem ---- 加固自我更新：絕不在執行中覆蓋「正在跑的」setup.bat ----------------------------
+rem cmd.exe 是按位元組位移讀 .bat 的；若 robocopy 在本檔執行到一半時把它換成長度不同的版本，
+rem 後面幾行會錯位、可能爆掉。做法：先把「新版 setup.bat」複製成一個獨立檔 setup_new.bat，
+rem 由它（而非正在跑的 setup.bat）去執行 robocopy 覆蓋，本檔就絕不會被「自己」覆蓋。
+copy /y "%SRC%\setup.bat" "%ROOT%setup_new.bat" >nul
+if errorlevel 1 (
+    echo [WARN] 無法建立暫存更新器 setup_new.bat；改用現有檔案繼續安裝。
+    goto :after_update
 )
-
-rem ---- clean up and re-enter via the just-updated setup.bat (--updated skips Step 0) ----
-rem Note: setup.bat may have just been overwritten; re-invoke it now, do not read old content.
+call "%ROOT%setup_new.bat" --apply "%SRC%"
+set "RC=%errorlevel%"
+rem 收尾清乾淨：下載暫存夾、zip、以及暫存更新器 → 資料夾回歸「乾淨的新版 setup.bat」。
 rmdir /s /q "%TMP%" 2>nul
 del "%ZIP%" 2>nul
+del "%ROOT%setup_new.bat" >nul 2>nul
+exit /b %RC%
+
+
+:apply_update
+rem 以 setup_new.bat 的身分執行（正在跑的不是 %ROOT%setup.bat），此時覆蓋 %ROOT%setup.bat 是安全的。
+rem %~2 = 解壓出來的新原始碼資料夾(SRC)。
+rem 注意：robocopy /XD 比對的是「來源端」目錄路徑，排除清單要用 %SRC%\... 而非目的端，否則排除不生效。
+rem （那幾個資料夾本就被 .gitignore、不在 zip 裡，故即使排除失效目前也沒事；改用來源端是把保護做實、防未來。）
+set "SRC=%~2"
+set "REPO=DragonMeow1012/DragonMeow-MangaTranslator"
+echo [*] 套用程式更新（保留 模型 / .venv / python / .env / 你的字型）...
+robocopy "%SRC%" "%ROOT%." /E /NFL /NDL /NJH /NJS /NP /R:1 /W:1 /XD "%SRC%\.venv" "%SRC%\app\.venv" "%SRC%\python" "%SRC%\app\models" "%SRC%\app\fonts\user" /XF ".env" "VERSION" >nul
+if errorlevel 8 (
+    echo [WARN] 套用更新時有檔案被占用；本次不更新版本號，改用現有檔案繼續安裝。
+    goto :apply_install
+)
+rem 只有 robocopy 乾淨成功（errorlevel 小於 8）才記錄版本號，避免半套更新騙過 app 線上更新檢查（與 update.bat 一致）。
+powershell -NoProfile -Command "try { $s=(Invoke-RestMethod ('https://api.github.com/repos/%REPO%/commits/main') -Headers @{'User-Agent'='dmmt-setup'}).sha; Set-Content -Path '%ROOT%app\VERSION' -Value $s -NoNewline -Encoding ascii } catch {}"
+:apply_install
+rem 用「剛覆蓋好的新版」setup.bat 接手安裝（--updated 跳過 Step 0）。回到呼叫端後由它清掉 setup_new.bat。
 call "%ROOT%setup.bat" --updated
 exit /b %errorlevel%
 
