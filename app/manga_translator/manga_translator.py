@@ -612,6 +612,10 @@ class MangaTranslator:
         # 末尾加 uuid：毫秒時間戳在 Windows 很粗（多次呼叫常落同一毫秒），同內容圖 md5 又相同，
         # 沒有 uuid 時兩張會算出同名資料夾 → 互相覆蓋 final.png → 重複頁。uuid4 與時間/內容無關，保證唯一。
         subfolder_name = f"{timestamp}-{file_md5}-{detection_size}-{target_lang}-{translator}-{uuid.uuid4().hex[:8]}"
+        # 擴充翻譯（config._ext_result）：成品改放 result/_ext/ 子目錄，與網頁圖庫分開。
+        # 圖庫 /results/list 只列 result/ 頂層、且跳過 _ext，所以擴充翻的圖不會混進「翻譯結果」。
+        if getattr(config, '_ext_result', False):
+            subfolder_name = f"_ext/{subfolder_name}"
 
         self._current_image_context = {
             'subfolder': subfolder_name,

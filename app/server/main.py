@@ -263,23 +263,20 @@ async def stream_image_form_web(req: Request, image: UploadFile = File(...), con
     return await while_streaming(req, make_transform_to_image(fmt), conf, img, priority=priority == "1")
 
 @app.post("/translate/with-form/image/async-web", tags=["api", "form"])
-async def async_image_form_web(req: Request, image: UploadFile = File(...), config: str = Form("{}"), advanced: str = Form("0"), priority: str = Form("0"), ephemeral: str = Form("0")):
+async def async_image_form_web(req: Request, image: UploadFile = File(...), config: str = Form("{}"), advanced: str = Form("0"), priority: str = Form("0"), ext: str = Form("0")):
     """Web UI batch endpoint: upload closes quickly, progress is polled by job id.
 
     This avoids Chrome's per-origin limit for long-lived streaming fetches, so the
     server-side queue can actually feed all registered worker slots.
 
-    ephemeral=1（Chrome 擴充用）：結果不落地成品夾、不進網頁圖庫；改把成品真圖留在 job 記憶體，
-    由 GET /translate/jobs/{id}/result 取一次（取完即清）。擴充自己存 chrome.storage 快取，
-    與網頁圖庫互不汙染（清擴充快取＝清 chrome.storage，不碰伺服器 results）。
+    ext=1（Chrome 擴充用）：成品改放 result/_ext/ 子目錄 → 不進網頁圖庫（/results/list 跳過 _ext）；
+    擴充抓完 final.png 後，伺服器延遲刪掉該夾，不在磁碟累積。其餘流程與網頁完全一樣（仍存 final.png、擴充照舊抓）。
     """
-    eph = ephemeral == "1"
+    ext_result = ext == "1"
     img = await image.read()
     conf = Config.parse_raw(config)
-    # 非 ephemeral（網頁）=優化模式：存 final.png 到圖庫資料夾、串流回佔位圖。
-    # ephemeral（擴充）=關優化：pipeline 直接回真圖、不寫檔、不發 final_ready → 不進圖庫
-    # （_is_streaming_mode 由 share.py 依此旗標設定）。
-    conf._web_frontend_optimized = not eph
+    conf._web_frontend_optimized = True
+    conf._ext_result = ext_result   # → manga_translator 生 subfolder 時加 _ext/ 前綴
     conf._save_edit = advanced == "1"
     conf._orig_name = image.filename or ""  # 原始上傳檔名 → 結果夾寫 orig_name.txt 供圖庫還原
 
@@ -299,20 +296,13 @@ async def async_image_form_web(req: Request, image: UploadFile = File(...), conf
         "folder": None,
         "error": None,
         "done": False,
-        "ephemeral": eph,
-        "image": None,   # ephemeral：成品真圖（bytes）暫存於此，由 /result 取一次
     }
     _WEB_JOBS[job_id] = job
-    # 防 _WEB_JOBS 無限長大（ephemeral 成品圖佔記憶體）：超過上限就清掉最舊的已完成 job。
-    if len(_WEB_JOBS) > 400:
-        for _k in [k for k, v in list(_WEB_JOBS.items())[:120] if v.get("done")]:
-            _WEB_JOBS.pop(_k, None)
     task_queue.add_task(task, priority=priority == "1")
 
     def notify_internal(code: int, data: bytes) -> None:
-        # code 0 的 data 是成品圖（二進位）：別 decode 成文字（會多出一份等大的 garbage 字串）。
         text = ""
-        if code != 0 and data:
+        if data:
             try:
                 text = data.decode("utf-8", errors="replace")
             except Exception:
@@ -338,8 +328,6 @@ async def async_image_form_web(req: Request, image: UploadFile = File(...), conf
             job["error"] = text
             job["done"] = True
         elif code == 0:
-            if eph and data:
-                job["image"] = data   # 擴充：成品真圖留記憶體，待 /result 取
             if not job.get("done"):
                 job["status"] = "finished"
                 job["done"] = True
@@ -353,6 +341,15 @@ async def async_image_form_web(req: Request, image: UploadFile = File(...), conf
             job["code"] = 2
             job["message"] = str(e)
             job["done"] = True
+        # 擴充：成品在 result/_ext/，擴充抓完 final.png（done 後約 1s 內）就沒用了 → 延遲刪掉，不累積磁碟。
+        if ext_result and job.get("folder"):
+            async def _cleanup(folder):
+                await asyncio.sleep(120)  # 留充足時間給擴充抓 final.png（含重試）
+                try:
+                    shutil.rmtree(RESULT_ROOT / folder, ignore_errors=True)
+                except Exception:
+                    pass
+            asyncio.create_task(_cleanup(job["folder"]))
 
     asyncio.create_task(runner())
     return {"jobId": job_id}
@@ -362,34 +359,7 @@ async def get_translate_job(job_id: str):
     job = _WEB_JOBS.get(job_id)
     if not job:
         raise HTTPException(404, detail="Job not found")
-    # 別把 image bytes 一起序列化回 JSON（很大、且輪詢不需要）。回一份去掉 image 的淺拷貝。
-    return {k: v for k, v in job.items() if k != "image"}
-
-
-def _img_media_type(data: bytes) -> str:
-    if data[:8] == b"\x89PNG\r\n\x1a\n":
-        return "image/png"
-    if data[:3] == b"\xff\xd8\xff":
-        return "image/jpeg"
-    if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
-        return "image/webp"
-    return "image/png"
-
-
-@app.get("/translate/jobs/{job_id}/result", tags=["api"])
-async def get_translate_job_result(job_id: str):
-    """取 ephemeral（擴充）job 的成品真圖；取完即清掉該 job（一次性，避免記憶體累積）。
-    擴充自己存 chrome.storage 快取，伺服器不留存、也不進網頁圖庫。"""
-    job = _WEB_JOBS.get(job_id)
-    if not job:
-        raise HTTPException(404, detail="Job not found")
-    data = job.get("image")
-    if not data:
-        raise HTTPException(404, detail="Result not ready")
-    _WEB_JOBS.pop(job_id, None)  # 取走即清
-    # 注意：本檔在 line ~174 有個 endpoint `async def bytes(...)` 遮蔽了內建 bytes，
-    # 所以這裡不能寫 bytes(data)（會呼叫到那個 endpoint 函式 → TypeError）。data 本來就是 bytes，直接用。
-    return Response(content=data, media_type=_img_media_type(data))
+    return job
 
 @app.post("/queue-size", response_model=int, tags=["api", "json"])
 async def queue_size() -> int:
@@ -744,6 +714,8 @@ async def list_results():
         directories = []
         names = {}  # 資料夾名 -> 原始上傳檔名（翻譯時寫的 orig_name.txt）；給圖庫還原成使用者檔名
         for item_path in result_dir.iterdir():
+            if item_path.name == "_ext":
+                continue  # 擴充翻譯的成品放 result/_ext/，不進網頁圖庫
             if item_path.is_dir():
                 # Check if final.png exists in this directory
                 final_png_path = item_path / "final.png"
