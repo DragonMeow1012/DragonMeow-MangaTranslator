@@ -3,7 +3,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from torchvision.models import resnet101
+from torchvision.models import resnet101, ResNet101_Weights
 
 import DBHead
 import einops
@@ -84,7 +84,9 @@ class double_conv_up(nn.Module):
 class TextDetection(nn.Module):
     def __init__(self, pretrained=None):
         super(TextDetection, self).__init__()
-        self.backbone = resnet101(pretrained=True if pretrained else False)
+        # torchvision 0.13+ 的 weights= API（取代已棄用的 pretrained=，0.24 會噴 DeprecationWarning）。
+        # 行為等價：實務上 pretrained 為 None→weights=None（不載 ImageNet），之後再以訓練好的 ckpt 覆蓋整個 backbone。
+        self.backbone = resnet101(weights=ResNet101_Weights.DEFAULT if pretrained else None)
 
         self.conv_db = DBHead.DBHead(64, 0)
 

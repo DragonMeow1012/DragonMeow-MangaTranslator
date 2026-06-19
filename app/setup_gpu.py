@@ -32,6 +32,26 @@ PADDLE_CU126 = "https://www.paddlepaddle.org.cn/packages/stable/cu126/"
 PADDLE_CU129 = "https://www.paddlepaddle.org.cn/packages/stable/cu129/"
 CUDNN_PIN = "nvidia-cudnn-cu12==9.23.1.3"
 
+# --- AMD Radeon（Windows ROCm）------------------------------------------------------
+# AMD 官方 Windows ROCm 的 PyTorch wheel：torch 2.9.1+rocm7.2.1 / torchvision 0.24.1+rocm7.2.1。
+# 需求：Python 3.12（cp312 wheel）+ 顯示卡驅動 26.2.2 以上；支援 RX 7000(RDNA3,gfx110x) /
+# RX 9000(RDNA4,gfx120x) / Radeon AI PRO。PaddleOCR 無消費級 ROCm → 維持 CPU。
+# 注意：此路徑把 torch 升到 2.9.1（已實測整條管線——OCR/偵測/抹字 lama/渲染/成品/擴充端點——相容）。
+# NVIDIA 路徑完全不動（10/20/30/40 走 cu126、50/Blackwell 走 cu128）；只有「沒有 N 卡且偵測到
+# 支援的 Radeon」時才會走 AMD 分支。
+ROCM_WIN = "https://repo.radeon.com/rocm/windows/rocm-rel-7.2.1/"
+ROCM_SDK_WHEELS = [
+    ROCM_WIN + "rocm_sdk_core-7.2.1-py3-none-win_amd64.whl",
+    ROCM_WIN + "rocm_sdk_devel-7.2.1-py3-none-win_amd64.whl",
+    ROCM_WIN + "rocm_sdk_libraries_custom-7.2.1-py3-none-win_amd64.whl",
+    ROCM_WIN + "rocm-7.2.1.tar.gz",
+]
+ROCM_TORCH_WHEELS = [
+    ROCM_WIN + "torch-2.9.1%2Brocm7.2.1-cp312-cp312-win_amd64.whl",
+    ROCM_WIN + "torchvision-0.24.1%2Brocm7.2.1-cp312-cp312-win_amd64.whl",
+    ROCM_WIN + "torchaudio-2.9.1%2Brocm7.2.1-cp312-cp312-win_amd64.whl",
+]
+
 
 def pip(*args):
     return subprocess.call([PY, "-m", "pip", *args])
@@ -44,6 +64,30 @@ def has_nvidia_gpu():
         return r.returncode == 0
     except Exception:
         return False
+
+
+def has_amd_gpu():
+    """偵測「可走 Windows ROCm 的消費級 Radeon」：RX 7000(RDNA3) / RX 9000(RDNA4) / Radeon AI PRO。
+    RX 6000 及更舊（RDNA2）官方未支援 → 不算。名稱比對保守，若漏判可設環境變數 MT_FORCE_AMD_ROCM=1 強制。
+    僅在 has_nvidia_gpu()==False 時 main() 才呼叫本函式 → 有 N 卡的機器永遠不會走 AMD 路徑。"""
+    if os.name != 'nt':
+        return False  # 目前只做 Windows ROCm；Linux 走官方 pytorch rocm index（日後再加）
+    if os.getenv('MT_FORCE_AMD_ROCM') == '1':
+        return True
+    try:
+        r = subprocess.run(
+            ["powershell", "-NoProfile", "-Command", "(Get-CimInstance Win32_VideoController).Name"],
+            capture_output=True, text=True, timeout=25)
+        names = (r.stdout or "").lower()
+    except Exception:
+        return False
+    import re
+    # 桌上型 RX 7600~7900 / RX 9060~9070（四位數，7xxx 或 9xxx）；工作站 Radeon AI PRO
+    return bool(re.search(r'radeon.*rx\s*[79]\d{3}', names) or 'radeon ai pro' in names)
+
+
+def _is_py312():
+    return sys.version_info[:2] == (3, 12)
 
 
 def _max_compute_cap():
@@ -193,6 +237,37 @@ def install_gpu():
     return True
 
 
+def install_amd_gpu():
+    """AMD Radeon（Windows ROCm）：把 torch 換成 AMD 官方 ROCm wheel（torch 2.9.1+rocm7.2.1）。
+    PaddleOCR 無消費級 ROCm → 維持 CPU（requirements 已裝 CPU paddle，不動它）。
+    需 Python 3.12 + 顯示卡驅動 26.2.2 以上。任何一步失敗都回 False，由 main() 回退 CPU（不會弄壞安裝）。"""
+    if not _is_py312():
+        print(f"[setup-gpu] AMD ROCm 的 PyTorch 只有 cp312 wheel，需 Python 3.12"
+              f"（目前 {sys.version_info.major}.{sys.version_info.minor}）→ 跳過 GPU、用 CPU。"
+              "建議用本專案內附的可攜 Python（正好是 3.12）。")
+        return False
+    print("[setup-gpu] 偵測到 AMD Radeon → 安裝 AMD 官方 Windows ROCm（torch 2.9.1+rocm7.2.1）；"
+          "PaddleOCR 維持 CPU ...")
+    # requirements 先裝了 CPU 版 torch/torchvision，先卸乾淨再裝 ROCm 版。
+    pip("uninstall", "-y", "torch", "torchvision", "torchaudio")
+    # 1) ROCm SDK runtime（必須先於 torch 安裝）
+    if pip("install", "--no-cache-dir", *ROCM_SDK_WHEELS):
+        print("[setup-gpu] ROCm SDK 下載/安裝失敗（網路或 repo.radeon.com 不通？）→ 回退 CPU。")
+        return False
+    # 2) torch / torchvision / torchaudio（ROCm 版；app 雖未用 torchaudio，但隨 AMD 套件一起裝較穩）
+    if pip("install", "--no-cache-dir", *ROCM_TORCH_WHEELS):
+        print("[setup-gpu] ROCm PyTorch 下載/安裝失敗 → 回退 CPU。")
+        return False
+    # 3) 真驗 GPU：ROCm 的 torch 也是用 torch.cuda 介面（torch.cuda.is_available() 會回 True）；
+    #    跑一次 cuda conv2d 抓「驅動太舊 / 此 Radeon 型號未支援」。沿用 NVIDIA 那條相同的驗證。
+    if not _verify_torch_cuda():
+        print("[setup-gpu] ROCm GPU 驗證失敗（最可能：顯示卡驅動 < 26.2.2，或此 Radeon 型號不在支援清單）"
+              "→ 回退 CPU。請更新 AMD Adrenalin 驅動到 26.2.2 以上後重跑 setup.bat。")
+        return False
+    print("[setup-gpu] ✅ AMD Radeon：torch 走 GPU(ROCm 7.2.1)、PaddleOCR 走 CPU。")
+    return True
+
+
 def install_cpu():
     print("[setup-gpu] 安裝 / 回退 CPU 版 torch + paddlepaddle ...")
     pip("install", "torch==2.6.0", "torchvision==0.21.0")
@@ -254,16 +329,26 @@ def verify_and_repair():
 
 
 def main():
-    if not has_nvidia_gpu():
-        print("[setup-gpu] 未偵測到 NVIDIA GPU → 使用 CPU 版（requirements.txt 已安裝，manga-ocr/PaddleOCR 走 CPU）。")
-    elif install_gpu():
-        print("[setup-gpu] ✅ GPU 版就緒（torch 走 GPU；PaddleOCR 依上方訊息為 GPU 或已退 CPU）。")
+    # 優先序：NVIDIA → AMD(Radeon, Windows ROCm) → CPU。
+    # 有 N 卡一律走原本的 NVIDIA 路徑（10/20/30/40 cu126、50/Blackwell cu128），完全不受 AMD 分支影響。
+    if has_nvidia_gpu():
+        if install_gpu():
+            print("[setup-gpu] ✅ GPU 版就緒（torch 走 GPU；PaddleOCR 依上方訊息為 GPU 或已退 CPU）。")
+        else:
+            print("[setup-gpu] ⚠ NVIDIA GPU 版安裝或驗證失敗 → 回退 CPU 版。")
+            print("[setup-gpu]    若你確實有 NVIDIA 顯卡，最可能是『驅動太舊』：")
+            print("[setup-gpu]    請更新 NVIDIA 驅動到支援 CUDA 12 的版本（Windows 約 527 以上，建議更新到最新），再重跑 setup.bat。")
+            install_cpu()
+            print("[setup-gpu] ✅ 已回退 CPU 版。")
+    elif has_amd_gpu():
+        if install_amd_gpu():
+            print("[setup-gpu] ✅ AMD GPU 版就緒（torch 走 ROCm GPU；PaddleOCR 走 CPU）。")
+        else:
+            print("[setup-gpu] ⚠ AMD ROCm 安裝/驗證未成 → 回退 CPU 版（功能正常，OCR/抹字改走 CPU）。")
+            install_cpu()
+            print("[setup-gpu] ✅ 已回退 CPU 版。")
     else:
-        print("[setup-gpu] ⚠ GPU 版安裝或驗證失敗 → 回退 CPU 版。")
-        print("[setup-gpu]    若你確實有 NVIDIA 顯卡，最可能是『驅動太舊』：")
-        print("[setup-gpu]    請更新 NVIDIA 驅動到支援 CUDA 12 的版本（Windows 約 527 以上，建議更新到最新），再重跑 setup.bat。")
-        install_cpu()
-        print("[setup-gpu] ✅ 已回退 CPU 版。")
+        print("[setup-gpu] 未偵測到 NVIDIA / 支援的 AMD GPU → 使用 CPU 版（requirements.txt 已安裝，manga-ocr/PaddleOCR 走 CPU）。")
 
     # 收尾：不論 GPU/CPU/無顯卡，都實際 import 一次確認檔案都在（修得了 paddle 就地修）。
     verify_and_repair()
