@@ -93,6 +93,30 @@
       aside::-webkit-scrollbar { width: 6px; }
       aside::-webkit-scrollbar-thumb { background: #44403c; border-radius: 3px; }
       .ink-card.ink-panel { border-top-left-radius: 0; }
+      .gallery-preview-frame {
+        display: inline-block;
+        width: fit-content;
+        max-width: min(78vw, 760px);
+        max-height: 82vh;
+        overflow: hidden;
+      }
+      .gallery-preview-image {
+        display: block;
+        width: auto;
+        height: auto;
+        max-width: min(78vw, 760px);
+        max-height: 82vh;
+        object-fit: contain;
+        user-select: none;
+        transform-origin: center center;
+      }
+      @media (max-width: 640px) {
+        .gallery-preview-frame,
+        .gallery-preview-image {
+          max-width: 92vw;
+          max-height: 78vh;
+        }
+      }
       /* ── 深夜模式（root div 加 .dark）────────────── */
       .dark .screentone { background-color: #1c1917; background-image: radial-gradient(#292524 1.2px, transparent 1.2px); }
       .dark .ink-card { background: #292524; border-color: #a8a29e; box-shadow: 5px 5px 0 #0c0a09; }
@@ -922,17 +946,17 @@
 
       <!-- Image Modal -->
       <div v-if="showImageModal"
-           class="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50"
+           class="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4"
            @click="closeImageModal">
-        <div class="relative max-w-4xl max-h-full p-4" @click.stop>
+        <div class="gallery-preview-frame relative rounded-lg" @click.stop>
           <!-- Close button -->
-          <button @click="closeImageModal" 
+          <button @click.stop="closeImageModal"
                   class="absolute top-2 right-2 z-10 p-2 bg-black bg-opacity-50 text-white rounded-full hover:bg-opacity-75 transition-all">
             <i class="iconify w-6 h-6" data-icon="carbon:close"></i>
           </button>
           
           <!-- Zoom button -->
-          <button @click="toggleZoom" 
+          <button @click.stop="toggleZoom"
                   class="absolute top-2 right-12 z-10 p-2 bg-black bg-opacity-50 text-white rounded-full hover:bg-opacity-75 transition-all"
                   :title="isImageZoomed ? 'Zoom out' : 'Zoom in'">
             <i class="iconify w-6 h-6" :data-icon="isImageZoomed ? 'carbon:zoom-out' : 'carbon:zoom-in'"></i>
@@ -940,13 +964,13 @@
           
           <!-- Navigation buttons -->
           <button v-if="finishedImages.length > 1" 
-                  @click="previousImage" 
+                  @click.stop="previousImage"
                   class="absolute left-4 top-1/2 transform -translate-y-1/2 z-10 p-2 bg-black bg-opacity-50 text-white rounded-full hover:bg-opacity-75 transition-all">
             <i class="iconify w-6 h-6" data-icon="carbon:arrow-left"></i>
           </button>
           
           <button v-if="finishedImages.length > 1" 
-                  @click="nextImage" 
+                  @click.stop="nextImage"
                   class="absolute right-4 top-1/2 transform -translate-y-1/2 z-10 p-2 bg-black bg-opacity-50 text-white rounded-full hover:bg-opacity-75 transition-all">
             <i class="iconify w-6 h-6" data-icon="carbon:arrow-right"></i>
           </button>
@@ -955,20 +979,26 @@
           <img v-if="selectedImage" 
                :src="selectedImage.result" 
                :alt="'Translated: ' + selectedImage.originalName"
-               class="max-w-full max-h-full object-contain rounded-lg cursor-pointer"
-               :class="{ 'transition-transform duration-300': !isDragging }"
+               class="gallery-preview-image"
+               :class="[
+                 !isDragging ? 'transition-transform duration-300' : '',
+                 isImageZoomed ? (isDragging ? 'cursor-grabbing' : 'cursor-grab') : 'cursor-zoom-in'
+               ]"
                :style="{ 
-                 transform: `scale(${imageTransform.scale}) translate(${imageTransform.translateX}px, ${imageTransform.translateY}px)`
+                 transform: `translate(${imageTransform.translateX}px, ${imageTransform.translateY}px) scale(${imageTransform.scale})`,
+                 touchAction: isImageZoomed ? 'none' : 'auto'
                }"
-               @click="toggleZoom"
-               @mousedown="onImageMouseDown"
-               @mousemove="onImageMouseMove"
-               @mouseup="onImageMouseUp"
-               @mouseleave="onImageMouseUp">
+               draggable="false"
+               @click="onImageClick"
+               @pointerdown="onImagePointerDown"
+               @pointermove="onImagePointerMove"
+               @pointerup="onImagePointerUp"
+               @pointercancel="onImagePointerCancel"
+               @dragstart.prevent>
           
           <!-- Image info -->
           <div v-if="selectedImage" 
-               class="absolute bottom-4 left-4 right-4 bg-black bg-opacity-50 text-white p-3 rounded-lg">
+               class="absolute bottom-0 left-0 right-0 bg-black bg-opacity-50 text-white p-3 rounded-b-lg pointer-events-none">
             <div class="text-sm font-medium">{{ selectedImage.originalName }}</div>
             <div class="text-xs text-gray-300">
               {{ new Date(selectedImage.finishedAt).toLocaleString() }}
@@ -1119,22 +1149,26 @@
                 <label class="flex items-center gap-1">{{ t('fontSize') }}
                   <input type="number" v-model.number="r.font_size" min="6" max="200" @change="recordHistory"
                          class="w-14 border border-gray-300 rounded px-1 py-0.5"></label>
-                <label class="flex items-center gap-1">{{ t('textColor') }}
-                  <input type="color" v-model="r.color" @change="recordHistory" class="w-7 h-6 p-0 border-0"></label>
+                <label class="flex items-center gap-1">{{ t('color') }}
+                  <input type="color" v-model="r.color"
+                         @change="setRegionColorOverride(r, 'color'); recordHistory()"
+                         class="w-7 h-6 p-0 border-0"></label>
                 <label class="flex items-center gap-1">
                   <input type="checkbox" v-model="r.bold" @change="recordHistory"> {{ t('bold') }}</label>
               </div>
               <div class="flex items-center gap-3 mt-1 text-xs text-gray-600" @click.stop>
-                <label class="flex items-center gap-1" :title="t('backgroundTooltip')">
+                <label class="flex items-center gap-1" :title="t('backgroundTip')">
                   <input type="checkbox" v-model="r.background_enabled" @change="recordHistory">
                   {{ t('backgroundEnabled') }}
                 </label>
                 <label class="flex items-center gap-1"
-                       :class="{'opacity-40': !r.background_enabled}">
+                       :class="{'opacity-40': !r.background_enabled}"
+                       :title="t('backgroundTip')">
                   {{ t('backgroundColor') }}
                   <input type="color" v-model="r.background_color"
                          :disabled="!r.background_enabled"
-                         @change="recordHistory" class="w-7 h-6 p-0 border-0">
+                         @change="setRegionColorOverride(r, 'background_color'); recordHistory()"
+                         class="w-7 h-6 p-0 border-0 disabled:cursor-not-allowed">
                 </label>
               </div>
               <div class="flex items-center gap-3 mt-1 text-xs text-gray-600" @click.stop>
@@ -1553,10 +1587,9 @@
           translation: '譯文',
           fontSize: '字級',
           color: '顏色',
-          textColor: '文字顏色',
-          backgroundEnabled: '開啟底色',
+          backgroundEnabled: '底色',
           backgroundColor: '底色顏色',
-          backgroundTooltip: '只控制這一句文字的描邊底色',
+          backgroundTip: '控制這一句文字的對比描邊底色',
           bold: '粗體',
           letterSpacing: '字間距',
           spaceWidth: '空格寬',
@@ -1744,10 +1777,9 @@
           translation: '译文',
           fontSize: '字号',
           color: '颜色',
-          textColor: '文字颜色',
-          backgroundEnabled: '开启底色',
+          backgroundEnabled: '底色',
           backgroundColor: '底色颜色',
-          backgroundTooltip: '只控制这一句文字的描边底色',
+          backgroundTip: '控制这一句文字的对比描边底色',
           bold: '粗体',
           letterSpacing: '字间距',
           spaceWidth: '空格宽',
@@ -1935,10 +1967,9 @@
           translation: 'Translation',
           fontSize: 'Size',
           color: 'Color',
-          textColor: 'Text color',
-          backgroundEnabled: 'Text backdrop',
-          backgroundColor: 'Backdrop color',
-          backgroundTooltip: 'Toggle the outline backdrop for this text box only',
+          backgroundEnabled: 'Background',
+          backgroundColor: 'BG color',
+          backgroundTip: 'Control the contrast outline behind this text box',
           bold: 'Bold',
           letterSpacing: 'Spacing',
           spaceWidth: 'Space',
@@ -2126,10 +2157,9 @@
           translation: '訳文',
           fontSize: 'サイズ',
           color: '色',
-          textColor: '文字色',
-          backgroundEnabled: '縁取り背景',
-          backgroundColor: '背景色',
-          backgroundTooltip: 'このテキスト枠だけ縁取り背景を切り替えます',
+          backgroundEnabled: '縁取り',
+          backgroundColor: '縁取り色',
+          backgroundTip: 'このテキスト枠の読みやすさを上げる縁取りを設定します',
           bold: '太字',
           letterSpacing: '字間隔',
           spaceWidth: '空白幅',
@@ -2217,6 +2247,10 @@
           translateY: 0
         },
         isDragging: false,
+        imageDragMoved: false,
+        suppressImageClick: false,
+        imageDragStart: { x: 0, y: 0 },
+        imageDragOrigin: { x: 0, y: 0 },
         
         // Step tracking for progress
         translationSteps: [
@@ -2317,6 +2351,8 @@
         editorHistory: [],
         editorHistoryIdx: -1,
         editorFreshRegions: null,
+        editorDefaultBackgroundEnabled: false,
+        editorDefaultBackgroundColor: '#ffffff',
         // 預覽縮放/平移（局部放大修圖用）
         editorZoom: 1,
         editorPanX: 0,
@@ -2550,10 +2586,10 @@
             id, custom: true, bbox: [x1, y1, x2, y2],
             original: '', translation: '',
             font_size: Math.max(12, Math.round((y2 - y1) / 3)),
-            color: '#000000',
-            background_enabled: !!this.fontBorder,
-            background_color: '#ffffff',
-            bold: false, direction: 'auto', font: '',
+            color: '#000000', bold: false, direction: 'auto', font: '',
+            background_enabled: this.editorDefaultBackgroundEnabled,
+            background_color: this.editorDefaultBackgroundColor,
+            color_override: true, background_color_override: true,
             letter_spacing: 1, space_scale: 1, skip: false, hidden: false, dx: 0, dy: 0, angle: 0,
           });
           this.selectedRegionId = id;
@@ -2563,6 +2599,23 @@
           this.editorRegions = this.editorRegions.filter(r => r.id !== id);
           this.recordHistory();
           this.rerenderEditor();
+        },
+        _normalizeCustomRegion(region) {
+          const normalized = { ...region, custom: true };
+          if (typeof normalized.background_enabled !== 'boolean') {
+            normalized.background_enabled = this.editorDefaultBackgroundEnabled;
+          }
+          if (!/^#[0-9a-f]{6}$/i.test(normalized.background_color || '')) {
+            normalized.background_color = this.editorDefaultBackgroundColor;
+          }
+          normalized.color_override = true;
+          normalized.background_color_override = true;
+          return normalized;
+        },
+        setRegionColorOverride(region, field) {
+          if (!region) return;
+          if (field === 'background_color') region.background_color_override = true;
+          else region.color_override = true;
         },
 
         // ── 手動修補筆刷：在預覽上塗抹 → 收集 final.png 像素座標 → 重渲染時後端套用 ──
@@ -3591,8 +3644,17 @@
     },
 
     // Gallery modal functions
+    resetImageView() {
+      this.isImageZoomed = false;
+      this.isDragging = false;
+      this.imageDragMoved = false;
+      this.suppressImageClick = false;
+      this.imageTransform = { scale: 1, translateX: 0, translateY: 0 };
+    },
+
     openImageModal(image) {
       console.log('openImageModal called with:', image);
+      this.resetImageView();
       this.selectedImage = image;
       this.showImageModal = true;
     },
@@ -3600,55 +3662,69 @@
     closeImageModal() {
       this.showImageModal = false;
       this.selectedImage = null;
-      this.isImageZoomed = false; // Reset zoom when closing
-      this.imageTransform = { scale: 1, translateX: 0, translateY: 0 }; // Reset transform
+      this.resetImageView();
     },
 
-    toggleZoom(event) {
+    toggleZoom() {
       if (this.isImageZoomed) {
-        // Zoom out - reset to normal
-        this.isImageZoomed = false;
-        this.imageTransform = { scale: 1, translateX: 0, translateY: 0 };
+        this.resetImageView();
       } else {
-        // Zoom in - zoom to click point
         this.isImageZoomed = true;
-        this.imageTransform.scale = 2;
-        
-        // Calculate click position relative to image
-        if (event) {
-          const rect = event.target.getBoundingClientRect();
-          const x = event.clientX - rect.left;
-          const y = event.clientY - rect.top;
-          
-          // Set transform origin to click point
-          event.target.style.transformOrigin = `${x}px ${y}px`;
+        this.imageTransform = { scale: 2, translateX: 0, translateY: 0 };
         }
-      }
-      console.log('Image zoomed:', this.isImageZoomed, this.imageTransform);
     },
 
-    // Handle middle mouse button drag
-    onImageMouseDown(event) {
-      if (event.button === 1) { // Middle mouse button
+    onImageClick() {
+      if (this.suppressImageClick) {
+        this.suppressImageClick = false;
+        return;
+      }
+      this.toggleZoom();
+    },
+
+    onImagePointerDown(event) {
+      if (!this.isImageZoomed || event.button !== 0) return;
         event.preventDefault();
         this.isDragging = true;
-        this.dragStart = { x: event.clientX, y: event.clientY };
-        this.dragStartTransform = { ...this.imageTransform };
+      this.imageDragMoved = false;
+      this.imageDragStart = { x: event.clientX, y: event.clientY };
+      this.imageDragOrigin = {
+        x: this.imageTransform.translateX,
+        y: this.imageTransform.translateY,
+      };
+      if (event.currentTarget.setPointerCapture) {
+        event.currentTarget.setPointerCapture(event.pointerId);
       }
     },
 
-    onImageMouseMove(event) {
-      if (this.isDragging && this.isImageZoomed) {
-        const deltaX = event.clientX - this.dragStart.x;
-        const deltaY = event.clientY - this.dragStart.y;
+    onImagePointerMove(event) {
+      if (!this.isDragging || !this.isImageZoomed) return;
+      event.preventDefault();
+      const deltaX = event.clientX - this.imageDragStart.x;
+      const deltaY = event.clientY - this.imageDragStart.y;
+      if (Math.abs(deltaX) + Math.abs(deltaY) > 3) this.imageDragMoved = true;
+      const maxX = event.currentTarget.offsetWidth * (this.imageTransform.scale - 1) / 2;
+      const maxY = event.currentTarget.offsetHeight * (this.imageTransform.scale - 1) / 2;
+      this.imageTransform.translateX = Math.max(-maxX, Math.min(maxX, this.imageDragOrigin.x + deltaX));
+      this.imageTransform.translateY = Math.max(-maxY, Math.min(maxY, this.imageDragOrigin.y + deltaY));
+    },
         
-        this.imageTransform.translateX = this.dragStartTransform.translateX + deltaX;
-        this.imageTransform.translateY = this.dragStartTransform.translateY + deltaY;
+    onImagePointerUp(event) {
+      if (!this.isDragging) return;
+      this.isDragging = false;
+      this.suppressImageClick = this.imageDragMoved;
+      if (event.currentTarget.hasPointerCapture && event.currentTarget.hasPointerCapture(event.pointerId)) {
+        event.currentTarget.releasePointerCapture(event.pointerId);
       }
     },
 
-    onImageMouseUp() {
+    onImagePointerCancel(event) {
       this.isDragging = false;
+      this.imageDragMoved = false;
+      this.suppressImageClick = false;
+      if (event.currentTarget.hasPointerCapture && event.currentTarget.hasPointerCapture(event.pointerId)) {
+        event.currentTarget.releasePointerCapture(event.pointerId);
+      }
     },
 
     nextImage() {
@@ -3659,8 +3735,7 @@
         if (currentIndex > -1 && currentIndex < list.length - 1) {
           this.selectedImage = list[currentIndex + 1];
           // Reset transform when switching images
-          this.isImageZoomed = false;
-          this.imageTransform = { scale: 1, translateX: 0, translateY: 0 };
+          this.resetImageView();
         }
       }
     },
@@ -3672,8 +3747,7 @@
         if (currentIndex > 0) {
           this.selectedImage = list[currentIndex - 1];
           // Reset transform when switching images
-          this.isImageZoomed = false;
-          this.imageTransform = { scale: 1, translateX: 0, translateY: 0 };
+          this.resetImageView();
         }
       }
     },
@@ -3967,14 +4041,24 @@
       this.editorRegions = this.editorRegions.map(r => {
         const ed = byId[r.id];
         if (!ed) return r;
+        const colorOverride = typeof ed.color_override === 'boolean'
+          ? ed.color_override
+          : !!(ed.color
+            && String(ed.color).toLowerCase() !== String(r.color || '').toLowerCase());
+        const backgroundColorOverride = typeof ed.background_color_override === 'boolean'
+          ? ed.background_color_override
+          : !!(ed.background_color
+            && String(ed.background_color).toLowerCase() !== String(r.background_color || '').toLowerCase());
         return {
           ...r,
           translation: ed.translation != null ? ed.translation : r.translation,
           font_size: ed.font_size || r.font_size,
-          color: ed.color || r.color,
-          background_enabled: (typeof ed.background_enabled === 'boolean')
-            ? ed.background_enabled : !!r.background_enabled,
+          color: ed.color || r.color || '#000000',
+          color_override: colorOverride,
+          background_enabled: typeof ed.background_enabled === 'boolean'
+            ? ed.background_enabled : r.background_enabled,
           background_color: ed.background_color || r.background_color || '#ffffff',
+          background_color_override: backgroundColorOverride,
           bold: !!ed.bold,
           letter_spacing: ed.letter_spacing || r.letter_spacing,
           space_scale: ed.space_scale || r.space_scale,
@@ -4022,8 +4106,19 @@
         }
         const data = await resp.json();
         this.editorFolder = folder;
+        this.editorDefaultBackgroundEnabled = !!data.default_background_enabled;
+        this.editorDefaultBackgroundColor = '#ffffff';
         // 出廠（剛機翻完）狀態：留一份供「還原成翻譯出廠設置」用
-        this.editorFreshRegions = (data.regions || []).map(r => ({ ...r, dx: 0, dy: 0 }));
+        this.editorFreshRegions = (data.regions || []).map(r => ({
+          ...r,
+          background_enabled: typeof r.background_enabled === 'boolean'
+            ? r.background_enabled : this.editorDefaultBackgroundEnabled,
+          background_color: r.background_color || this.editorDefaultBackgroundColor,
+          color_override: false,
+          background_color_override: false,
+          dx: 0,
+          dy: 0,
+        }));
         this.editorRegions = JSON.parse(JSON.stringify(this.editorFreshRegions));
         this.selectedRegionId = this.editorRegions.length ? this.editorRegions[0].id : null;
         this.editorBlob = null;
@@ -4043,13 +4138,7 @@
         if (savedEdits.length || savedPatches.length || savedCustoms.length) {
           this._applyEditsToRegions(savedEdits);
           this.editorPatches = savedPatches;
-          savedCustoms.forEach(c => this.editorRegions.push({
-            ...c,
-            custom: true,
-            background_enabled: (typeof c.background_enabled === 'boolean')
-              ? c.background_enabled : !!this.fontBorder,
-            background_color: c.background_color || '#ffffff',
-          }));
+          savedCustoms.forEach(c => this.editorRegions.push(this._normalizeCustomRegion(c)));
           this.resetHistory();
           this.rerenderEditor();
         } else {
@@ -4134,7 +4223,7 @@
         font_size: r.font_size || 28,
         color: r.color || null,
         background_enabled: !!r.background_enabled,
-        background_color: r.background_color || null,
+        background_color: r.background_color || '#ffffff',
         bold: !!r.bold,
         direction: r.direction || 'auto',
         font_path: r.font || null,
@@ -4149,9 +4238,12 @@
         id: r.id,
         translation: r.translation,
         font_size: r.font_size || null,
-        color: r.color || null,
+        color: r.color_override ? (r.color || '#000000') : null,
+        color_override: !!r.color_override,
         background_enabled: !!r.background_enabled,
-        background_color: r.background_color || null,
+        background_color: r.background_color_override
+          ? (r.background_color || '#ffffff') : null,
+        background_color_override: !!r.background_color_override,
         bold: !!r.bold,
         letter_spacing: r.letter_spacing || null,
         space_scale: r.space_scale || null,
@@ -4262,13 +4354,7 @@
         this._applyEditsToRegions(doc.edits || []);
         this.editorPatches = doc.patches || [];
         this.editorRegions = this.editorRegions.filter(r => !r.custom);
-        (doc.customs || []).forEach(c => this.editorRegions.push({
-          ...c,
-          custom: true,
-          background_enabled: (typeof c.background_enabled === 'boolean')
-            ? c.background_enabled : !!this.fontBorder,
-          background_color: c.background_color || '#ffffff',
-        }));
+        (doc.customs || []).forEach(c => this.editorRegions.push(this._normalizeCustomRegion(c)));
         this.recordHistory();
         this.rerenderEditor();
       } catch (err) {

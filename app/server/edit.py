@@ -15,7 +15,11 @@ import numpy as np
 from PIL import Image
 from pydantic import BaseModel
 
-from manga_translator.rendering import dispatch as dispatch_rendering, _separate_close_regions
+from manga_translator.rendering import (
+    _separate_close_regions,
+    dispatch as dispatch_rendering,
+    resolve_region_render_colors,
+)
 
 
 def _hex_to_rgb(value: str):
@@ -33,8 +37,8 @@ class RegionEdit(BaseModel):
     translation: str | None = None
     font_size: int | None = None
     color: str | None = None      # "#rrggbb"
-    background_enabled: bool | None = None  # 逐框文字描邊底色；None = 沿用全域設定
-    background_color: str | None = None      # "#rrggbb"
+    background_enabled: bool | None = None
+    background_color: str | None = None  # "#rrggbb"，文字描邊底色
     bold: bool | None = None
     letter_spacing: float | None = None   # 字間距倍率（>1 拉開、<1 收緊）
     space_scale: float | None = None       # 空格寬度倍率（<1 收窄空格）
@@ -68,7 +72,7 @@ class CustomRegion(BaseModel):
     font_size: int = 28           # 以 final.png 像素為準，後端換算
     color: str | None = None      # "#rrggbb"，None = 黑
     background_enabled: bool | None = None
-    background_color: str | None = None
+    background_color: str | None = None  # "#rrggbb"，None = 白
     bold: bool = False
     direction: str = 'auto'       # 'auto' / 'h' / 'v'
     font_path: str | None = None
@@ -109,20 +113,14 @@ def _combined_regions(state):
     return list(state.get('text_regions') or []) + list(state.get('skipped_regions') or [])
 
 
-def _region_json(r, idx, was_skipped, default_background_enabled: bool):
+def _region_json(r, idx, was_skipped, default_background_enabled):
     try:
         x1, y1, x2, y2 = (int(v) for v in r.xyxy)
     except Exception:
         x1 = y1 = x2 = y2 = 0
-    try:
-        fg, bg = r.get_font_colors()
-        color = '#%02x%02x%02x' % (int(fg[0]), int(fg[1]), int(fg[2]))
-        background_color = '#%02x%02x%02x' % (
-            int(bg[0]), int(bg[1]), int(bg[2]),
-        )
-    except Exception:
-        color = '#000000'
-        background_color = '#ffffff'
+    fg, bg = resolve_region_render_colors(r, disable_font_border=False)
+    color = '#%02x%02x%02x' % tuple(int(v) for v in fg)
+    background_color = '#%02x%02x%02x' % tuple(int(v) for v in bg)
     return {
         'id': idx,
         'original': r.text or '',
@@ -152,24 +150,24 @@ def state_to_json(result_root, folder: str):
     h, w = inp.shape[:2]
     rendered = list(state.get('text_regions') or [])
     skipped = list(state.get('skipped_regions') or [])
-    config = state.get('config')
-    render_config = getattr(config, 'render', None)
+    render_config = getattr(state.get('config'), 'render', None)
     default_background_enabled = not bool(
-        getattr(render_config, 'disable_font_border', False),
+        getattr(render_config, 'disable_font_border', False)
     )
     out = []
     idx = 0
     for r in rendered:
-        out.append(_region_json(
-            r, idx, was_skipped=False,
-            default_background_enabled=default_background_enabled,
-        )); idx += 1
+        out.append(_region_json(r, idx, was_skipped=False,
+                                default_background_enabled=default_background_enabled)); idx += 1
     for r in skipped:
-        out.append(_region_json(
-            r, idx, was_skipped=True,
-            default_background_enabled=default_background_enabled,
-        )); idx += 1
-    return {'width': int(w), 'height': int(h), 'regions': out}
+        out.append(_region_json(r, idx, was_skipped=True,
+                                default_background_enabled=default_background_enabled)); idx += 1
+    return {
+        'width': int(w),
+        'height': int(h),
+        'default_background_enabled': default_background_enabled,
+        'regions': out,
+    }
 
 
 def _apply_edit(region, e: RegionEdit):
@@ -180,20 +178,12 @@ def _apply_edit(region, e: RegionEdit):
     if e.color:
         rgb = _hex_to_rgb(e.color)
         if rgb is not None:
-            # 前端每次都會送顏色（預設＝偵測色）。只有跟現值不同（使用者真的改過）
-            # 才鎖定成 font_color（render() 最高優先通道，「字色從原圖取樣」蓋不掉）；
-            # 沒改過則維持取樣校正的行為。
-            try:
-                cf, _ = region.get_font_colors()
-                cur = '#%02x%02x%02x' % (int(cf[0]), int(cf[1]), int(cf[2]))
-            except Exception:
-                cur = ''
-            if e.color.lower() != cur.lower():
-                region.fg_colors = np.array(rgb, dtype=np.uint8)
-                region.font_color = e.color
-                region.adjust_bg_color = False
+            # 前端色票是進階編輯的唯一事實來源：預設黑字，選白字／彩色也必須原樣生效。
+            region.fg_colors = np.array(rgb, dtype=np.uint8)
+            region.font_color = e.color
+            region.adjust_bg_color = False
     if e.background_enabled is not None:
-        region.background_enabled = bool(e.background_enabled)
+        region.disable_font_border = not bool(e.background_enabled)
     if e.background_color:
         rgb = _hex_to_rgb(e.background_color)
         if rgb is not None:
@@ -304,14 +294,14 @@ def _build_custom_region(c: 'CustomRegion', sx: float, sy: float, target_lang: s
     if x2 - x1 < 4 or y2 - y1 < 4:
         return None
     rgb = _hex_to_rgb(c.color or '') or (0, 0, 0)
-    bg_rgb = _hex_to_rgb(c.background_color or '') or (255, 255, 255)
+    background_rgb = _hex_to_rgb(c.background_color or '') or (255, 255, 255)
     region = TextBlock(
         lines=[[[x1, y1], [x2, y1], [x2, y2], [x1, y2]]],
         texts=[c.text],
         translation=c.text,
         font_size=max(6, int(round(c.font_size * (sx + sy) / 2))),
         fg_color=rgb,
-        bg_color=bg_rgb,
+        bg_color=background_rgb,
         bold=bool(c.bold),
         direction=c.direction if c.direction in ('h', 'v', 'hr', 'vr') else 'auto',
         angle=float(c.angle or 0),
@@ -321,8 +311,9 @@ def _build_custom_region(c: 'CustomRegion', sx: float, sy: float, target_lang: s
     # 同 _apply_edit：用 font_color（hex）走 render() 最高優先通道，
     # 否則「字色從原圖取樣」會把手動文本的顏色蓋掉
     region.font_color = c.color or '#000000'
-    region.background_enabled = c.background_enabled
     region.background_color = c.background_color or '#ffffff'
+    if c.background_enabled is not None:
+        region.disable_font_border = not bool(c.background_enabled)
     if c.font_path:
         region.font_path = c.font_path
     if c.letter_spacing and c.letter_spacing > 0:
