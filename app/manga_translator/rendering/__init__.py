@@ -52,6 +52,28 @@ def fg_bg_compare(fg, bg):
     return fg, bg
 
 
+def _normalize_rgb(value, default=None):
+    """Normalize hex strings, tuples/lists, and NumPy RGB arrays to an RGB tuple."""
+    if isinstance(value, str):
+        text = value.strip().lstrip('#')
+        if len(text) != 6:
+            return default
+        try:
+            return tuple(int(text[i:i + 2], 16) for i in (0, 2, 4))
+        except ValueError:
+            return default
+    try:
+        values = np.asarray(value).reshape(-1)
+        if values.size < 3:
+            return default
+        return tuple(
+            int(np.clip(round(float(channel)), 0, 255))
+            for channel in values[:3]
+        )
+    except (TypeError, ValueError, OverflowError):
+        return default
+
+
 def _resolve_font_path(font_path: str) -> str:
     """Resolve font path from absolute/relative/project-fonts path.
 
@@ -2506,6 +2528,10 @@ def render(
     disable_font_border,
     config: Config
 ):
+    region_disable_font_border = getattr(region, 'disable_font_border', None)
+    if region_disable_font_border is not None:
+        disable_font_border = bool(region_disable_font_border)
+
     # 進階編輯：per-region 空格寬度倍率（畫完還原，避免影響後續 region）
     try:
         text_render._state().space_scale = float(getattr(region, 'space_scale', 1.0) or 1.0)
@@ -2528,48 +2554,30 @@ def render(
             logger.warning(f"Font path not found for region: {region_font_path}, using built-in default font")
         text_render.set_font(text_render.DEFAULT_FONT)
 
-    # --- START BRUTEFORCE COLOR FIX ---
-    fg = (0, 0, 0) # Default to black
+    # 進階編輯會用 hex 鎖定顏色；其他流程可能留下 tuple/list/NumPy RGB。
+    # 全部先正規化，避免 np.ndarray 被誤判成未知型別後降級成黑色。
+    font_color = getattr(region, 'font_color', None)
+    fg = _normalize_rgb(font_color)
+    manual_fg = fg is not None
+    if fg is None:
+        fg = _normalize_rgb(getattr(region, 'fg_colors', None))
     try:
-        # Priority 1: Check for the original hex string from the UI
-        if hasattr(region, 'font_color') and isinstance(region.font_color, str) and region.font_color.startswith('#'):
-            hex_c = region.font_color
-            if len(hex_c) == 7:
-                r = int(hex_c[1:3], 16)
-                g = int(hex_c[3:5], 16)
-                b = int(hex_c[5:7], 16)
-                fg = (r, g, b)
-        # Priority 2: Check for a pre-converted tuple
-        elif hasattr(region, 'fg_colors') and isinstance(region.fg_colors, (tuple, list)) and len(region.fg_colors) == 3:
-            fg = tuple(region.fg_colors)
-        # Last resort: Use the method2
-        else:
-            fg, _ = region.get_font_colors()
+        detected_fg, detected_bg = region.get_font_colors()
     except Exception:
-        # If anything fails, fg remains black
-        pass
+        detected_fg, detected_bg = None, None
+    if fg is None:
+        fg = _normalize_rgb(detected_fg, (0, 0, 0))
+    bg = _normalize_rgb(detected_bg, (255, 255, 255))
 
-    # Get background color separately
-    _, bg = region.get_font_colors()
-    # --- END BRUTEFORCE COLOR FIX ---
-
-    # Convert hex color string to RGB tuple, if necessary
-    if isinstance(fg, str) and fg.startswith('#') and len(fg) == 7:
-        try:
-            r = int(fg[1:3], 16)
-            g = int(fg[3:5], 16)
-            b = int(fg[5:7], 16)
-            fg = (r, g, b)
-        except ValueError:
-            fg = (0, 0, 0)  # Default to black on error
-    elif not isinstance(fg, (tuple, list)):
-        fg = (0, 0, 0) # Default to black if format is unexpected
+    background_color = getattr(region, 'background_color', '')
+    normalized_background = _normalize_rgb(background_color)
+    manual_bg = normalized_background is not None
+    if manual_bg:
+        bg = normalized_background
 
     # 是否有「進階編輯」手動指定字色（保留使用者選色，不被下面的固定二值覆蓋）
-    _manual_fg = (hasattr(region, 'font_color') and isinstance(region.font_color, str)
-                  and region.font_color.startswith('#'))
-    if getattr(region, 'adjust_bg_color', True):
-        if (not disable_font_border) and (not _manual_fg):
+    if getattr(region, 'adjust_bg_color', True) and not manual_bg:
+        if (not disable_font_border) and (not manual_fg):
             # 「文字加底色」開啟 → 底色固定「白底黑字 / 黑底白字」二選一，依原文亮度自動挑：
             # fg 已由 _sample_region_text_color 依原圖灰階中位數決定深/淺（亮底→黑字、暗底→白字），
             # 這裡據此把底色補成對比最強的純黑/純白成對。可讀性優先，不保留彩色底。
@@ -2896,4 +2904,3 @@ def render(
         logger.warning(f"Text region completely outside image bounds: x={x_adj}, y={y_adj}, w={w_adj}, h={h_adj}, image_size=({img_w}, {img_h}). Text: '{region.translation[:50] if hasattr(region, 'translation') else 'N/A'}...'")
     
     return img
-

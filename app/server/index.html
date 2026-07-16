@@ -1120,9 +1120,26 @@
                   <input type="number" v-model.number="r.font_size" min="6" max="200" @change="recordHistory"
                          class="w-14 border border-gray-300 rounded px-1 py-0.5"></label>
                 <label class="flex items-center gap-1">{{ t('color') }}
-                  <input type="color" v-model="r.color" @change="recordHistory" class="w-7 h-6 p-0 border-0"></label>
+                  <input type="color" v-model="r.color"
+                         @click="setRegionColorOverride(r, 'color')"
+                         @change="recordHistory" class="w-7 h-6 p-0 border-0"></label>
                 <label class="flex items-center gap-1">
                   <input type="checkbox" v-model="r.bold" @change="recordHistory"> {{ t('bold') }}</label>
+              </div>
+              <div class="flex items-center gap-3 mt-1 text-xs text-gray-600" @click.stop>
+                <label class="flex items-center gap-1" :title="t('backgroundTip')">
+                  <input type="checkbox" v-model="r.background_enabled" @change="recordHistory">
+                  {{ t('backgroundEnabled') }}
+                </label>
+                <label class="flex items-center gap-1"
+                       :class="{'opacity-40': !r.background_enabled}"
+                       :title="t('backgroundTip')">
+                  {{ t('backgroundColor') }}
+                  <input type="color" v-model="r.background_color"
+                         :disabled="!r.background_enabled"
+                         @click="setRegionColorOverride(r, 'background_color')"
+                         @change="recordHistory" class="w-7 h-6 p-0 border-0 disabled:cursor-not-allowed">
+                </label>
               </div>
               <div class="flex items-center gap-3 mt-1 text-xs text-gray-600" @click.stop>
                 <label class="flex items-center gap-1">{{ t('direction') }}
@@ -1540,6 +1557,9 @@
           translation: '譯文',
           fontSize: '字級',
           color: '顏色',
+          backgroundEnabled: '底色',
+          backgroundColor: '底色顏色',
+          backgroundTip: '控制這一句文字的對比描邊底色',
           bold: '粗體',
           letterSpacing: '字間距',
           spaceWidth: '空格寬',
@@ -1727,6 +1747,9 @@
           translation: '译文',
           fontSize: '字号',
           color: '颜色',
+          backgroundEnabled: '底色',
+          backgroundColor: '底色颜色',
+          backgroundTip: '控制这一句文字的对比描边底色',
           bold: '粗体',
           letterSpacing: '字间距',
           spaceWidth: '空格宽',
@@ -1914,6 +1937,9 @@
           translation: 'Translation',
           fontSize: 'Size',
           color: 'Color',
+          backgroundEnabled: 'Background',
+          backgroundColor: 'BG color',
+          backgroundTip: 'Control the contrast outline behind this text box',
           bold: 'Bold',
           letterSpacing: 'Spacing',
           spaceWidth: 'Space',
@@ -2101,6 +2127,9 @@
           translation: '訳文',
           fontSize: 'サイズ',
           color: '色',
+          backgroundEnabled: '縁取り',
+          backgroundColor: '縁取り色',
+          backgroundTip: 'このテキスト枠の読みやすさを上げる縁取りを設定します',
           bold: '太字',
           letterSpacing: '字間隔',
           spaceWidth: '空白幅',
@@ -2288,6 +2317,8 @@
         editorHistory: [],
         editorHistoryIdx: -1,
         editorFreshRegions: null,
+        editorDefaultBackgroundEnabled: false,
+        editorDefaultBackgroundColor: '#ffffff',
         // 預覽縮放/平移（局部放大修圖用）
         editorZoom: 1,
         editorPanX: 0,
@@ -2522,6 +2553,9 @@
             original: '', translation: '',
             font_size: Math.max(12, Math.round((y2 - y1) / 3)),
             color: '#000000', bold: false, direction: 'auto', font: '',
+            background_enabled: this.editorDefaultBackgroundEnabled,
+            background_color: this.editorDefaultBackgroundColor,
+            color_override: true, background_color_override: true,
             letter_spacing: 1, space_scale: 1, skip: false, hidden: false, dx: 0, dy: 0, angle: 0,
           });
           this.selectedRegionId = id;
@@ -2531,6 +2565,23 @@
           this.editorRegions = this.editorRegions.filter(r => r.id !== id);
           this.recordHistory();
           this.rerenderEditor();
+        },
+        _normalizeCustomRegion(region) {
+          const normalized = { ...region, custom: true };
+          if (typeof normalized.background_enabled !== 'boolean') {
+            normalized.background_enabled = this.editorDefaultBackgroundEnabled;
+          }
+          if (!/^#[0-9a-f]{6}$/i.test(normalized.background_color || '')) {
+            normalized.background_color = this.editorDefaultBackgroundColor;
+          }
+          normalized.color_override = true;
+          normalized.background_color_override = true;
+          return normalized;
+        },
+        setRegionColorOverride(region, field) {
+          if (!region) return;
+          if (field === 'background_color') region.background_color_override = true;
+          else region.color_override = true;
         },
 
         // ── 手動修補筆刷：在預覽上塗抹 → 收集 final.png 像素座標 → 重渲染時後端套用 ──
@@ -3935,11 +3986,24 @@
       this.editorRegions = this.editorRegions.map(r => {
         const ed = byId[r.id];
         if (!ed) return r;
+        // 舊草稿沒有 override 旗標：非預設色視為使用者真的改過；
+        // 黑字／白底則視為舊版每次自動送出的預設，不強制覆寫原成品。
+        const colorOverride = typeof ed.color_override === 'boolean'
+          ? ed.color_override : !!(ed.color && String(ed.color).toLowerCase() !== '#000000');
+        const backgroundColorOverride = typeof ed.background_color_override === 'boolean'
+          ? ed.background_color_override
+          : !!(ed.background_color && String(ed.background_color).toLowerCase() !== '#ffffff');
         return {
           ...r,
           translation: ed.translation != null ? ed.translation : r.translation,
           font_size: ed.font_size || r.font_size,
-          color: ed.color || r.color,
+          color: colorOverride && ed.color ? ed.color : r.color,
+          color_override: colorOverride,
+          background_enabled: typeof ed.background_enabled === 'boolean'
+            ? ed.background_enabled : r.background_enabled,
+          background_color: backgroundColorOverride && ed.background_color
+            ? ed.background_color : (r.background_color || '#ffffff'),
+          background_color_override: backgroundColorOverride,
           bold: !!ed.bold,
           letter_spacing: ed.letter_spacing || r.letter_spacing,
           space_scale: ed.space_scale || r.space_scale,
@@ -3987,8 +4051,19 @@
         }
         const data = await resp.json();
         this.editorFolder = folder;
+        this.editorDefaultBackgroundEnabled = !!data.default_background_enabled;
+        this.editorDefaultBackgroundColor = '#ffffff';
         // 出廠（剛機翻完）狀態：留一份供「還原成翻譯出廠設置」用
-        this.editorFreshRegions = (data.regions || []).map(r => ({ ...r, dx: 0, dy: 0 }));
+        this.editorFreshRegions = (data.regions || []).map(r => ({
+          ...r,
+          background_enabled: typeof r.background_enabled === 'boolean'
+            ? r.background_enabled : this.editorDefaultBackgroundEnabled,
+          background_color: r.background_color || this.editorDefaultBackgroundColor,
+          color_override: false,
+          background_color_override: false,
+          dx: 0,
+          dy: 0,
+        }));
         this.editorRegions = JSON.parse(JSON.stringify(this.editorFreshRegions));
         this.selectedRegionId = this.editorRegions.length ? this.editorRegions[0].id : null;
         this.editorBlob = null;
@@ -4008,7 +4083,7 @@
         if (savedEdits.length || savedPatches.length || savedCustoms.length) {
           this._applyEditsToRegions(savedEdits);
           this.editorPatches = savedPatches;
-          savedCustoms.forEach(c => this.editorRegions.push({ ...c, custom: true }));
+          savedCustoms.forEach(c => this.editorRegions.push(this._normalizeCustomRegion(c)));
           this.resetHistory();
           this.rerenderEditor();
         } else {
@@ -4092,6 +4167,8 @@
         ],
         font_size: r.font_size || 28,
         color: r.color || null,
+        background_enabled: !!r.background_enabled,
+        background_color: r.background_color || '#ffffff',
         bold: !!r.bold,
         direction: r.direction || 'auto',
         font_path: r.font || null,
@@ -4106,7 +4183,12 @@
         id: r.id,
         translation: r.translation,
         font_size: r.font_size || null,
-        color: r.color || null,
+        color: r.color_override ? (r.color || '#000000') : null,
+        color_override: !!r.color_override,
+        background_enabled: !!r.background_enabled,
+        background_color: r.background_color_override
+          ? (r.background_color || '#ffffff') : null,
+        background_color_override: !!r.background_color_override,
         bold: !!r.bold,
         letter_spacing: r.letter_spacing || null,
         space_scale: r.space_scale || null,
@@ -4217,7 +4299,7 @@
         this._applyEditsToRegions(doc.edits || []);
         this.editorPatches = doc.patches || [];
         this.editorRegions = this.editorRegions.filter(r => !r.custom);
-        (doc.customs || []).forEach(c => this.editorRegions.push({ ...c, custom: true }));
+        (doc.customs || []).forEach(c => this.editorRegions.push(this._normalizeCustomRegion(c)));
         this.recordHistory();
         this.rerenderEditor();
       } catch (err) {
