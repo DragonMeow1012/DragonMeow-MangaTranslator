@@ -1336,21 +1336,26 @@ class MangaTranslator:
         if ocr_result_dir:
             os.environ['MANGA_OCR_RESULT_DIR'] = ocr_result_dir
         
+        ocr_timeout = float(os.getenv('MANGA_OCR_TIMEOUT', '240'))
         try:
-            # 加逾時：PaddleOCR predict 偶爾卡住單執行緒 GPU pipeline（持著 gpu_lock 不放→整批卡死，
-            # log 停在 "Running ocr"）。逾時就放棄本頁 OCR、釋放鎖，避免凍結整批。日文建議用 manga-ocr
-            # （不會卡），韓文才用 paddle。可用 env MANGA_OCR_TIMEOUT 調整秒數。
+            # 文字多的頁面可能需要較久，預設等 240 秒。PaddleOCR 若仍逾時就讓本頁進入
+            # 失敗／重試流程，不能回傳空 OCR 結果，否則會被誤判為「沒有文字」而靜默跳頁。
+            # 可用 env MANGA_OCR_TIMEOUT 調整秒數。
             textlines = await asyncio.wait_for(
                 self._run_async_in_thread(
                     dispatch_ocr,
                     config.ocr.ocr, ctx.img_rgb, ctx.textlines, config.ocr,
                     self._resolve_ocr_device(config.ocr), self.verbose,
                 ),
-                timeout=float(os.getenv('MANGA_OCR_TIMEOUT', '120')),
+                timeout=ocr_timeout,
             )
-        except asyncio.TimeoutError:
-            self.logger.error('OCR 逾時（疑似 PaddleOCR predict 卡住）→ 跳過本頁 OCR 並釋放 GPU 鎖；日文建議改用 manga-ocr')
-            textlines = []
+        except asyncio.TimeoutError as exc:
+            message = (
+                f'OCR 超過 {ocr_timeout:g} 秒仍未完成；本頁標記為失敗並交由重試，'
+                '不會當成無文字頁跳過'
+            )
+            logger.error(message)
+            raise TimeoutError(message) from exc
         finally:
             # 恢复环境变量
             if old_ocr_dir is not None:
