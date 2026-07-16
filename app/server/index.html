@@ -1119,10 +1119,23 @@
                 <label class="flex items-center gap-1">{{ t('fontSize') }}
                   <input type="number" v-model.number="r.font_size" min="6" max="200" @change="recordHistory"
                          class="w-14 border border-gray-300 rounded px-1 py-0.5"></label>
-                <label class="flex items-center gap-1">{{ t('color') }}
+                <label class="flex items-center gap-1">{{ t('textColor') }}
                   <input type="color" v-model="r.color" @change="recordHistory" class="w-7 h-6 p-0 border-0"></label>
                 <label class="flex items-center gap-1">
                   <input type="checkbox" v-model="r.bold" @change="recordHistory"> {{ t('bold') }}</label>
+              </div>
+              <div class="flex items-center gap-3 mt-1 text-xs text-gray-600" @click.stop>
+                <label class="flex items-center gap-1" :title="t('backgroundTooltip')">
+                  <input type="checkbox" v-model="r.background_enabled" @change="recordHistory">
+                  {{ t('backgroundEnabled') }}
+                </label>
+                <label class="flex items-center gap-1"
+                       :class="{'opacity-40': !r.background_enabled}">
+                  {{ t('backgroundColor') }}
+                  <input type="color" v-model="r.background_color"
+                         :disabled="!r.background_enabled"
+                         @change="recordHistory" class="w-7 h-6 p-0 border-0">
+                </label>
               </div>
               <div class="flex items-center gap-3 mt-1 text-xs text-gray-600" @click.stop>
                 <label class="flex items-center gap-1">{{ t('direction') }}
@@ -1540,6 +1553,10 @@
           translation: '譯文',
           fontSize: '字級',
           color: '顏色',
+          textColor: '文字顏色',
+          backgroundEnabled: '開啟底色',
+          backgroundColor: '底色顏色',
+          backgroundTooltip: '只控制這一句文字的描邊底色',
           bold: '粗體',
           letterSpacing: '字間距',
           spaceWidth: '空格寬',
@@ -1727,6 +1744,10 @@
           translation: '译文',
           fontSize: '字号',
           color: '颜色',
+          textColor: '文字颜色',
+          backgroundEnabled: '开启底色',
+          backgroundColor: '底色颜色',
+          backgroundTooltip: '只控制这一句文字的描边底色',
           bold: '粗体',
           letterSpacing: '字间距',
           spaceWidth: '空格宽',
@@ -1914,6 +1935,10 @@
           translation: 'Translation',
           fontSize: 'Size',
           color: 'Color',
+          textColor: 'Text color',
+          backgroundEnabled: 'Text backdrop',
+          backgroundColor: 'Backdrop color',
+          backgroundTooltip: 'Toggle the outline backdrop for this text box only',
           bold: 'Bold',
           letterSpacing: 'Spacing',
           spaceWidth: 'Space',
@@ -2101,6 +2126,10 @@
           translation: '訳文',
           fontSize: 'サイズ',
           color: '色',
+          textColor: '文字色',
+          backgroundEnabled: '縁取り背景',
+          backgroundColor: '背景色',
+          backgroundTooltip: 'このテキスト枠だけ縁取り背景を切り替えます',
           bold: '太字',
           letterSpacing: '字間隔',
           spaceWidth: '空白幅',
@@ -2521,7 +2550,10 @@
             id, custom: true, bbox: [x1, y1, x2, y2],
             original: '', translation: '',
             font_size: Math.max(12, Math.round((y2 - y1) / 3)),
-            color: '#000000', bold: false, direction: 'auto', font: '',
+            color: '#000000',
+            background_enabled: !!this.fontBorder,
+            background_color: '#ffffff',
+            bold: false, direction: 'auto', font: '',
             letter_spacing: 1, space_scale: 1, skip: false, hidden: false, dx: 0, dy: 0, angle: 0,
           });
           this.selectedRegionId = id;
@@ -3940,6 +3972,9 @@
           translation: ed.translation != null ? ed.translation : r.translation,
           font_size: ed.font_size || r.font_size,
           color: ed.color || r.color,
+          background_enabled: (typeof ed.background_enabled === 'boolean')
+            ? ed.background_enabled : !!r.background_enabled,
+          background_color: ed.background_color || r.background_color || '#ffffff',
           bold: !!ed.bold,
           letter_spacing: ed.letter_spacing || r.letter_spacing,
           space_scale: ed.space_scale || r.space_scale,
@@ -4008,7 +4043,13 @@
         if (savedEdits.length || savedPatches.length || savedCustoms.length) {
           this._applyEditsToRegions(savedEdits);
           this.editorPatches = savedPatches;
-          savedCustoms.forEach(c => this.editorRegions.push({ ...c, custom: true }));
+          savedCustoms.forEach(c => this.editorRegions.push({
+            ...c,
+            custom: true,
+            background_enabled: (typeof c.background_enabled === 'boolean')
+              ? c.background_enabled : !!this.fontBorder,
+            background_color: c.background_color || '#ffffff',
+          }));
           this.resetHistory();
           this.rerenderEditor();
         } else {
@@ -4092,6 +4133,8 @@
         ],
         font_size: r.font_size || 28,
         color: r.color || null,
+        background_enabled: !!r.background_enabled,
+        background_color: r.background_color || null,
         bold: !!r.bold,
         direction: r.direction || 'auto',
         font_path: r.font || null,
@@ -4107,6 +4150,8 @@
         translation: r.translation,
         font_size: r.font_size || null,
         color: r.color || null,
+        background_enabled: !!r.background_enabled,
+        background_color: r.background_color || null,
         bold: !!r.bold,
         letter_spacing: r.letter_spacing || null,
         space_scale: r.space_scale || null,
@@ -4217,7 +4262,13 @@
         this._applyEditsToRegions(doc.edits || []);
         this.editorPatches = doc.patches || [];
         this.editorRegions = this.editorRegions.filter(r => !r.custom);
-        (doc.customs || []).forEach(c => this.editorRegions.push({ ...c, custom: true }));
+        (doc.customs || []).forEach(c => this.editorRegions.push({
+          ...c,
+          custom: true,
+          background_enabled: (typeof c.background_enabled === 'boolean')
+            ? c.background_enabled : !!this.fontBorder,
+          background_color: c.background_color || '#ffffff',
+        }));
         this.recordHistory();
         this.rerenderEditor();
       } catch (err) {

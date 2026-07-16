@@ -52,6 +52,19 @@ def fg_bg_compare(fg, bg):
     return fg, bg
 
 
+def _hex_color_to_rgb(value):
+    """把進階編輯器的 ``#rrggbb`` 安全轉成 RGB tuple。"""
+    if not isinstance(value, str):
+        return None
+    value = value.strip()
+    if len(value) != 7 or not value.startswith('#'):
+        return None
+    try:
+        return tuple(int(value[index:index + 2], 16) for index in (1, 3, 5))
+    except ValueError:
+        return None
+
+
 def _resolve_font_path(font_path: str) -> str:
     """Resolve font path from absolute/relative/project-fonts path.
 
@@ -2551,6 +2564,9 @@ def render(
 
     # Get background color separately
     _, bg = region.get_font_colors()
+    manual_bg = _hex_color_to_rgb(getattr(region, 'background_color', None))
+    if manual_bg is not None:
+        bg = manual_bg
     # --- END BRUTEFORCE COLOR FIX ---
 
     # Convert hex color string to RGB tuple, if necessary
@@ -2620,7 +2636,13 @@ def render(
         if has_br_in_text:
             text_to_render = re.sub(r'\s*(\[BR\]|<br>|【BR】)\s*', '\n', text_to_render, flags=re.IGNORECASE)
 
-    if disable_font_border :
+    region_background_enabled = getattr(region, 'background_enabled', None)
+    background_enabled = (
+        not disable_font_border
+        if region_background_enabled is None
+        else bool(region_background_enabled)
+    )
+    if not background_enabled:
         bg = None
 
     middle_pts = (dst_points[:, [1, 2, 3, 0]] + dst_points) / 2
