@@ -15,7 +15,11 @@ import numpy as np
 from PIL import Image
 from pydantic import BaseModel
 
-from manga_translator.rendering import dispatch as dispatch_rendering, _separate_close_regions
+from manga_translator.rendering import (
+    _separate_close_regions,
+    dispatch as dispatch_rendering,
+    resolve_region_render_colors,
+)
 
 
 def _hex_to_rgb(value: str):
@@ -114,15 +118,17 @@ def _region_json(r, idx, was_skipped, default_background_enabled):
         x1, y1, x2, y2 = (int(v) for v in r.xyxy)
     except Exception:
         x1 = y1 = x2 = y2 = 0
+    fg, bg = resolve_region_render_colors(r, disable_font_border=False)
+    color = '#%02x%02x%02x' % tuple(int(v) for v in fg)
+    background_color = '#%02x%02x%02x' % tuple(int(v) for v in bg)
     return {
         'id': idx,
         'original': r.text or '',
         'translation': r.translation or '',
         'font_size': int(getattr(r, 'font_size', 0) or 0),
-        # 進階編輯一律從黑字／白底開始；要其他配色由使用者手動選。
-        'color': '#000000',
+        'color': color,
         'background_enabled': bool(default_background_enabled),
-        'background_color': '#ffffff',
+        'background_color': background_color,
         'bold': bool(getattr(r, 'bold', False)),
         'letter_spacing': round(float(getattr(r, 'letter_spacing', None) or 1.0), 2),
         'space_scale': round(float(getattr(r, 'space_scale', None) or 1.0), 2),

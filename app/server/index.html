@@ -93,6 +93,30 @@
       aside::-webkit-scrollbar { width: 6px; }
       aside::-webkit-scrollbar-thumb { background: #44403c; border-radius: 3px; }
       .ink-card.ink-panel { border-top-left-radius: 0; }
+      .gallery-preview-frame {
+        display: inline-block;
+        width: fit-content;
+        max-width: min(78vw, 760px);
+        max-height: 82vh;
+        overflow: hidden;
+      }
+      .gallery-preview-image {
+        display: block;
+        width: auto;
+        height: auto;
+        max-width: min(78vw, 760px);
+        max-height: 82vh;
+        object-fit: contain;
+        user-select: none;
+        transform-origin: center center;
+      }
+      @media (max-width: 640px) {
+        .gallery-preview-frame,
+        .gallery-preview-image {
+          max-width: 92vw;
+          max-height: 78vh;
+        }
+      }
       /* ── 深夜模式（root div 加 .dark）────────────── */
       .dark .screentone { background-color: #1c1917; background-image: radial-gradient(#292524 1.2px, transparent 1.2px); }
       .dark .ink-card { background: #292524; border-color: #a8a29e; box-shadow: 5px 5px 0 #0c0a09; }
@@ -922,17 +946,17 @@
 
       <!-- Image Modal -->
       <div v-if="showImageModal"
-           class="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50"
+           class="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4"
            @click="closeImageModal">
-        <div class="relative max-w-4xl max-h-full p-4" @click.stop>
+        <div class="gallery-preview-frame relative rounded-lg" @click.stop>
           <!-- Close button -->
-          <button @click="closeImageModal" 
+          <button @click.stop="closeImageModal"
                   class="absolute top-2 right-2 z-10 p-2 bg-black bg-opacity-50 text-white rounded-full hover:bg-opacity-75 transition-all">
             <i class="iconify w-6 h-6" data-icon="carbon:close"></i>
           </button>
           
           <!-- Zoom button -->
-          <button @click="toggleZoom" 
+          <button @click.stop="toggleZoom"
                   class="absolute top-2 right-12 z-10 p-2 bg-black bg-opacity-50 text-white rounded-full hover:bg-opacity-75 transition-all"
                   :title="isImageZoomed ? 'Zoom out' : 'Zoom in'">
             <i class="iconify w-6 h-6" :data-icon="isImageZoomed ? 'carbon:zoom-out' : 'carbon:zoom-in'"></i>
@@ -940,13 +964,13 @@
           
           <!-- Navigation buttons -->
           <button v-if="finishedImages.length > 1" 
-                  @click="previousImage" 
+                  @click.stop="previousImage"
                   class="absolute left-4 top-1/2 transform -translate-y-1/2 z-10 p-2 bg-black bg-opacity-50 text-white rounded-full hover:bg-opacity-75 transition-all">
             <i class="iconify w-6 h-6" data-icon="carbon:arrow-left"></i>
           </button>
           
           <button v-if="finishedImages.length > 1" 
-                  @click="nextImage" 
+                  @click.stop="nextImage"
                   class="absolute right-4 top-1/2 transform -translate-y-1/2 z-10 p-2 bg-black bg-opacity-50 text-white rounded-full hover:bg-opacity-75 transition-all">
             <i class="iconify w-6 h-6" data-icon="carbon:arrow-right"></i>
           </button>
@@ -955,20 +979,26 @@
           <img v-if="selectedImage" 
                :src="selectedImage.result" 
                :alt="'Translated: ' + selectedImage.originalName"
-               class="max-w-full max-h-full object-contain rounded-lg cursor-pointer"
-               :class="{ 'transition-transform duration-300': !isDragging }"
+               class="gallery-preview-image"
+               :class="[
+                 !isDragging ? 'transition-transform duration-300' : '',
+                 isImageZoomed ? (isDragging ? 'cursor-grabbing' : 'cursor-grab') : 'cursor-zoom-in'
+               ]"
                :style="{ 
-                 transform: `scale(${imageTransform.scale}) translate(${imageTransform.translateX}px, ${imageTransform.translateY}px)`
+                 transform: `translate(${imageTransform.translateX}px, ${imageTransform.translateY}px) scale(${imageTransform.scale})`,
+                 touchAction: isImageZoomed ? 'none' : 'auto'
                }"
-               @click="toggleZoom"
-               @mousedown="onImageMouseDown"
-               @mousemove="onImageMouseMove"
-               @mouseup="onImageMouseUp"
-               @mouseleave="onImageMouseUp">
+               draggable="false"
+               @click="onImageClick"
+               @pointerdown="onImagePointerDown"
+               @pointermove="onImagePointerMove"
+               @pointerup="onImagePointerUp"
+               @pointercancel="onImagePointerCancel"
+               @dragstart.prevent>
           
           <!-- Image info -->
           <div v-if="selectedImage" 
-               class="absolute bottom-4 left-4 right-4 bg-black bg-opacity-50 text-white p-3 rounded-lg">
+               class="absolute bottom-0 left-0 right-0 bg-black bg-opacity-50 text-white p-3 rounded-b-lg pointer-events-none">
             <div class="text-sm font-medium">{{ selectedImage.originalName }}</div>
             <div class="text-xs text-gray-300">
               {{ new Date(selectedImage.finishedAt).toLocaleString() }}
@@ -1121,8 +1151,8 @@
                          class="w-14 border border-gray-300 rounded px-1 py-0.5"></label>
                 <label class="flex items-center gap-1">{{ t('color') }}
                   <input type="color" v-model="r.color"
-                         @click="setRegionColorOverride(r, 'color')"
-                         @change="recordHistory" class="w-7 h-6 p-0 border-0"></label>
+                         @change="setRegionColorOverride(r, 'color'); recordHistory()"
+                         class="w-7 h-6 p-0 border-0"></label>
                 <label class="flex items-center gap-1">
                   <input type="checkbox" v-model="r.bold" @change="recordHistory"> {{ t('bold') }}</label>
               </div>
@@ -1137,8 +1167,8 @@
                   {{ t('backgroundColor') }}
                   <input type="color" v-model="r.background_color"
                          :disabled="!r.background_enabled"
-                         @click="setRegionColorOverride(r, 'background_color')"
-                         @change="recordHistory" class="w-7 h-6 p-0 border-0 disabled:cursor-not-allowed">
+                         @change="setRegionColorOverride(r, 'background_color'); recordHistory()"
+                         class="w-7 h-6 p-0 border-0 disabled:cursor-not-allowed">
                 </label>
               </div>
               <div class="flex items-center gap-3 mt-1 text-xs text-gray-600" @click.stop>
@@ -2217,6 +2247,10 @@
           translateY: 0
         },
         isDragging: false,
+        imageDragMoved: false,
+        suppressImageClick: false,
+        imageDragStart: { x: 0, y: 0 },
+        imageDragOrigin: { x: 0, y: 0 },
         
         // Step tracking for progress
         translationSteps: [
@@ -3610,8 +3644,17 @@
     },
 
     // Gallery modal functions
+    resetImageView() {
+      this.isImageZoomed = false;
+      this.isDragging = false;
+      this.imageDragMoved = false;
+      this.suppressImageClick = false;
+      this.imageTransform = { scale: 1, translateX: 0, translateY: 0 };
+    },
+
     openImageModal(image) {
       console.log('openImageModal called with:', image);
+      this.resetImageView();
       this.selectedImage = image;
       this.showImageModal = true;
     },
@@ -3619,55 +3662,69 @@
     closeImageModal() {
       this.showImageModal = false;
       this.selectedImage = null;
-      this.isImageZoomed = false; // Reset zoom when closing
-      this.imageTransform = { scale: 1, translateX: 0, translateY: 0 }; // Reset transform
+      this.resetImageView();
     },
 
-    toggleZoom(event) {
+    toggleZoom() {
       if (this.isImageZoomed) {
-        // Zoom out - reset to normal
-        this.isImageZoomed = false;
-        this.imageTransform = { scale: 1, translateX: 0, translateY: 0 };
+        this.resetImageView();
       } else {
-        // Zoom in - zoom to click point
         this.isImageZoomed = true;
-        this.imageTransform.scale = 2;
-        
-        // Calculate click position relative to image
-        if (event) {
-          const rect = event.target.getBoundingClientRect();
-          const x = event.clientX - rect.left;
-          const y = event.clientY - rect.top;
-          
-          // Set transform origin to click point
-          event.target.style.transformOrigin = `${x}px ${y}px`;
+        this.imageTransform = { scale: 2, translateX: 0, translateY: 0 };
         }
-      }
-      console.log('Image zoomed:', this.isImageZoomed, this.imageTransform);
     },
 
-    // Handle middle mouse button drag
-    onImageMouseDown(event) {
-      if (event.button === 1) { // Middle mouse button
+    onImageClick() {
+      if (this.suppressImageClick) {
+        this.suppressImageClick = false;
+        return;
+      }
+      this.toggleZoom();
+    },
+
+    onImagePointerDown(event) {
+      if (!this.isImageZoomed || event.button !== 0) return;
         event.preventDefault();
         this.isDragging = true;
-        this.dragStart = { x: event.clientX, y: event.clientY };
-        this.dragStartTransform = { ...this.imageTransform };
+      this.imageDragMoved = false;
+      this.imageDragStart = { x: event.clientX, y: event.clientY };
+      this.imageDragOrigin = {
+        x: this.imageTransform.translateX,
+        y: this.imageTransform.translateY,
+      };
+      if (event.currentTarget.setPointerCapture) {
+        event.currentTarget.setPointerCapture(event.pointerId);
       }
     },
 
-    onImageMouseMove(event) {
-      if (this.isDragging && this.isImageZoomed) {
-        const deltaX = event.clientX - this.dragStart.x;
-        const deltaY = event.clientY - this.dragStart.y;
+    onImagePointerMove(event) {
+      if (!this.isDragging || !this.isImageZoomed) return;
+      event.preventDefault();
+      const deltaX = event.clientX - this.imageDragStart.x;
+      const deltaY = event.clientY - this.imageDragStart.y;
+      if (Math.abs(deltaX) + Math.abs(deltaY) > 3) this.imageDragMoved = true;
+      const maxX = event.currentTarget.offsetWidth * (this.imageTransform.scale - 1) / 2;
+      const maxY = event.currentTarget.offsetHeight * (this.imageTransform.scale - 1) / 2;
+      this.imageTransform.translateX = Math.max(-maxX, Math.min(maxX, this.imageDragOrigin.x + deltaX));
+      this.imageTransform.translateY = Math.max(-maxY, Math.min(maxY, this.imageDragOrigin.y + deltaY));
+    },
         
-        this.imageTransform.translateX = this.dragStartTransform.translateX + deltaX;
-        this.imageTransform.translateY = this.dragStartTransform.translateY + deltaY;
+    onImagePointerUp(event) {
+      if (!this.isDragging) return;
+      this.isDragging = false;
+      this.suppressImageClick = this.imageDragMoved;
+      if (event.currentTarget.hasPointerCapture && event.currentTarget.hasPointerCapture(event.pointerId)) {
+        event.currentTarget.releasePointerCapture(event.pointerId);
       }
     },
 
-    onImageMouseUp() {
+    onImagePointerCancel(event) {
       this.isDragging = false;
+      this.imageDragMoved = false;
+      this.suppressImageClick = false;
+      if (event.currentTarget.hasPointerCapture && event.currentTarget.hasPointerCapture(event.pointerId)) {
+        event.currentTarget.releasePointerCapture(event.pointerId);
+      }
     },
 
     nextImage() {
@@ -3678,8 +3735,7 @@
         if (currentIndex > -1 && currentIndex < list.length - 1) {
           this.selectedImage = list[currentIndex + 1];
           // Reset transform when switching images
-          this.isImageZoomed = false;
-          this.imageTransform = { scale: 1, translateX: 0, translateY: 0 };
+          this.resetImageView();
         }
       }
     },
@@ -3691,8 +3747,7 @@
         if (currentIndex > 0) {
           this.selectedImage = list[currentIndex - 1];
           // Reset transform when switching images
-          this.isImageZoomed = false;
-          this.imageTransform = { scale: 1, translateX: 0, translateY: 0 };
+          this.resetImageView();
         }
       }
     },
@@ -3986,23 +4041,23 @@
       this.editorRegions = this.editorRegions.map(r => {
         const ed = byId[r.id];
         if (!ed) return r;
-        // 舊草稿沒有 override 旗標：非預設色視為使用者真的改過；
-        // 黑字／白底則視為舊版每次自動送出的預設，不強制覆寫原成品。
         const colorOverride = typeof ed.color_override === 'boolean'
-          ? ed.color_override : !!(ed.color && String(ed.color).toLowerCase() !== '#000000');
+          ? ed.color_override
+          : !!(ed.color
+            && String(ed.color).toLowerCase() !== String(r.color || '').toLowerCase());
         const backgroundColorOverride = typeof ed.background_color_override === 'boolean'
           ? ed.background_color_override
-          : !!(ed.background_color && String(ed.background_color).toLowerCase() !== '#ffffff');
+          : !!(ed.background_color
+            && String(ed.background_color).toLowerCase() !== String(r.background_color || '').toLowerCase());
         return {
           ...r,
           translation: ed.translation != null ? ed.translation : r.translation,
           font_size: ed.font_size || r.font_size,
-          color: colorOverride && ed.color ? ed.color : r.color,
+          color: ed.color || r.color || '#000000',
           color_override: colorOverride,
           background_enabled: typeof ed.background_enabled === 'boolean'
             ? ed.background_enabled : r.background_enabled,
-          background_color: backgroundColorOverride && ed.background_color
-            ? ed.background_color : (r.background_color || '#ffffff'),
+          background_color: ed.background_color || r.background_color || '#ffffff',
           background_color_override: backgroundColorOverride,
           bold: !!ed.bold,
           letter_spacing: ed.letter_spacing || r.letter_spacing,
