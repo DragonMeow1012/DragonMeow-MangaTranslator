@@ -23,6 +23,15 @@ import shutil
 import subprocess
 import sys
 
+# setup.bat / Bot 會把安裝輸出導向檔案；Windows 此時常沿用 cp950。
+# 狀態訊息含 emoji 與中日文，若不先切 UTF-8，安裝成功後反而會在 print()
+# 拋 UnicodeEncodeError，連帶跳過最後的 verify_and_repair()。
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding='utf-8', errors='replace')
+    except Exception:
+        pass
+
 PY = sys.executable
 TORCH_CU126 = "https://download.pytorch.org/whl/cu126"
 TORCH_CU128 = "https://download.pytorch.org/whl/cu128"        # Blackwell（sm_120）需要
