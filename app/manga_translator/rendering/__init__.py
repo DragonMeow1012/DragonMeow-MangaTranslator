@@ -52,6 +52,70 @@ def fg_bg_compare(fg, bg):
     return fg, bg
 
 
+def _normalize_rgb(value, default=None):
+    """Normalize hex strings, tuples/lists, and NumPy RGB arrays to an RGB tuple."""
+    if isinstance(value, str):
+        text = value.strip().lstrip('#')
+        if len(text) != 6:
+            return default
+        try:
+            return tuple(int(text[i:i + 2], 16) for i in (0, 2, 4))
+        except ValueError:
+            return default
+    try:
+        values = np.asarray(value).reshape(-1)
+        if values.size < 3:
+            return default
+        return tuple(
+            int(np.clip(round(float(channel)), 0, 255))
+            for channel in values[:3]
+        )
+    except (TypeError, ValueError, OverflowError):
+        return default
+
+
+def _has_manual_foreground_color(region) -> bool:
+    return _normalize_rgb(getattr(region, 'font_color', None)) is not None
+
+
+def resolve_region_render_colors(region, disable_font_border: bool):
+    """Resolve the exact foreground/background pair that will be rendered."""
+    manual_fg = _normalize_rgb(getattr(region, 'font_color', None))
+    manual_bg = _normalize_rgb(getattr(region, 'background_color', None))
+    try:
+        detected_fg, detected_bg = region.get_font_colors()
+    except Exception:
+        detected_fg, detected_bg = None, None
+
+    fg = manual_fg if manual_fg is not None else _normalize_rgb(
+        getattr(region, 'fg_colors', None),
+        _normalize_rgb(detected_fg, (0, 0, 0)),
+    )
+    bg = (
+        manual_bg
+        if manual_bg is not None
+        else _normalize_rgb(detected_bg, (255, 255, 255))
+    )
+
+    if getattr(region, 'adjust_bg_color', True) and manual_bg is None:
+        if not disable_font_border and manual_fg is None:
+            if float(np.mean(fg)) < 128:
+                fg, bg = (0, 0, 0), (255, 255, 255)
+            else:
+                fg, bg = (255, 255, 255), (0, 0, 0)
+        else:
+            fg, bg = fg_bg_compare(fg, bg)
+
+    return fg, None if disable_font_border else bg
+
+
+def _resolve_region_stroke_width(region, fg, bg) -> float:
+    """Base stroke generation on the colors that are actually rendered."""
+    if bg is None or color_difference(fg, bg) <= 15:
+        return 0.0
+    return float(getattr(region, 'default_stroke_width', 0.2))
+
+
 def _resolve_font_path(font_path: str) -> str:
     """Resolve font path from absolute/relative/project-fonts path.
 
@@ -2464,6 +2528,8 @@ async def dispatch(
     # env MANGA_RENDER_SAMPLE_TEXT_COLOR=0 可關，取樣失敗的 region 沿用原回歸色。
     if original_img is not None and os.getenv('MANGA_RENDER_SAMPLE_TEXT_COLOR', '1') in ('1', 'true', 'True'):
         for _region in text_regions:
+            if _has_manual_foreground_color(_region):
+                continue
             _sampled = _sample_region_text_color(_region, original_img)
             if _sampled is not None:
                 _region.fg_colors = _sampled
@@ -2506,6 +2572,10 @@ def render(
     disable_font_border,
     config: Config
 ):
+    region_disable_font_border = getattr(region, 'disable_font_border', None)
+    if region_disable_font_border is not None:
+        disable_font_border = bool(region_disable_font_border)
+
     # 進階編輯：per-region 空格寬度倍率（畫完還原，避免影響後續 region）
     try:
         text_render._state().space_scale = float(getattr(region, 'space_scale', 1.0) or 1.0)
@@ -2528,58 +2598,8 @@ def render(
             logger.warning(f"Font path not found for region: {region_font_path}, using built-in default font")
         text_render.set_font(text_render.DEFAULT_FONT)
 
-    # --- START BRUTEFORCE COLOR FIX ---
-    fg = (0, 0, 0) # Default to black
-    try:
-        # Priority 1: Check for the original hex string from the UI
-        if hasattr(region, 'font_color') and isinstance(region.font_color, str) and region.font_color.startswith('#'):
-            hex_c = region.font_color
-            if len(hex_c) == 7:
-                r = int(hex_c[1:3], 16)
-                g = int(hex_c[3:5], 16)
-                b = int(hex_c[5:7], 16)
-                fg = (r, g, b)
-        # Priority 2: Check for a pre-converted tuple
-        elif hasattr(region, 'fg_colors') and isinstance(region.fg_colors, (tuple, list)) and len(region.fg_colors) == 3:
-            fg = tuple(region.fg_colors)
-        # Last resort: Use the method2
-        else:
-            fg, _ = region.get_font_colors()
-    except Exception:
-        # If anything fails, fg remains black
-        pass
-
-    # Get background color separately
-    _, bg = region.get_font_colors()
-    # --- END BRUTEFORCE COLOR FIX ---
-
-    # Convert hex color string to RGB tuple, if necessary
-    if isinstance(fg, str) and fg.startswith('#') and len(fg) == 7:
-        try:
-            r = int(fg[1:3], 16)
-            g = int(fg[3:5], 16)
-            b = int(fg[5:7], 16)
-            fg = (r, g, b)
-        except ValueError:
-            fg = (0, 0, 0)  # Default to black on error
-    elif not isinstance(fg, (tuple, list)):
-        fg = (0, 0, 0) # Default to black if format is unexpected
-
-    # 是否有「進階編輯」手動指定字色（保留使用者選色，不被下面的固定二值覆蓋）
-    _manual_fg = (hasattr(region, 'font_color') and isinstance(region.font_color, str)
-                  and region.font_color.startswith('#'))
-    if getattr(region, 'adjust_bg_color', True):
-        if (not disable_font_border) and (not _manual_fg):
-            # 「文字加底色」開啟 → 底色固定「白底黑字 / 黑底白字」二選一，依原文亮度自動挑：
-            # fg 已由 _sample_region_text_color 依原圖灰階中位數決定深/淺（亮底→黑字、暗底→白字），
-            # 這裡據此把底色補成對比最強的純黑/純白成對。可讀性優先，不保留彩色底。
-            _fg_lum = float(np.mean(fg)) if isinstance(fg, (tuple, list)) and len(fg) == 3 else 0.0
-            if _fg_lum < 128:
-                fg, bg = (0, 0, 0), (255, 255, 255)    # 白底黑字
-            else:
-                fg, bg = (255, 255, 255), (0, 0, 0)    # 黑底白字
-        else:
-            fg, bg = fg_bg_compare(fg, bg)
+    fg, bg = resolve_region_render_colors(region, disable_font_border)
+    stroke_width = _resolve_region_stroke_width(region, fg, bg)
 
     # Centralized text preprocessing
     # 检查是否有富文本，并标记给渲染器
@@ -2619,9 +2639,6 @@ def render(
         has_br_in_text = bool(re.search(r'(\[BR\]|<br>|【BR】)', text_to_render, flags=re.IGNORECASE))
         if has_br_in_text:
             text_to_render = re.sub(r'\s*(\[BR\]|<br>|【BR】)\s*', '\n', text_to_render, flags=re.IGNORECASE)
-
-    if disable_font_border :
-        bg = None
 
     middle_pts = (dst_points[:, [1, 2, 3, 0]] + dst_points) / 2
     norm_h = np.linalg.norm(middle_pts[:, 1] - middle_pts[:, 3], axis=1)
@@ -2667,7 +2684,7 @@ def render(
             reversed_direction=(region.direction == 'hl'),
             target_lang=region.target_lang,
             hyphenate=hyphenate,
-            stroke_width=region.stroke_width,  # 传递区域的描边宽度
+            stroke_width=stroke_width,
             letter_spacing=letter_spacing,
         )
     elif render_horizontally:
@@ -2685,7 +2702,7 @@ def render(
             line_spacing,
             config,
             len(region.lines),  # Pass region count
-            stroke_width=region.stroke_width,  # 传递区域的描边宽度
+            stroke_width=stroke_width,
             letter_spacing=letter_spacing,
         )
     else:
@@ -2699,14 +2716,14 @@ def render(
             line_spacing,
             config,
             len(region.lines),  # Pass region count
-            stroke_width=region.stroke_width,  # 传递区域的描边宽度
+            stroke_width=stroke_width,
             letter_spacing=letter_spacing,
         )
     
     if temp_box is None:
         logger.warning(f"[RENDER SKIPPED] Text rendering returned None. Text: '{region.translation[:100]}...'")
         return img
-    
+
     h, w, _ = temp_box.shape
     if h == 0 or w == 0:
         logger.warning(f"Skipping rendering for region with invalid dimensions (w={w}, h={h}). Text: '{region.translation}'")
@@ -2896,4 +2913,3 @@ def render(
         logger.warning(f"Text region completely outside image bounds: x={x_adj}, y={y_adj}, w={w_adj}, h={h_adj}, image_size=({img_w}, {img_h}). Text: '{region.translation[:50] if hasattr(region, 'translation') else 'N/A'}...'")
     
     return img
-
