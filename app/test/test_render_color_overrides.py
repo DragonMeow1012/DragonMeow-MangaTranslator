@@ -95,6 +95,19 @@ class RenderColorOverrideTests(unittest.TestCase):
         self.assertEqual(data['color'], '#ffffff')
         self.assertEqual(data['background_color'], '#000000')
 
+    def test_editor_state_hides_internal_numeric_layout_marker(self):
+        region = _region()
+        region.translation = '\u7b2c<T>11</T>\u5e74'
+
+        data = _region_json(
+            region,
+            idx=0,
+            was_skipped=False,
+            default_background_enabled=True,
+        )
+
+        self.assertEqual(data['translation'], '\u7b2c11\u5e74')
+
     def test_server_edit_uses_manual_pair_as_the_render_source(self):
         region = _region()
         edit = RegionEdit(

@@ -2614,11 +2614,15 @@ def render(
         text = re.sub(r'<br\s*/?>', '\n', text, flags=re.IGNORECASE)
         text = text.replace('<!--H_START-->', '<H>')
         text = text.replace('<!--H_END-->', '</H>')
+        text = text.replace('<!--T_START-->', '<T>')
+        text = text.replace('<!--T_END-->', '</T>')
         
         # 2. 移除所有 HTML 标签（保留 <H> 和 </H>）
         # 先保护 <H> 标签
         text = text.replace('<H>', '___H_START___')
         text = text.replace('</H>', '___H_END___')
+        text = text.replace('<T>', '___T_START___')
+        text = text.replace('</T>', '___T_END___')
         
         # 移除其他 HTML 标签
         text = re.sub(r'<[^>]+>', '', text)
@@ -2626,6 +2630,8 @@ def render(
         # 还原 <H> 标签
         text = text.replace('___H_START___', '<H>')
         text = text.replace('___H_END___', '</H>')
+        text = text.replace('___T_START___', '<T>')
+        text = text.replace('___T_END___', '</T>')
         
         # 3. 解码 HTML 实体
         text = unescape(text)
