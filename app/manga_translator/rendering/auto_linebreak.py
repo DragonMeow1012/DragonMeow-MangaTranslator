@@ -131,13 +131,27 @@ def should_force_no_wrap_single_region(region: Any) -> bool:
 # 竖排换行引擎（完全内嵌，不依赖 text_render.calc_vertical）
 # ---------------------------------------------------------------------------
 
-_H_BLOCK_RE = re.compile(r'(<H>.*?</H>)', re.IGNORECASE | re.DOTALL)
+_H_BLOCK_RE = re.compile(r'(<H>.*?</H>|<T>.*?</T>)', re.IGNORECASE | re.DOTALL)
 _BR_RE = re.compile(r'\s*(\[BR\]|<br>|【BR】)\s*', re.IGNORECASE)
 
 
-def _h_block_height(font_size: int, content: str, letter_spacing: float = 1.0) -> int:
+def _inline_block_tag(part: str) -> str:
+    lower = (part or '').lower()
+    if lower.startswith('<h>') and lower.endswith('</h>'):
+        return 'H'
+    if lower.startswith('<t>') and lower.endswith('</t>'):
+        return 'T'
+    return ''
+
+
+def _h_block_height(font_size: int, content: str, letter_spacing: float = 1.0, block_tag: str = 'H') -> int:
     """计算 <H> 横排块在竖排列中占用的高度，直接复用 text_render 的精确实现。"""
-    return calc_horizontal_block_height(font_size, content, letter_spacing=letter_spacing)
+    return calc_horizontal_block_height(
+        font_size,
+        content,
+        letter_spacing=letter_spacing,
+        block_tag=block_tag,
+    )
 
 
 def _vert_char_advance(font_size: int, cdpt: str, letter_spacing: float = 1.0) -> int:
@@ -200,13 +214,13 @@ def _layout_vertical(font_size: int, text: str, max_height: int, config: Any = N
             if not part:
                 continue
 
-            is_h = part.lower().startswith('<h>') and part.lower().endswith('</h>')
+            block_tag = _inline_block_tag(part)
 
-            if is_h:
+            if block_tag:
                 content = part[3:-4]
                 if not content:
                     continue
-                block_h = _h_block_height(font_size, content, letter_spacing=letter_spacing)
+                block_h = _h_block_height(font_size, content, letter_spacing=letter_spacing, block_tag=block_tag)
                 if current_line_height + block_h > max_height and current_line_text:
                     line_text_list.append(current_line_text)
                     line_height_list.append(current_line_height)
@@ -267,13 +281,13 @@ def _layout_vertical_metrics(font_size: int, text: str, max_height: int, config:
             if not part:
                 continue
 
-            is_h = part.lower().startswith('<h>') and part.lower().endswith('</h>')
+            block_tag = _inline_block_tag(part)
 
-            if is_h:
+            if block_tag:
                 content = part[3:-4]
                 if not content:
                     continue
-                block_h = _h_block_height(font_size, content, letter_spacing=letter_spacing)
+                block_h = _h_block_height(font_size, content, letter_spacing=letter_spacing, block_tag=block_tag)
                 if current_line_height + block_h > max_height and current_line_text:
                     append_line(current_line_text, current_line_height, current_line_width)
                     current_line_text = part
@@ -313,8 +327,8 @@ def _vert_line_width(line_text: str, font_size: int) -> int:
     for part in _H_BLOCK_RE.split(line_text):
         if not part:
             continue
-        is_h = part.lower().startswith('<h>') and part.lower().endswith('</h>')
-        if is_h:
+        block_tag = _inline_block_tag(part)
+        if block_tag:
             # <H> 块居中置于列内，列宽取 font_size
             pass
         else:
@@ -333,11 +347,11 @@ def _vert_total_height(text: str, font_size: int, config: Any = None, letter_spa
     for part in _H_BLOCK_RE.split(text):
         if not part:
             continue
-        is_h = part.lower().startswith('<h>') and part.lower().endswith('</h>')
-        if is_h:
+        block_tag = _inline_block_tag(part)
+        if block_tag:
             content = part[3:-4]
             if content:
-                total += _h_block_height(font_size, content, letter_spacing=letter_spacing)
+                total += _h_block_height(font_size, content, letter_spacing=letter_spacing, block_tag=block_tag)
         else:
             for c in part:
                 total += _vert_char_advance(font_size, c, letter_spacing=letter_spacing)

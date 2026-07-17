@@ -450,7 +450,7 @@ def apply_replacements(text: str, direction: int, replacements: Optional[dict] =
 
     # 保护标记：提取 <H>...</H>、[BR]、<br>、【BR】 等，用占位符替代
     _PROTECTED_RE = re.compile(
-        r'<H>.*?</H>'        # <H>...</H> 块
+        r'<(?:H|T)>.*?</(?:H|T)>'  # explicit <H> and automatic numeric <T> blocks
         r'|\[BR\]'           # [BR]
         r'|【BR】'           # 【BR】
         r'|<br\s*/?>'        # <br> / <br/>

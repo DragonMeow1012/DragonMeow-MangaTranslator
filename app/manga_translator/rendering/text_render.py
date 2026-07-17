@@ -72,7 +72,7 @@ def region_default_font(target_lang: str) -> str:
     if lang in _LATIN_LANGS and os.path.exists(_LATIN_DEFAULT_FONT):
         return _LATIN_DEFAULT_FONT
     return DEFAULT_FONT
-_H_BLOCK_RE = re.compile(r'(<H>.*?</H>)', re.IGNORECASE | re.DOTALL)
+_H_BLOCK_RE = re.compile(r'(<H>.*?</H>|<T>.*?</T>)', re.IGNORECASE | re.DOTALL)
 _BR_RE = re.compile(r'\s*(?:\[BR\]|<br\s*/?>|【BR】|\r\n|\r|\n)\s*', re.IGNORECASE)
 # 含直書呈現形 ︕︖：dispatch 的符號替換先於 <H> 標記，!! 此時已被換成 ︕︕，
 # 縱中橫區塊內要還原成半形並排。
@@ -187,8 +187,22 @@ def normalize_vertical_ellipsis_text(text: str) -> str:
     return text
 
 
+def _is_numeric_horizontal_block(content: str) -> bool:
+    content = _BR_RE.sub('', content or '').replace('\r', '').replace('\n', '').strip()
+    return bool(re.fullmatch(r'[0-9\uff10-\uff19]+(?:[ \t]+[0-9\uff10-\uff19]+)*', content))
+
+
+def _inline_block_tag(part: str) -> str:
+    lower = (part or '').lower()
+    if lower.startswith('<h>') and lower.endswith('</h>'):
+        return 'H'
+    if lower.startswith('<t>') and lower.endswith('</t>'):
+        return 'T'
+    return ''
+
+
 def auto_add_horizontal_tags(text: str) -> str:
-    if not text or '<H>' in text or '<h>' in text.lower():
+    if not text or re.search(r'<(?:H|T)>', text, flags=re.IGNORECASE):
         return text
 
     br_tokens = []
@@ -232,9 +246,18 @@ def auto_add_horizontal_tags(text: str) -> str:
         seg,
         flags=re.IGNORECASE,
     )
-    return re.sub(
+    seg = re.sub(
         r'<H>(.*?)</H>',
         lambda m: f"<H>{m.group(1).replace(chr(13)+chr(10), '[BR]').replace(chr(13), '[BR]').replace(chr(10), '[BR]')}</H>",
+        seg,
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+    # Automatic tate-chu-yoko must stay distinct from an explicit <H> block:
+    # plain "11" is upright in one slot, while <H>11</H> keeps the original
+    # whole-block rotation requested by the user.
+    return re.sub(
+        r'<H>(.*?)</H>',
+        lambda m: f'<T>{m.group(1)}</T>' if _is_numeric_horizontal_block(m.group(1)) else m.group(0),
         seg,
         flags=re.IGNORECASE | re.DOTALL,
     )
@@ -248,7 +271,7 @@ def _normalize_horizontal_block_content(content: str) -> str:
 def prepare_text_for_direction_rendering(text: str, is_horizontal: bool, auto_rotate_symbols: bool = False) -> str:
     text = text or ''
     if is_horizontal:
-        return re.sub(r'<H>(.*?)</H>', r'\1', text, flags=re.IGNORECASE | re.DOTALL)
+        return re.sub(r'<(?:H|T)>(.*?)</(?:H|T)>', r'\1', text, flags=re.IGNORECASE | re.DOTALL)
     _ = auto_rotate_symbols
     return text
 
@@ -258,9 +281,10 @@ def _convert_br_outside_h_tags(text: str) -> str:
     for part in _H_BLOCK_RE.split(text or ''):
         if not part:
             continue
-        if part.lower().startswith('<h>') and part.lower().endswith('</h>'):
+        block_tag = _inline_block_tag(part)
+        if block_tag:
             chunks = [c for c in _BR_RE.split(part[3:-4]) if c]
-            normalized = [f'<H>{clean}</H>' for clean in (_normalize_horizontal_block_content(c) for c in chunks) if clean]
+            normalized = [f'<{block_tag}>{clean}</{block_tag}>' for clean in (_normalize_horizontal_block_content(c) for c in chunks) if clean]
             converted.append('\n'.join(normalized) or part)
         else:
             converted.append(_BR_RE.sub('\n', part))
@@ -270,6 +294,10 @@ def _convert_br_outside_h_tags(text: str) -> str:
 def should_rotate_horizontal_block_90(content: str) -> bool:
     content = _normalize_horizontal_block_content(content).strip()
     return bool(content and re.fullmatch(r'[a-zA-Z0-9\uff21-\uff3a\uff41-\uff5a\uff10-\uff19_-]+(?:[ \t]+[a-zA-Z0-9\uff21-\uff3a\uff41-\uff5a\uff10-\uff19_-]+)*', content))
+
+
+def _should_rotate_inline_block(block_tag: str, content: str) -> bool:
+    return block_tag.upper() != 'T' and should_rotate_horizontal_block_90(content)
 
 
 def add_color(bw_char_map, color, stroke_char_map, stroke_color):
@@ -1177,8 +1205,20 @@ def _measure_horizontal_text_width(text: str, font_size: int, letter_spacing: fl
     return width
 
 
-def calc_horizontal_block_height(font_size: int, content: str, letter_spacing: float = 1.0) -> int:
-    surface = _block_surface(font_size, content, 0, 0.0, should_rotate_horizontal_block_90(content), letter_spacing)
+def calc_horizontal_block_height(
+    font_size: int,
+    content: str,
+    letter_spacing: float = 1.0,
+    block_tag: str = 'H',
+) -> int:
+    surface = _block_surface(
+        font_size,
+        content,
+        0,
+        0.0,
+        _should_rotate_inline_block(block_tag, content),
+        letter_spacing,
+    )
     return font_size if surface is None or surface['height'] <= 0 else int(surface['height'])
 
 
@@ -1200,8 +1240,9 @@ def get_string_height(font_size: int, text: str, letter_spacing: float = 1.0):
     for part in _H_BLOCK_RE.split(re.sub(r'\s*(?:\[BR\]|<br>|【BR】)\s*', '', text or '', flags=re.IGNORECASE)):
         if not part:
             continue
-        if part.lower().startswith('<h>') and part.lower().endswith('</h>'):
-            total += calc_horizontal_block_height(font_size, part[3:-4], letter_spacing)
+        block_tag = _inline_block_tag(part)
+        if block_tag:
+            total += calc_horizontal_block_height(font_size, part[3:-4], letter_spacing, block_tag)
         else:
             total += sum(get_char_offset_y(font_size, c, letter_spacing) for c in part)
     return total
@@ -1227,9 +1268,11 @@ def _build_vertical_layout(
     for part in _H_BLOCK_RE.split(line_text):
         if not part:
             continue
-        if part.lower().startswith('<h>') and part.lower().endswith('</h>'):
+        block_tag = _inline_block_tag(part)
+        if block_tag:
             raw = part[3:-4]
-            key = (font_size, raw, border_size, round(float(stroke_ratio), 4), round(_normalize_letter_spacing(letter_spacing), 4))
+            rotate_90 = _should_rotate_inline_block(block_tag, raw)
+            key = (font_size, block_tag, raw, border_size, round(float(stroke_ratio), 4), round(_normalize_letter_spacing(letter_spacing), 4))
             surface = block_cache.get(key)
             if surface is None:
                 surface = _block_surface(
@@ -1237,7 +1280,7 @@ def _build_vertical_layout(
                     raw,
                     border_size,
                     stroke_ratio,
-                    should_rotate_horizontal_block_90(raw),
+                    rotate_90,
                     letter_spacing,
                     profile_stats,
                 )
