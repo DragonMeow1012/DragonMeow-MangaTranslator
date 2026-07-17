@@ -7,9 +7,9 @@
 重渲染完全在 server 進程跑（render 是 Qt + CPU，不需 GPU 模型），用 dispatch_rendering
 搭 skip_font_scaling=True（直接吃 region.font_size，沒改就重現原狀、改了就生效）。
 """
-import os
 import pickle
 import re
+from pathlib import Path
 
 import cv2
 import numpy as np
@@ -84,6 +84,7 @@ class CustomRegion(BaseModel):
 
 class RerenderRequest(BaseModel):
     folder: str
+    user_id: str | None = None
     edits: list[RegionEdit] = []
     patches: list[PatchStroke] = []
     custom_regions: list[CustomRegion] = []
@@ -96,16 +97,64 @@ _GEOM_CACHE_KEYS = (
 )
 
 
-def _state_path(result_root, folder: str) -> str:
-    safe = os.path.basename(folder)
-    return os.path.join(str(result_root), safe, 'edit_state.pkl')
+_RESULT_FOLDER_RE = re.compile(r'^[A-Za-z0-9][A-Za-z0-9._-]{0,159}$', re.ASCII)
+_DISCORD_USER_ID_RE = re.compile(r'^[1-9][0-9]{0,19}$', re.ASCII)
+_MAX_DISCORD_USER_ID = (1 << 64) - 1
 
 
-def load_edit_state(result_root, folder: str):
-    path = _state_path(result_root, folder)
-    if not os.path.exists(path):
+class InvalidResultPath(ValueError):
+    """Raised when a result namespace or folder would escape its allowed scope."""
+
+
+def _validated_user_id(user_id: str | int | None) -> str | None:
+    if user_id is None:
         return None
-    with open(path, 'rb') as f:
+    value = str(user_id)
+    if (
+        not _DISCORD_USER_ID_RE.fullmatch(value)
+        or int(value) > _MAX_DISCORD_USER_ID
+    ):
+        raise InvalidResultPath('Invalid Discord user_id')
+    return value
+
+
+def resolve_result_folder(
+    result_root,
+    folder: str,
+    user_id: str | int | None = None,
+) -> Path:
+    """Resolve one safe result leaf, optionally inside a Discord user namespace."""
+    if not isinstance(folder, str) or not _RESULT_FOLDER_RE.fullmatch(folder):
+        raise InvalidResultPath('Invalid result folder')
+
+    root = Path(result_root).resolve()
+    safe_user_id = _validated_user_id(user_id)
+    expected_scope = root if safe_user_id is None else root / safe_user_id
+    resolved_scope = expected_scope.resolve()
+    if resolved_scope != expected_scope:
+        raise InvalidResultPath('Result namespace must not be a symlink')
+    expected_candidate = expected_scope / folder
+    candidate = expected_candidate.resolve()
+    if candidate != expected_candidate:
+        raise InvalidResultPath('Result folder must not be a symlink')
+    try:
+        candidate.relative_to(root)
+    except ValueError as exc:
+        raise InvalidResultPath('Result folder escapes result root') from exc
+    if candidate.parent != resolved_scope:
+        raise InvalidResultPath('Result folder escapes its namespace')
+    return candidate
+
+
+def _state_path(result_root, folder: str, user_id: str | int | None = None) -> str:
+    return str(resolve_result_folder(result_root, folder, user_id) / 'edit_state.pkl')
+
+
+def load_edit_state(result_root, folder: str, user_id: str | int | None = None):
+    path = Path(_state_path(result_root, folder, user_id))
+    if not path.exists():
+        return None
+    with path.open('rb') as f:
         return pickle.load(f)
 
 
@@ -149,9 +198,13 @@ def _region_json(r, idx, was_skipped, default_background_enabled):
     }
 
 
-def state_to_json(result_root, folder: str):
+def state_to_json(
+    result_root,
+    folder: str,
+    user_id: str | int | None = None,
+):
     """回給編輯器的結構：渲染框在前、被跳過框（SFX/符號/小字）排最底並預設不渲染。"""
-    state = load_edit_state(result_root, folder)
+    state = load_edit_state(result_root, folder, user_id)
     if state is None:
         return None
     inp = state['img_inpainted']
@@ -352,9 +405,10 @@ def _apply_patches(base, img_rgb, patches: 'list[PatchStroke]', orig_size):
 
 async def rerender(result_root, folder: str, edits: list[RegionEdit],
                    patches: 'list[PatchStroke] | None' = None,
-                   custom_regions: 'list[CustomRegion] | None' = None) -> Image.Image:
+                   custom_regions: 'list[CustomRegion] | None' = None,
+                   user_id: str | int | None = None) -> Image.Image:
     """套用編輯、只重跑 render，回傳成品 PIL（已縮回原始尺寸）。"""
-    state = load_edit_state(result_root, folder)
+    state = load_edit_state(result_root, folder, user_id)
     if state is None:
         raise FileNotFoundError('edit state not found (translate first with advanced mode on)')
 

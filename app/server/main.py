@@ -24,7 +24,7 @@ from server.instance import ExecutorInstance, executor_instances
 from server.myqueue import task_queue, wait_in_queue, QueueElement
 from server.request_extraction import get_ctx, while_streaming, TranslateRequest, BatchTranslateRequest, get_batch_ctx, to_pil_image, _resize_for_translation
 from server.to_json import to_translation, TranslationResponse
-from server.edit import RerenderRequest
+from server.edit import InvalidResultPath, RerenderRequest, resolve_result_folder
 
 app = FastAPI()
 nonce = None
@@ -762,10 +762,13 @@ async def update_apply():
     return result
 
 @app.get("/edit/state/{folder_name}", tags=["api"])
-async def edit_state(folder_name: str):
+async def edit_state(folder_name: str, user_id: str | None = None):
     """進階編輯：回該翻譯結果的可編輯文字框資料 + 背景尺寸。"""
     from server.edit import state_to_json
-    data = state_to_json(RESULT_ROOT, folder_name)
+    try:
+        data = state_to_json(RESULT_ROOT, folder_name, user_id)
+    except InvalidResultPath as e:
+        raise HTTPException(400, detail=str(e))
     if data is None:
         raise HTTPException(404, detail="Edit state not found. Translate with advanced mode on.")
     return data
@@ -775,7 +778,16 @@ async def edit_rerender(req: RerenderRequest):
     """進階編輯：套用編輯、只重跑 render，回 PNG，並把成品存回 final.png（圖庫顯示編輯後版本）。"""
     from server.edit import rerender
     try:
-        img = await rerender(RESULT_ROOT, req.folder, req.edits, req.patches, req.custom_regions)
+        img = await rerender(
+            RESULT_ROOT,
+            req.folder,
+            req.edits,
+            req.patches,
+            req.custom_regions,
+            user_id=req.user_id,
+        )
+    except InvalidResultPath as e:
+        raise HTTPException(400, detail=str(e))
     except FileNotFoundError as e:
         raise HTTPException(404, detail=str(e))
     except Exception as e:
@@ -783,8 +795,7 @@ async def edit_rerender(req: RerenderRequest):
     rgb = img.convert("RGB")
     # 覆蓋 final.png：之後圖庫 / 點圖看到的就是編輯後的版本（「還原出廠」會用原始 edits 重渲染還原）
     try:
-        safe = os.path.basename(req.folder)
-        final_path = RESULT_ROOT / safe / "final.png"
+        final_path = resolve_result_folder(RESULT_ROOT, req.folder, req.user_id) / "final.png"
         if final_path.parent.exists():
             rgb.save(str(final_path))
     except Exception:
