@@ -9,6 +9,7 @@
 """
 import os
 import pickle
+import re
 
 import cv2
 import numpy as np
@@ -124,7 +125,14 @@ def _region_json(r, idx, was_skipped, default_background_enabled):
     return {
         'id': idx,
         'original': r.text or '',
-        'translation': r.translation or '',
+        # <T> is an internal marker for automatic upright multi-digit blocks;
+        # keep the advanced editor value identical to what the user entered.
+        'translation': re.sub(
+            r'<T>(.*?)</T>',
+            r'\1',
+            r.translation or '',
+            flags=re.IGNORECASE | re.DOTALL,
+        ),
         'font_size': int(getattr(r, 'font_size', 0) or 0),
         'color': color,
         'background_enabled': bool(default_background_enabled),
