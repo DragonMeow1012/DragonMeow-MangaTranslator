@@ -263,6 +263,8 @@ class TranslatorConfig(BaseModel):
     """LLM API key override (web UI input). Comma-separate multiple keys for rotation."""
     llm_model: Optional[str] = None
     """LLM model override (web UI input)."""
+    llm_retry_models: Optional[List[str]] = None
+    """Ordered per-request fallback models used after an LLM failure or malformed output."""
     llm_base_url: Optional[str] = None
     """Base URL for custom OpenAI-compatible providers (e.g. http://localhost:11434/v1)."""
     llm_send_image: Optional[bool] = None
