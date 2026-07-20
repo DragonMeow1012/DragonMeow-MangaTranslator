@@ -5,6 +5,7 @@ import shutil
 import signal
 import subprocess
 import sys
+import time
 from argparse import Namespace
 import asyncio
 
@@ -33,6 +34,26 @@ nonce = None
 # 之前 per-worker 的 signal.signal 會覆寫，N>1 時只殺最後一個 → 其他 leak。
 _SPAWNED_WORKER_PROCS: list = []
 _WEB_JOBS: dict = {}
+_WEB_JOB_TASKS: dict[str, asyncio.Task] = {}
+_WEB_JOB_RETENTION_SEC = max(60, int(os.getenv('WEB_JOB_RETENTION_SEC', '3600')))
+_WEB_JOB_MAX_AGE_SEC = max(60, int(os.getenv('WEB_JOB_MAX_AGE_SEC', '1800')))
+
+
+def _prune_web_jobs(now: float | None = None) -> None:
+    """Discard completed async-web metadata after its download window."""
+    current = time.time() if now is None else now
+    stale = [
+        job_id
+        for job_id, job in _WEB_JOBS.items()
+        if job.get('done')
+        and current - float(job.get('updatedAt') or job.get('createdAt') or current)
+        >= _WEB_JOB_RETENTION_SEC
+    ]
+    for job_id in stale:
+        _WEB_JOBS.pop(job_id, None)
+        task = _WEB_JOB_TASKS.get(job_id)
+        if task is None or task.done():
+            _WEB_JOB_TASKS.pop(job_id, None)
 
 BASE_DIR = Path(__file__).resolve().parent
 RESULT_ROOT = (BASE_DIR.parent / "result").resolve()
@@ -286,7 +307,9 @@ async def async_image_form_web(req: Request, image: UploadFile = File(...), conf
     task = QueueElement(req, image_obj, conf, 0)
     task.ignore_disconnect = True
 
+    _prune_web_jobs()
     job_id = secrets.token_hex(12)
+    now = time.time()
     job = {
         "id": job_id,
         "status": "queued",
@@ -296,6 +319,8 @@ async def async_image_form_web(req: Request, image: UploadFile = File(...), conf
         "folder": None,
         "error": None,
         "done": False,
+        "createdAt": now,
+        "updatedAt": now,
     }
     _WEB_JOBS[job_id] = job
     task_queue.add_task(task, priority=priority == "1")
@@ -309,6 +334,7 @@ async def async_image_form_web(req: Request, image: UploadFile = File(...), conf
                 text = ""
         job["code"] = code
         job["message"] = text
+        job["updatedAt"] = time.time()
         if code == 3:
             job["status"] = "queued"
             job["queuePos"] = text
@@ -334,13 +360,34 @@ async def async_image_form_web(req: Request, image: UploadFile = File(...), conf
 
     async def runner():
         try:
-            await wait_in_queue(task, notify_internal)
+            await asyncio.wait_for(
+                wait_in_queue(task, notify_internal),
+                timeout=_WEB_JOB_MAX_AGE_SEC,
+            )
+        except asyncio.TimeoutError:
+            job["status"] = "error"
+            job["error"] = f"Translation job exceeded {_WEB_JOB_MAX_AGE_SEC}s"
+            job["code"] = 2
+            job["message"] = job["error"]
+            job["done"] = True
+        except asyncio.CancelledError:
+            job["status"] = "error"
+            job["error"] = "Translation job cancelled"
+            job["code"] = 2
+            job["message"] = job["error"]
+            job["done"] = True
+            raise
         except Exception as e:
             job["status"] = "error"
             job["error"] = str(e)
             job["code"] = 2
             job["message"] = str(e)
             job["done"] = True
+        finally:
+            job["updatedAt"] = time.time()
+            # A watchdog/cancel may fire before the queue item reaches a
+            # worker. Remove that orphan so it cannot execute later.
+            await task_queue.remove(task)
         # 擴充：成品在 result/_ext/，擴充抓完 final.png（done 後約 1s 內）就沒用了 → 延遲刪掉，不累積磁碟。
         if ext_result and job.get("folder"):
             async def _cleanup(folder):
@@ -351,14 +398,63 @@ async def async_image_form_web(req: Request, image: UploadFile = File(...), conf
                     pass
             asyncio.create_task(_cleanup(job["folder"]))
 
-    asyncio.create_task(runner())
+    runner_task = asyncio.create_task(runner())
+    _WEB_JOB_TASKS[job_id] = runner_task
+
+    def _forget_finished(done_task: asyncio.Task) -> None:
+        if _WEB_JOB_TASKS.get(job_id) is done_task:
+            _WEB_JOB_TASKS.pop(job_id, None)
+
+    runner_task.add_done_callback(_forget_finished)
     return {"jobId": job_id}
 
 @app.get("/translate/jobs/{job_id}", tags=["api"])
 async def get_translate_job(job_id: str):
+    _prune_web_jobs()
     job = _WEB_JOBS.get(job_id)
     if not job:
         raise HTTPException(404, detail="Job not found")
+    return job
+
+
+async def _cancel_web_jobs(job_ids: list[str]) -> int:
+    """Cancel runner tasks together so every queued item is released promptly."""
+    jobs = [(job_id, _WEB_JOBS[job_id]) for job_id in job_ids if job_id in _WEB_JOBS]
+    pending_count = sum(1 for _, job in jobs if not job.get("done"))
+    runners = [
+        task
+        for job_id, _ in jobs
+        if (task := _WEB_JOB_TASKS.get(job_id)) is not None and not task.done()
+    ]
+    for task in runners:
+        task.cancel()
+    if runners:
+        await asyncio.gather(*runners, return_exceptions=True)
+
+    now = time.time()
+    for _, job in jobs:
+        if not job.get("done"):
+            job["status"] = "error"
+            job["error"] = "Translation job cancelled"
+            job["code"] = 2
+            job["message"] = job["error"]
+            job["done"] = True
+            job["updatedAt"] = now
+    return pending_count
+
+
+@app.delete("/translate/jobs", tags=["api"])
+async def cancel_all_translate_jobs():
+    cancelled = await _cancel_web_jobs(list(_WEB_JOBS))
+    return {"cancelled": cancelled}
+
+
+@app.delete("/translate/jobs/{job_id}", tags=["api"])
+async def cancel_translate_job(job_id: str):
+    job = _WEB_JOBS.get(job_id)
+    if not job:
+        raise HTTPException(404, detail="Job not found")
+    await _cancel_web_jobs([job_id])
     return job
 
 @app.post("/queue-size", response_model=int, tags=["api", "json"])
@@ -736,30 +832,14 @@ async def list_results():
     except Exception as e:
         raise HTTPException(500, detail=f"Error listing results: {str(e)}")
 
-@app.get("/update/check", tags=["api"])
-async def update_check():
-    """檢查 GitHub 是否有新版，回傳更新內容清單。"""
-    from server.update import check_update
+@app.post("/update/launch", tags=["api"])
+async def update_launch():
+    """Open the same interactive update.bat used by manual updates."""
+    from server.update import launch_updater
     try:
-        return await check_update()
+        return launch_updater()
     except Exception as e:
-        raise HTTPException(500, detail=f"Update check failed: {e}")
-
-@app.post("/update/apply", tags=["api"])
-async def update_apply():
-    """下載並套用最新版，然後排程重啟。"""
-    from server.update import apply_update, schedule_restart
-    try:
-        result = await apply_update()
-    except Exception as e:
-        raise HTTPException(500, detail=f"Update failed: {e}")
-    try:
-        schedule_restart()
-        result["restart_scheduled"] = True
-    except Exception as e:
-        result["restart_scheduled"] = False
-        result["restart_error"] = str(e)
-    return result
+        raise HTTPException(500, detail=f"Could not launch updater: {e}")
 
 @app.get("/edit/state/{folder_name}", tags=["api"])
 async def edit_state(folder_name: str, user_id: str | None = None):
@@ -900,7 +980,10 @@ if __name__ == '__main__':
     proc = prepare(args)
     print("Nonce: "+nonce)
     try:
-        uvicorn.run(app, host=args.host, port=args.port)
+        # Async-web clients poll job state frequently. Uvicorn's access log
+        # otherwise writes tens of thousands of identical GET 200 lines and
+        # obscures the pipeline/error logs that operators actually need.
+        uvicorn.run(app, host=args.host, port=args.port, access_log=False)
     except Exception:
         if proc:
             proc.terminate()

@@ -97,13 +97,22 @@ class MangaShare:
         except asyncio.CancelledError:
             return
 
-    async def progress_stream(self, queue: asyncio.Queue):
+    async def progress_stream(self, queue: asyncio.Queue, run_task: asyncio.Task):
         """Loop 讀 queue 直到拿到 status != 1（最終結果 0 或錯誤 2）。"""
-        while True:
-            progress = await queue.get()
-            yield progress
-            if progress[0] != 1:
-                break
+        terminal_frame_sent = False
+        try:
+            while True:
+                progress = await queue.get()
+                yield progress
+                if progress[0] != 1:
+                    terminal_frame_sent = True
+                    break
+        finally:
+            # Closing the orchestrator stream must stop the detached worker
+            # coroutine too; otherwise an aborted browser job keeps using GPU.
+            if not terminal_frame_sent and not run_task.done():
+                run_task.cancel()
+                await asyncio.gather(run_task, return_exceptions=True)
 
     async def run_method(self, method, queue: asyncio.Queue, **attributes):
         """跑 method，把結果（status=0）或錯誤（status=2）推進 queue 結束。"""
@@ -176,11 +185,6 @@ class MangaShare:
             method = self.get_fn(method_name)
             attr = pickle.loads(await request.body())
 
-            # 占位符優化旗標：注意是寫在 self.manga 上的全域狀態，並發下會 race。
-            # bot 路徑不設 _web_frontend_optimized → 永遠 False，沒影響；只有 web UI 端會設。
-            config = attr.get('config')
-            self.manga._is_streaming_mode = getattr(config, '_web_frontend_optimized', False) if config else False
-
             # 為這個 request 建立獨立 queue + ctx，透過 contextvar 暴露給 hook。
             # ctx['last'] 存最後的進度 frame 供心跳重送。
             queue: asyncio.Queue = asyncio.Queue()
@@ -195,7 +199,10 @@ class MangaShare:
             hb_task = asyncio.create_task(self._heartbeat(queue, ctx))
             run_task.add_done_callback(lambda _t: hb_task.cancel())
 
-            return StreamingResponse(self.progress_stream(queue), media_type="application/octet-stream")
+            return StreamingResponse(
+                self.progress_stream(queue, run_task),
+                media_type="application/octet-stream",
+            )
 
         config = uvicorn.Config(app, host=self.host, port=self.port)
         server = uvicorn.Server(config)

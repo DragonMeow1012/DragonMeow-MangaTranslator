@@ -176,6 +176,8 @@ class RenderConfig(BaseModel):
     """Floor the shrunk font at this ratio of the auto/initial font size (0 = off; e.g. 0.7 = never below 70%). Allows gentle overflow to keep long text readable."""
     center_text_in_bubble: bool = False
     """Center the text block vertically inside the bubble when possible."""
+    bubble_layout_safety: bool = True
+    """Use merge-stage bubble boxes as a safe typesetting boundary."""
     optimize_line_breaks: bool = False
     """Try multiple line-break candidates to improve fit."""
     check_br_and_retry: bool = False
@@ -265,12 +267,22 @@ class TranslatorConfig(BaseModel):
     """LLM model override (web UI input)."""
     llm_retry_models: Optional[List[str]] = None
     """Ordered per-request fallback models used after an LLM failure or malformed output."""
+    batch_group: Optional[str] = Field(default=None, max_length=160)
+    """Book-scoped ID. Only pages carrying the exact same ID may share one LLM request."""
+    batch_total_pages: Optional[int] = Field(default=None, ge=1, le=1000)
+    """Expected pages in this group; lets a partial tail batch flush without waiting for the timer."""
+    batch_pages: Optional[int] = Field(default=None, ge=1, le=8)
+    """Maximum OCR-success pages per shared LLM request."""
+    batch_wait_ms: Optional[int] = Field(default=None, ge=0, le=600000)
+    """Partial-batch safety window; full and book-final batches flush earlier."""
     llm_base_url: Optional[str] = None
     """Base URL for custom OpenAI-compatible providers (e.g. http://localhost:11434/v1)."""
     llm_send_image: Optional[bool] = None
     """Send the manga image to the LLM for proofreading (better accuracy, needs a vision model). None = keep current/default (on)."""
     parallel_bands: Optional[bool] = None
     """[beta] Tall/dense-page accel: split a page's regions into vertical bands and translate them in PARALLEL LLM calls instead of one big call. None/False = single call."""
+    normalize_punctuation: bool = False
+    """Convert Chinese model output to compact halfwidth punctuation."""
     no_text_lang_skip: bool = False
     """Dont skip text that is seemingly already in the target language."""
     skip_lang: Optional[str] = None

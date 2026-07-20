@@ -69,6 +69,53 @@ ISO_639_1_TO_VALID_LANGUAGES = {
     'tl': 'FIL'
 }
 
+
+_FULLWIDTH_PUNCTUATION_MAP = {
+    chr(codepoint): chr(codepoint - 0xFEE0)
+    for start, end in (
+        (0xFF01, 0xFF0F),
+        (0xFF1A, 0xFF20),
+        (0xFF3B, 0xFF40),
+        (0xFF5B, 0xFF5E),
+    )
+    for codepoint in range(start, end + 1)
+    # Keep fullwidth square brackets literal. Converting ［BR］ into [BR]
+    # would unexpectedly turn user-visible text into a renderer command.
+    if codepoint not in (0xFF3B, 0xFF3D)
+}
+_FULLWIDTH_PUNCTUATION_MAP.update({
+    '\u3000': ' ',
+    '。': '.',
+    '、': ',',
+    '…': '...',
+})
+_FULLWIDTH_PUNCTUATION_TABLE = str.maketrans(_FULLWIDTH_PUNCTUATION_MAP)
+_FULLWIDTH_DOT_RUN_RE = re.compile(r'(?:[．。…]\s*){2,}')
+_SPACED_ASCII_PUNCTUATION_RE = re.compile(r'(?<=[.,;!?])\s+(?=[.,;!?])')
+_HALFWIDTH_PUNCTUATION_TARGETS = frozenset({
+    'CHT', 'CHS', 'CN', 'TRADITIONAL CHINESE', 'SIMPLIFIED CHINESE', 'CHINESE',
+})
+
+
+def normalize_translation_punctuation(text: str) -> str:
+    """Convert model-produced CJK punctuation to its halfwidth form.
+
+    Fullwidth square brackets stay untouched so literal ``［BR］`` never becomes
+    the renderer's ``[BR]`` control marker. Advanced-editor input bypasses this
+    model-output cleanup, so users can type any fullwidth glyph directly.
+    """
+    if not text:
+        return text or ''
+
+    normalized = text
+    # Google Translate may expand Japanese ellipses into ``． ． ． ．``.
+    # Canonicalize the whole run before converting individual punctuation.
+    normalized = _FULLWIDTH_DOT_RUN_RE.sub('...', normalized)
+    normalized = normalized.translate(_FULLWIDTH_PUNCTUATION_TABLE)
+    normalized = _SPACED_ASCII_PUNCTUATION_RE.sub('', normalized)
+    return normalized
+
+
 class InvalidServerResponse(Exception):
     pass
 
@@ -119,6 +166,7 @@ class CommonTranslator(InfererModule):
         super().__init__()
         self.mtpe_adapter = MTPEAdapter()
         self._last_request_ts = 0
+        self._normalize_punctuation = False
 
 
     async def unload(self, device: str = None):
@@ -267,10 +315,24 @@ class CommonTranslator(InfererModule):
         if not query or not trans:
             return ''
 
+        # Chinese model output uses halfwidth punctuation by default. Other
+        # target languages keep their native punctuation conventions. Text
+        # typed in the advanced editor does not pass through this cleanup.
+        halfwidth_punctuation = (
+            bool(getattr(self, '_normalize_punctuation', False))
+            and str(to_lang or '').strip().upper() in _HALFWIDTH_PUNCTUATION_TARGETS
+        )
+        if halfwidth_punctuation:
+            trans = normalize_translation_punctuation(trans)
+
         # '  ' -> ' '
         trans = re.sub(r'\s+', r' ', trans)
-        # 'text.text' -> 'text. text'
-        trans = re.sub(r'(?<![.,;!?])([.,;!?])(?=\w)', r'\1 ', trans)
+        # Chinese must not gain a large gap after normalized punctuation. For
+        # other languages retain Unicode-word spacing (for example Cyrillic).
+        if halfwidth_punctuation:
+            trans = re.sub(r'(?<=[A-Za-z0-9])([.,;!?])(?=[A-Za-z])', r'\1 ', trans)
+        else:
+            trans = re.sub(r'(?<=\w)([.,;!?])(?=\w)', r'\1 ', trans)
         # ' ! ! . . ' -> ' !!.. '
         trans = re.sub(r'([.,;!?])\s+(?=[.,;!?]|$)', r'\1', trans)
 

@@ -1,4 +1,4 @@
-import os, re, asyncio, base64, json
+import os, re, asyncio, base64, json, hashlib, weakref
 from io import BytesIO
 from typing import List
 from collections import Counter
@@ -299,6 +299,22 @@ class BatchedUnifiedResponse(BaseModel):
     pages: list[BatchedPageResult] = Field(description="Per-page bbox results")
 
 
+class BatchedTextLineResult(BaseModel):
+    text_id: int = Field(description="Index of the OCR line within its page (0-based)")
+    translated_text: str = Field(description="Translated text in target language")
+
+
+class BatchedTextPageResult(BaseModel):
+    page_id: int = Field(description="Index of the page within this batch (0-based)")
+    translated_texts: list[BatchedTextLineResult] = Field(
+        description="Translated OCR lines for this page"
+    )
+
+
+class BatchedTextResponse(BaseModel):
+    pages: list[BatchedTextPageResult] = Field(description="Per-page text translations")
+
+
 class _AllKeys429Error(RuntimeError):
     """One model exhausted every configured key; attachment flow should change model."""
 
@@ -311,8 +327,66 @@ class _AllKeys429Error(RuntimeError):
         self.n_keys = n_keys
 
 
+def _is_quota_error(exc: BaseException) -> bool:
+    """Recognize quota errors even when an outer timeout/wrapper kept the cause."""
+    seen: set[int] = set()
+    current: BaseException | None = exc
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        message = str(current).lower()
+        if (
+            '429' in message
+            or 'quota' in message
+            or 'rate limit' in message
+            or 'resource_exhausted' in message
+        ):
+            return True
+        current = current.__cause__ or current.__context__
+    return False
+
+
+# Limit only the network LLM stage, not GPU preprocessing. Limiters are shared
+# by all book-scoped translator instances using the same provider/key, without
+# retaining the secret itself. Keeping one bucket per event loop also makes the
+# module safe for isolated asyncio test loops and clean restarts.
+_KEY_LIMITERS_BY_LOOP: 'weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, dict]' = (
+    weakref.WeakKeyDictionary()
+)
+
+
+def _key_concurrency(provider: str) -> int:
+    if provider == 'gemini':
+        return max(1, int(os.getenv('GEMINI_KEY_CONCURRENCY', '2')))
+    return max(1, int(os.getenv('OPENAI_COMPAT_KEY_CONCURRENCY', '4')))
+
+
+def _get_key_limiter(provider: str, key: str) -> asyncio.Semaphore:
+    loop = asyncio.get_running_loop()
+    per_loop = _KEY_LIMITERS_BY_LOOP.setdefault(loop, {})
+    limit = _key_concurrency(provider)
+    digest = hashlib.sha256(f'{provider}\0{key}'.encode('utf-8')).digest()
+    return per_loop.setdefault((digest, limit), asyncio.Semaphore(limit))
+
+
+_OPENAI_MODERN_TOKEN_PARAM_RE = re.compile(
+    r'^(?:gpt-5(?:[.\-]|$)|o[134](?:[.\-]|$))',
+    re.IGNORECASE,
+)
+_OPENAI_TOKEN_PARAM_CACHE: dict[tuple[str, str, str], str] = {}
+
+
+def _openai_token_param(provider: str, base_url: str, model: str) -> str:
+    cache_key = (provider, base_url, model)
+    cached = _OPENAI_TOKEN_PARAM_CACHE.get(cache_key)
+    if cached is not None:
+        return cached
+    if _OPENAI_MODERN_TOKEN_PARAM_RE.match(model):
+        return 'max_completion_tokens'
+    return 'max_tokens'
+
+
 class _UnifiedBatchBuffer:
-    """N 頁攢同一 vision call → 攤平 Gemini round-trip overhead（C1 提速項目）。
+    """N 頁攢同一 LLM call → 攤平 Gemini round-trip overhead（C1 提速項目）。
 
     Flush 條件：滿 batch_size 立即；沒滿但 wait_ms 到了也 flush（不卡單頁）。
 
@@ -334,22 +408,77 @@ class _UnifiedBatchBuffer:
         self._items: list[tuple[asyncio.Future, dict]] = []
         self._lock = asyncio.Lock()
         self._timer_task: 'asyncio.Task | None' = None
+        self._flush_tasks: set[asyncio.Task] = set()
+        self._submitted_count = 0
+        self._skipped_count = int(getattr(translator, '_batch_skipped_pages', 0) or 0)
+        self._expected_total: 'int | None' = None
+
+    def _group_complete(self) -> bool:
+        return bool(
+            self._expected_total
+            and self._submitted_count + self._skipped_count >= self._expected_total
+        )
+
+    def _take_pending_locked(self):
+        batch = self._items
+        self._items = []
+        if self._timer_task and not self._timer_task.done():
+            self._timer_task.cancel()
+            self._timer_task = None
+        return batch
+
+    def _start_flush(self, batch):
+        batch = [(fut, payload) for fut, payload in batch if not fut.cancelled()]
+        if not batch:
+            return None
+        task = asyncio.create_task(self._flush(batch))
+        self._flush_tasks.add(task)
+        task.add_done_callback(self._flush_tasks.discard)
+
+        def _cancel_when_orphaned(_):
+            if not task.done() and all(fut.done() for fut, _payload in batch):
+                task.cancel()
+
+        for fut, _payload in batch:
+            fut.add_done_callback(_cancel_when_orphaned)
+        return task
+
+    async def mark_page_skipped(self) -> None:
+        """A detector/OCR-confirmed blank page completes the book but not the batch."""
+        batch = []
+        async with self._lock:
+            self._skipped_count += 1
+            if self._items and self._group_complete():
+                batch = self._take_pending_locked()
+        if batch:
+            self._start_flush(batch)
 
     async def submit(self, payload: dict):
         loop = asyncio.get_running_loop()
         fut: asyncio.Future = loop.create_future()
         async with self._lock:
             self._items.append((fut, payload))
-            if len(self._items) >= self._t._batch_size:
-                batch = self._items
-                self._items = []
-                if self._timer_task and not self._timer_task.done():
-                    self._timer_task.cancel()
-                    self._timer_task = None
-                asyncio.create_task(self._flush(batch))
+            self._submitted_count += 1
+            raw_total = payload.get('batch_total_pages')
+            if raw_total is not None:
+                try:
+                    incoming_total = max(1, int(raw_total))
+                    if self._expected_total is None:
+                        self._expected_total = incoming_total
+                except (TypeError, ValueError):
+                    pass
+            if len(self._items) >= self._t._batch_size or self._group_complete():
+                batch = self._take_pending_locked()
+                self._start_flush(batch)
             elif self._timer_task is None or self._timer_task.done():
                 self._timer_task = asyncio.create_task(self._wait_and_flush())
-        return await fut
+        try:
+            return await fut
+        except asyncio.CancelledError:
+            fut.cancel()
+            async with self._lock:
+                self._items = [item for item in self._items if item[0] is not fut]
+            raise
 
     async def _wait_and_flush(self):
         try:
@@ -360,17 +489,36 @@ class _UnifiedBatchBuffer:
             batch = self._items
             self._items = []
         if batch:
-            await self._flush(batch)
+            task = self._start_flush(batch)
+            if task is not None:
+                await task
 
     async def _flush(self, batch):
+        batch = [(fut, payload) for fut, payload in batch if not fut.cancelled()]
+        if not batch:
+            return
+        text_batch = bool(batch and batch[0][1].get('batch_kind') == 'text')
         # 1) 試 batched call
         try:
-            results = await self._t._call_llm_batched(batch)
+            if text_batch:
+                results = await self._t._call_text_llm_batched(batch)
+            else:
+                results = await self._t._call_llm_batched(batch)
             for (fut, _), bboxes in zip(batch, results):
                 if not fut.done():
                     fut.set_result(bboxes)
             return
         except _AllKeys429Error as e:
+            if text_batch:
+                # 純文字頁由 translate() 後段依頁切換 fallback model；不要把同一個
+                # 已耗盡模型再拆成 N 頁重掃一次所有 key。
+                self._t.logger.warning(
+                    f'Text Batch LLM 全 key 429（{len(batch)} 頁），改由各頁切下一模型'
+                )
+                for fut, payload in batch:
+                    if not fut.done():
+                        fut.set_result([''] * len(payload.get('src_texts') or []))
+                return
             # 所有 key 都是 quota error 時，拆單頁只會把同一模型的 key 再掃一次。
             # 直接交給各頁 _unified_call，讓附件模型鏈切下一個模型。
             self._t.logger.warning(
@@ -382,21 +530,29 @@ class _UnifiedBatchBuffer:
                     fut.set_exception(e)
             return
         except Exception as e:
+            label = 'Text Batch LLM' if text_batch else 'Batch LLM'
             self._t.logger.warning(
-                f'Batch LLM 失敗（{len(batch)} 頁）: {type(e).__name__}: {str(e)[:120]}; 拆單頁 retry'
+                f'{label} 失敗（{len(batch)} 頁）: {type(e).__name__}: {str(e)[:120]}; 拆單頁 retry'
             )
 
         # 2) 拆單頁 parallel retry
         async def _one(fut, payload):
             try:
-                bboxes = await self._t._call_llm_single(payload)
+                if text_batch:
+                    bboxes = await self._t._gemini_text_fill(
+                        payload['src_texts'], payload['from_lang'], payload['to_lang'],
+                    )
+                else:
+                    bboxes = await self._t._call_llm_single(payload)
                 if not fut.done():
                     fut.set_result(bboxes)
             except Exception as ee:
                 if not fut.done():
                     fut.set_exception(ee)
 
-        await asyncio.gather(*[_one(f, p) for f, p in batch])
+        active = [(f, p) for f, p in batch if not f.done()]
+        if active:
+            await asyncio.gather(*[_one(f, p) for f, p in active])
 
 
 
@@ -470,6 +626,9 @@ class Gemini2StageTranslator(CommonTranslator):
         self._batch_wait_s = max(0.0, int(os.getenv('GEMINI_2STAGE_BATCH_WAIT_MS', '500'))) / 1000.0
         # max_tokens 動態：batch 大時 vision response 變大；單頁時用 self.max_tokens
         self._batch_max_tokens_per_page = max(2000, int(os.getenv('GEMINI_2STAGE_BATCH_TOKENS_PER_PAGE', '4000')))
+        self._batch_total_pages: 'int | None' = None
+        # vision 與 no-image 純文字模式共用同一本書的跨頁 buffer；translator instance
+        # 已按 batch_group + semantic config 隔離，不會混到其他書或不同送圖設定。
         self._batch_buffer: '_UnifiedBatchBuffer | None' = None  # lazy-init in event loop
 
         # 送圖(vision)看圖 LLM 呼叫 timeout：送圖 token 多、比純文字慢。env 可調，預設 90s。
@@ -518,6 +677,28 @@ class Gemini2StageTranslator(CommonTranslator):
         pb = getattr(args, 'parallel_bands', None)
         if pb is not None:
             self._parallel_bands = bool(pb)
+        self._normalize_punctuation = bool(
+            getattr(args, 'normalize_punctuation', False)
+        )
+        raw_batch_pages = getattr(args, 'batch_pages', None)
+        if raw_batch_pages is not None:
+            try:
+                self._batch_size = max(1, min(8, int(raw_batch_pages)))
+            except (TypeError, ValueError):
+                pass
+        raw_batch_wait_ms = getattr(args, 'batch_wait_ms', None)
+        if raw_batch_wait_ms is not None:
+            try:
+                self._batch_wait_s = max(0.0, int(raw_batch_wait_ms) / 1000.0)
+            except (TypeError, ValueError):
+                pass
+        raw_batch_total = getattr(args, 'batch_total_pages', None)
+        try:
+            self._batch_total_pages = (
+                max(1, int(raw_batch_total)) if raw_batch_total is not None else None
+            )
+        except (TypeError, ValueError):
+            self._batch_total_pages = None
         model = (getattr(args, 'llm_model', None) or '').strip()
         if model:
             self.refine_model = self.translate_model = model
@@ -852,6 +1033,9 @@ class Gemini2StageTranslator(CommonTranslator):
                     'image_url': {'url': f'data:{mime};base64,{b64}'},
                 })
 
+        token_cache_key = (self._provider, base_url, model)
+        token_param = _openai_token_param(self._provider, base_url, model)
+
         payload = {
             'model': model,
             'messages': [
@@ -859,7 +1043,7 @@ class Gemini2StageTranslator(CommonTranslator):
                 {'role': 'user', 'content': content},
             ],
             'temperature': temperature,
-            'max_tokens': max_tokens_override or self.max_tokens,
+            token_param: max_tokens_override or self.max_tokens,
             'response_format': {'type': 'json_object'},
         }
 
@@ -887,6 +1071,14 @@ class Gemini2StageTranslator(CommonTranslator):
                     retry = True
                 if 'max_tokens' in payload and re.search(r'max_tokens', err_text):
                     payload['max_completion_tokens'] = payload.pop('max_tokens')
+                    _OPENAI_TOKEN_PARAM_CACHE[token_cache_key] = 'max_completion_tokens'
+                    retry = True
+                elif (
+                    'max_completion_tokens' in payload
+                    and re.search(r'max_completion_tokens', err_text)
+                ):
+                    payload['max_tokens'] = payload.pop('max_completion_tokens')
+                    _OPENAI_TOKEN_PARAM_CACHE[token_cache_key] = 'max_tokens'
                     retry = True
                 if 'temperature' in payload and re.search(r'temperature', err_text):
                     payload.pop('temperature')
@@ -960,10 +1152,12 @@ class Gemini2StageTranslator(CommonTranslator):
                 key = self._api_keys[this_idx]
 
                 try:
-                    raw_content, finish_reason, refusal = await call_llm(
-                        key, model, system_instruction, user_text, image_data, temperature, schema,
-                        image_data_list=image_data_list, max_tokens_override=max_tokens_override,
-                    )
+                    limiter = _get_key_limiter(self._provider, key)
+                    async with limiter:
+                        raw_content, finish_reason, refusal = await call_llm(
+                            key, model, system_instruction, user_text, image_data, temperature, schema,
+                            image_data_list=image_data_list, max_tokens_override=max_tokens_override,
+                        )
 
                     if raw_content is None or not str(raw_content).strip():
                         self.logger.warning(
@@ -1499,7 +1693,33 @@ class Gemini2StageTranslator(CommonTranslator):
             per_page.append('')
         big_directive = '\n'.join(header + per_page)
 
-        image_data_list = [p['img_data'] for _, p in batch]
+        # One buffer item is created only after that page has OCR text. Preserve
+        # the exact buffer order for prompt page_id=N and image part N; malformed
+        # payloads fail closed into the existing per-page retry instead of
+        # silently sending fewer/misaligned images.
+        image_data_list = []
+        for page_id, (_, payload) in enumerate(batch):
+            image_data = payload.get('img_data')
+            if (
+                not isinstance(image_data, tuple)
+                or len(image_data) != 2
+                or not isinstance(image_data[0], bytes)
+                or not image_data[0]
+                or not isinstance(image_data[1], str)
+                or not image_data[1]
+            ):
+                raise ValueError(f'Batch page_id={page_id} has invalid image payload')
+            image_data_list.append(image_data)
+        if len(image_data_list) != n_pages:
+            raise RuntimeError(
+                f'Batch page/image count mismatch: pages={n_pages}, images={len(image_data_list)}'
+            )
+        sends_images = (
+            self._send_image and self._provider not in self._NO_VISION_PROVIDERS
+        )
+        self.logger.info(
+            f'Batch LLM 送出：OCR頁={n_pages}，圖片={n_pages if sends_images else 0}'
+        )
         response = await asyncio.wait_for(
             self._gemini_json_call(
                 model=self.refine_model,
@@ -1515,12 +1735,84 @@ class Gemini2StageTranslator(CommonTranslator):
             ),
             timeout=90.0 + 15.0 * n_pages,
         )
+        self.logger.info(f'Batch LLM 成功（{n_pages} 頁）')
 
         # parse → per-page bboxes
         results: list[list] = [[] for _ in batch]
         for page in response.pages:
             if 0 <= page.page_id < n_pages:
                 results[page.page_id] = page.bboxes
+        return results
+
+    async def _call_text_llm_batched(self, batch: list) -> list[list[str]]:
+        """多頁 OCR 文字合成一個 text-only LLM request，結果再精確拆回各頁。"""
+        n_pages = len(batch)
+        if not n_pages:
+            return []
+
+        first = batch[0][1]
+        from_lang = first['from_lang']
+        to_lang = first['to_lang']
+        request_pages = []
+        total_lines = 0
+        for page_id, (_, payload) in enumerate(batch):
+            if payload.get('batch_kind') != 'text':
+                raise ValueError(f'Text batch page_id={page_id} has the wrong payload kind')
+            if payload.get('from_lang') != from_lang or payload.get('to_lang') != to_lang:
+                raise ValueError(f'Text batch page_id={page_id} has mismatched languages')
+            src_texts = list(payload.get('src_texts') or [])
+            total_lines += len(src_texts)
+            request_pages.append({
+                'page_id': page_id,
+                'texts': [
+                    {'text_id': text_id, 'text': text}
+                    for text_id, text in enumerate(src_texts)
+                ],
+            })
+
+        directive = (
+            f'把下列 {n_pages} 頁 {from_lang} 漫畫 OCR 文字翻成自然的 {to_lang}。'
+            '只做語言翻譯，不描述畫面；每個 page_id 與 text_id 都必須原樣保留且完整回傳。\n'
+            '輸出 JSON：{"pages":[{"page_id":0,"translated_texts":'
+            '[{"text_id":0,"translated_text":"譯文"}]}]}。\n\n'
+            + json.dumps({'pages': request_pages}, ensure_ascii=False)
+        )
+        self.logger.info(
+            f'Text Batch LLM 送出：OCR頁={n_pages}，文字格={total_lines}，圖片=0'
+        )
+        response = await asyncio.wait_for(
+            self._gemini_json_call(
+                model=self.translate_model,
+                system_instruction=self._get_text_only_system_instruction(from_lang, to_lang),
+                user_text=directive,
+                image_data=None,
+                temperature=self.translate_temperature,
+                schema=BatchedTextResponse,
+                max_tokens_override=self._batch_max_tokens_per_page * n_pages,
+                fail_fast_on_all_429=bool(self._retry_models),
+            ),
+            timeout=self._text_timeout_s + 10.0 * n_pages,
+        )
+
+        results = [
+            [''] * len(payload.get('src_texts') or [])
+            for _, payload in batch
+        ]
+        for page in response.pages:
+            if not (0 <= page.page_id < n_pages):
+                continue
+            src_texts = batch[page.page_id][1].get('src_texts') or []
+            for item in page.translated_texts:
+                if not (0 <= item.text_id < len(src_texts)):
+                    continue
+                src_text = (src_texts[item.text_id] or '').strip()
+                translated = (item.translated_text or '').replace('\n', ' ').strip()
+                if _is_symbol_only(src_text):
+                    translated = src_text
+                elif _is_failed_translation_output(translated):
+                    translated = ''
+                results[page.page_id][item.text_id] = translated
+        self.logger.info(f'Text Batch LLM 成功（{n_pages} 頁，圖片=0）')
         return results
 
     async def _unified_call_banded(self, rgb_img, query_regions, from_lang, to_lang, w, h):
@@ -1603,6 +1895,7 @@ class Gemini2StageTranslator(CommonTranslator):
             'system_instruction': self._get_unified_system_instruction(from_lang, to_lang),
             'img_data': (img_bytes, 'image/jpeg'),
             'n': n,
+            'batch_total_pages': self._batch_total_pages,
         }
         attempted_models = {self.refine_model}
         call_error: Exception | None = None
@@ -1612,10 +1905,12 @@ class Gemini2StageTranslator(CommonTranslator):
                 # Batch 模式：滿 N 或 wait_ms 到 → 一個多頁 vision call；失敗 buffer 拆單頁 retry
                 if self._batch_buffer is None:
                     self._batch_buffer = _UnifiedBatchBuffer(self)
-                batch_timeout = 120.0 + 15.0 * self._batch_size + self._batch_wait_s + 5.0
-                bboxes = await asyncio.wait_for(
-                    self._batch_buffer.submit(payload), timeout=batch_timeout,
-                )
+                # Do not wrap the shared batch future in a shorter outer
+                # timeout. That used to hide an inner 429 as TimeoutError and
+                # leave the detached flush task retrying after the page fell
+                # back to GT. HTTP/model calls and the job watchdog provide
+                # the actual bounded lifetime.
+                bboxes = await self._batch_buffer.submit(payload)
             else:
                 # 單頁直送（既有行為）
                 bboxes = await self._call_llm_single(payload)
@@ -1650,12 +1945,10 @@ class Gemini2StageTranslator(CommonTranslator):
             # fallback 分類必須維持修改前的主模型語意；不能因最後一個替代模型剛好
             # 回 429 或 DNS error，就偶然改變原本該走的整頁重試／GT 路徑。
             e = primary_call_error or call_error
-            es = str(e).lower()
-            is_quota = '429' in es or 'quota' in es or 'rate limit' in es or 'resource_exhausted' in es
             self.logger.warning(
-                f'Unified call 失敗: {type(e).__name__}: {e}; online fallback disabled'
+                f'Unified call 失敗: {type(e).__name__}: {e}'
             )
-            if is_quota:
+            if _is_quota_error(e):
                 # 配額爆掉(429)是「暫時性」的：別回填原文（會變成靜默漏翻、整頁看起來像原文）。
                 # 已先在 _gemini_json_call 等過 retry-delay 還是 429 → 直接 raise，讓整頁標記失敗、
                 # 進佇列的「重翻列表」之後重試（等每分鐘配額回復），使用者也看得到哪頁沒翻成功。
@@ -2054,9 +2347,29 @@ JSON: bboxes array, each {{bbox_id, corrected_text, translated_text}}. Every bbo
         if not self._send_image:
             # 「傳圖給 AI」關閉 → 不送圖、不做 vision call，直接把 mocr 的 OCR 文字交 LLM 純文字翻譯
             #（使用者指定行為）。跳過「看圖讀真字」那套 vision prompt——沒圖時它會空轉/亂讀/500。
-            self.logger.info(f'[no-image] 送圖開關關閉 → 直接純文字翻譯 {n} 個 OCR 文本（不送圖）')
+            self.logger.info(f'[no-image] 送圖開關關閉 → 純文字翻譯 {n} 個 OCR 文本（不送圖）')
             src = [(query_regions[i].text or '').strip() for i in range(n)]
-            translations = await self._gemini_text_fill(src, from_lang, to_lang)
+            if self._batch_size > 1:
+                if self._batch_buffer is None:
+                    self._batch_buffer = _UnifiedBatchBuffer(self)
+                payload = {
+                    'batch_kind': 'text',
+                    'src_texts': src,
+                    'from_lang': from_lang,
+                    'to_lang': to_lang,
+                    'batch_total_pages': self._batch_total_pages,
+                }
+                try:
+                    translations = await self._batch_buffer.submit(payload)
+                except Exception as e:
+                    if _is_quota_error(e):
+                        raise
+                    self.logger.warning(
+                        f'Text Batch 等待失敗: {type(e).__name__}: {e}; 改由後段模型重試'
+                    )
+                    translations = [''] * n
+            else:
+                translations = await self._gemini_text_fill(src, from_lang, to_lang)
             ocr_texts = {i: src[i] for i in range(n) if src[i]}
             explicit_skip = set()
         else:
@@ -2106,10 +2419,10 @@ JSON: bboxes array, each {{bbox_id, corrected_text, translated_text}}. Every bbo
                 )
             except Exception as e:
                 self.logger.warning(f'[retry] 補譯失敗: {type(e).__name__}: {e}')
-                # 配額/429 已耗盡 → 別再用同一把 key 空轉重打 ×3（拖慢釋放、洗版 log）→ 直接跳出走回填。
-                es = str(e).lower()
-                if '429' in es or 'quota' in es or 'rate limit' in es or 'resource_exhausted' in es:
-                    break
+                # Quota exhaustion is temporary. Mark the page failed instead
+                # of silently turning it into a raw Google-Translate success.
+                if _is_quota_error(e):
+                    raise
                 continue
             for k, i in enumerate(missing):
                 if k < len(fill) and fill[k].strip():

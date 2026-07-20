@@ -18,17 +18,6 @@ from ..server_paths import normalize_server_resource_path
 # 只使用 Qt 离屏渲染器
 from ..utils import BASE_PATH, TextBlock, color_difference, get_logger, rotate_polygons
 
-try:
-    from ..utils import (
-        build_bubble_mask_from_mangalens_result,
-        get_cached_bubbles_with_mangalens,
-    )
-except ImportError:
-    def get_cached_bubbles_with_mangalens(*args, **kwargs):
-        return None
-
-    def build_bubble_mask_from_mangalens_result(*args, **kwargs):
-        return None
 from . import text_render, text_render_hq
 from .auto_linebreak import solve_no_br_layout, should_force_no_wrap_single_region
 from .text_render_eng import apply_manga2eng_line_breaks
@@ -1567,6 +1556,49 @@ def _separate_close_regions(text_regions: List['TextBlock']) -> None:
                     _shift_region_lines(a, 0, +push); _shift_region_lines(b, 0, -push)
 
 
+def _build_bubble_mask_from_regions(
+    text_regions: List['TextBlock'],
+    image_shape: tuple[int, int],
+) -> np.ndarray:
+    """Reuse YOLO bubble boxes attached during textline merge.
+
+    The previous renderer referenced a removed MangaLens cache helper, so the
+    mask was always empty. A small inset keeps rectangular detector boxes away
+    from bubble outlines while avoiding a second detector pass during render.
+    """
+    height, width = image_shape
+    mask = np.zeros((height, width), dtype=np.uint8)
+    rects: set[tuple[int, int, int, int]] = set()
+    for region in text_regions:
+        candidates = list(getattr(region, '_bubble_rects', None) or [])
+        own_rect = getattr(region, '_bubble_rect', None)
+        if own_rect is not None:
+            candidates.append(own_rect)
+        for rect in candidates:
+            try:
+                x1, y1, x2, y2 = (int(value) for value in rect)
+            except (TypeError, ValueError):
+                continue
+            x1 = max(0, min(width, x1))
+            x2 = max(0, min(width, x2))
+            y1 = max(0, min(height, y1))
+            y2 = max(0, min(height, y2))
+            x1, x2 = sorted((x1, x2))
+            y1, y2 = sorted((y1, y2))
+            if x2 - x1 < 4 or y2 - y1 < 4:
+                continue
+            rects.add((x1, y1, x2, y2))
+
+    for x1, y1, x2, y2 in rects:
+        # Keep a fixed 10 px safety margin inside the YOLO box. The font-size
+        # search only shrinks when the initial layout crosses this safe area.
+        inset = 10
+        ix1, iy1, ix2, iy2 = x1 + inset, y1 + inset, x2 - inset, y2 - inset
+        if ix2 > ix1 and iy2 > iy1:
+            cv2.rectangle(mask, (ix1, iy1), (ix2, iy2), 255, thickness=-1)
+    return mask
+
+
 def resize_regions_to_font_size(img: np.ndarray, text_regions: List['TextBlock'], config: Config, original_img: np.ndarray = None, return_debug_img: bool = False, skip_font_scaling: bool = False):
     """
     Resize text regions based on layout mode.
@@ -1600,59 +1632,52 @@ def resize_regions_to_font_size(img: np.ndarray, text_regions: List['TextBlock']
 
     balloon_fill_mask = None
     balloon_fill_label_map = None
-    if mode == 'balloon_fill' and original_img is not None:
-        try:
-            model_result = get_cached_bubbles_with_mangalens(original_img, return_annotated=False, verbose=False)
-            if model_result is None:
-                logger.warning("balloon_fill bubble cache miss, skip global bubble mask")
-                balloon_fill_mask = np.zeros(original_img.shape[:2], dtype=np.uint8)
-            else:
-                balloon_fill_mask = build_bubble_mask_from_mangalens_result(model_result, original_img.shape[:2])
-                mask_pixels = int(np.count_nonzero(balloon_fill_mask))
-                detected = len(model_result.detections)
-                logger.debug(
-                    f"balloon_fill model mask prepared from cache: detections={detected}, mask_pixels={mask_pixels}"
+    bubble_layout_safety = bool(
+        getattr(config.render, 'bubble_layout_safety', True)
+    )
+    if mode == 'balloon_fill' and original_img is not None and bubble_layout_safety:
+        balloon_fill_mask = _build_bubble_mask_from_regions(
+            text_regions, original_img.shape[:2],
+        )
+        mask_pixels = int(np.count_nonzero(balloon_fill_mask))
+        if mask_pixels > 0:
+            _, balloon_fill_label_map = cv2.connectedComponents(
+                np.where(balloon_fill_mask > 0, 1, 0).astype(np.uint8),
+                connectivity=8,
+            )
+            if debug_img is not None:
+                mask_u8 = np.where(balloon_fill_mask > 0, 255, 0).astype(np.uint8)
+                mask_pixels_idx = mask_u8 > 0
+                overlay = debug_img.copy()
+                overlay[mask_pixels_idx] = (255, 0, 0)
+                cv2.addWeighted(overlay, 0.22, debug_img, 0.78, 0, dst=debug_img)
+                contours, _ = cv2.findContours(
+                    mask_u8, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE,
                 )
-                if mask_pixels == 0 and debug_img is not None:
-                    logger.warning("balloon_fill global bubble mask is empty (mask_pixels=0), blue overlay will not be visible")
-                if mask_pixels > 0:
-                    _, balloon_fill_label_map = cv2.connectedComponents(
-                        np.where(balloon_fill_mask > 0, 1, 0).astype(np.uint8),
-                        connectivity=8,
-                    )
-                    if debug_img is not None:
-                        # 在调试图上渲染“蓝色蒙版区域”（半透明填充）+ 蓝色边界，提升可见性
-                        mask_u8 = np.where(balloon_fill_mask > 0, 255, 0).astype(np.uint8)
-                        mask_pixels_idx = mask_u8 > 0
-                        if np.any(mask_pixels_idx):
-                            overlay = debug_img.copy()
-                            overlay[mask_pixels_idx] = (255, 0, 0)  # BGR 蓝色
-                            cv2.addWeighted(overlay, 0.22, debug_img, 0.78, 0, dst=debug_img)
+                if contours:
+                    cv2.drawContours(debug_img, contours, -1, (255, 0, 0), 2)
+        else:
+            logger.debug("balloon_fill has no detected bubble metadata; using smart-scaling fallback")
 
-                        contours, _ = cv2.findContours(mask_u8, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-                        if contours:
-                            cv2.drawContours(debug_img, contours, -1, (255, 0, 0), 2)
-        except Exception as exc:
-            logger.warning(f"balloon_fill bubble cache read failed, skip global bubble mask: {exc}")
-            balloon_fill_mask = np.zeros(original_img.shape[:2], dtype=np.uint8)
-            balloon_fill_label_map = None
-
-    # Bubble mask for center_text_in_bubble: reuse balloon_fill_mask or try mangalens cache
+    # Bubble mask for center_text_in_bubble reuses merge-stage detector data.
     center_check_mask = balloon_fill_mask
     center_check_label_map = balloon_fill_label_map
-    if center_check_mask is None and config.render.center_text_in_bubble and original_img is not None:
-        try:
-            _cr = get_cached_bubbles_with_mangalens(original_img, return_annotated=False, verbose=False)
-            if _cr is not None:
-                center_check_mask = build_bubble_mask_from_mangalens_result(_cr, original_img.shape[:2])
-                if center_check_mask is not None and np.count_nonzero(center_check_mask) > 0:
-                    _, center_check_label_map = cv2.connectedComponents(
-                        np.where(center_check_mask > 0, 1, 0).astype(np.uint8), connectivity=8
-                    )
-                else:
-                    center_check_mask = None
-        except Exception:
-            pass
+    if (
+        center_check_mask is None
+        and config.render.center_text_in_bubble
+        and bubble_layout_safety
+        and original_img is not None
+    ):
+        center_check_mask = _build_bubble_mask_from_regions(
+            text_regions, original_img.shape[:2],
+        )
+        if np.count_nonzero(center_check_mask) > 0:
+            _, center_check_label_map = cv2.connectedComponents(
+                np.where(center_check_mask > 0, 1, 0).astype(np.uint8),
+                connectivity=8,
+            )
+        else:
+            center_check_mask = None
 
     dst_points_list = []
     for region_idx, region in enumerate(text_regions):
@@ -1675,7 +1700,9 @@ def resize_regions_to_font_size(img: np.ndarray, text_regions: List['TextBlock']
             _apply_default_english_case_preferences(region, config)
 
             # 判断是否需要气泡内居中：开启设置 且 区域确实在检测到的气泡内
-            apply_bubble_centering = config.render.center_text_in_bubble
+            apply_bubble_centering = (
+                config.render.center_text_in_bubble and bubble_layout_safety
+            )
             if apply_bubble_centering and center_check_mask is not None and np.count_nonzero(center_check_mask) > 0:
                 _rm = _build_region_reference_mask(region, center_check_mask, center_check_label_map)
                 apply_bubble_centering = np.count_nonzero(_rm) > 0

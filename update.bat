@@ -1,91 +1,173 @@
 @echo off
 chcp 65001 >nul
-setlocal
-cd /d "%~dp0."
-title DragonMeow-MangaTranslator Update
+setlocal EnableExtensions EnableDelayedExpansion
 
-echo ============================================
-echo  DragonMeow-MangaTranslator  online update
-echo  從 GitHub 抓最新程式碼 + 內建 Python，更新後可直接使用
-echo  （保留 模型/.venv/.env/你的字型，只新增與覆蓋、不刪既有檔）
-echo ============================================
-echo.
-echo  [!] Please CLOSE the app first.  請先關閉執行中的程式（start.bat 視窗）。
-echo.
-pause
+rem Always run the real updater from a temporary copy.  This lets the update
+rem safely replace update.bat itself while the temporary copy keeps running.
+if /i "%~1"=="--worker" goto :worker
+set "RUNNER=%TEMP%\dmmt_update_runner_%RANDOM%_%RANDOM%.bat"
+copy /y "%~f0" "%RUNNER%" >nul
+if errorlevel 1 (
+    echo [ERROR] 無法建立暫存更新程式。
+    pause
+    exit /b 1
+)
+(
+    call "%RUNNER%" --worker "%~dp0" %*
+    set "UPDATE_RC=!errorlevel!"
+    del "%RUNNER%" >nul 2>&1
+    exit /b !UPDATE_RC!
+)
+
+:worker
+set "ROOT=%~2"
+if not defined ROOT (
+    echo [ERROR] 找不到程式目錄。
+    pause
+    exit /b 1
+)
+for %%I in ("%ROOT%.") do set "ROOT=%%~fI\"
+cd /d "%ROOT%"
+title DragonMeow-MangaTranslator Updater
+if /i "%~3"=="--self-test" (
+    echo UPDATE_SELF_TEST_OK
+    exit /b 0
+)
 
 set "REPO=DragonMeow1012/DragonMeow-MangaTranslator"
 set "ZIPURL=https://github.com/%REPO%/archive/refs/heads/main.zip"
-set "PYURL=https://github.com/%REPO%/releases/latest/download/python-portable-win-py312.zip"
-set "TMP=%TEMP%\dmmt_update"
-set "ZIP=%TEMP%\dmmt_update.zip"
-set "PYZIP=%TEMP%\dmmt_python.zip"
+set "TMP=%TEMP%\dmmt_update_%RANDOM%_%RANDOM%"
+set "ZIP=%TEMP%\dmmt_update_%RANDOM%_%RANDOM%.zip"
 
-echo [1/5] Downloading latest source ...  下載最新程式碼 ...
-curl -L --fail -o "%ZIP%" "%ZIPURL%"
-if errorlevel 1 (
-    echo [ERROR] Download failed. Check your internet connection.  下載失敗，請檢查網路。
+echo ============================================================
+echo  DragonMeow-MangaTranslator 更新程式
+echo ============================================================
+echo  正在檢查 GitHub 最新版本...
+echo.
+
+set "LATEST="
+for /f "usebackq delims=" %%A in (`powershell -NoProfile -ExecutionPolicy Bypass -Command "try { (Invoke-RestMethod 'https://api.github.com/repos/%REPO%/commits/main' -Headers @{'User-Agent'='dmmt-update'}).sha } catch { exit 1 }"`) do if not defined LATEST set "LATEST=%%A"
+if not defined LATEST (
+    echo [ERROR] 無法取得 GitHub 最新版本，請檢查網路連線後再試。
     pause
     exit /b 1
 )
 
-echo [2/5] Extracting ...  解壓 ...
-if exist "%TMP%" rmdir /s /q "%TMP%"
-mkdir "%TMP%"
+set "CURRENT_VERSION="
+if exist "app\VERSION" set /p CURRENT_VERSION=<"app\VERSION"
+set "CURRENT_GIT="
+if exist ".git" for /f "delims=" %%A in ('git rev-parse HEAD 2^>nul') do if not defined CURRENT_GIT set "CURRENT_GIT=%%A"
+set "CURRENT=%CURRENT_VERSION%"
+if not defined CURRENT set "CURRENT=%CURRENT_GIT%"
+if not defined CURRENT set "CURRENT=unknown"
+
+if /i "%CURRENT_VERSION%"=="%LATEST%" goto :up_to_date
+if /i "%CURRENT_GIT%"=="%LATEST%" goto :up_to_date
+goto :update_available
+
+:up_to_date
+    echo [OK] 已是最新版本：%LATEST:~0,7%
+    echo.
+    pause
+    exit /b 0
+
+:update_available
+
+echo 目前版本：%CURRENT:~0,7%
+echo 最新版本：%LATEST:~0,7%
+if exist ".git" (
+    set "DIRTY="
+    for /f "delims=" %%A in ('git status --porcelain 2^>nul') do set "DIRTY=1"
+    if defined DIRTY echo [注意] 偵測到未提交修改；更新會覆蓋與新版同名的程式檔案。
+)
+echo.
+
+for /l %%S in (5,-1,1) do (
+    choice /C CN /N /T 1 /D N /M "[%%S] 秒後開始更新；按 C 取消... "
+    if !errorlevel! equ 1 goto :cancelled
+)
+
+echo.
+echo [1/5] 正在強制關閉現有 server 與翻譯 worker...
+set "DMMT_UPDATE_ROOT=%ROOT%"
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$root=[IO.Path]::GetFullPath($env:DMMT_UPDATE_ROOT).TrimEnd('\'); Get-CimInstance Win32_Process | Where-Object { $_.ProcessId -ne $PID -and $_.CommandLine -and $_.CommandLine.IndexOf($root,[StringComparison]::OrdinalIgnoreCase) -ge 0 -and ($_.CommandLine -match 'server[\\/]main\.py' -or $_.CommandLine -match '-m\s+manga_translator\s+shared') } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }"
+timeout /t 2 /nobreak >nul
+
+echo [2/5] 正在下載最新程式碼...
+curl -L --fail --silent --show-error -o "%ZIP%" "%ZIPURL%"
+if errorlevel 1 goto :download_error
+
+echo [3/5] 正在解壓縮...
+mkdir "%TMP%" >nul 2>&1
 tar -xf "%ZIP%" -C "%TMP%"
-if errorlevel 1 (
-    echo [ERROR] Extract failed.  解壓失敗。
-    pause
-    exit /b 1
-)
-
+if errorlevel 1 goto :extract_error
 set "SRC=%TMP%\DragonMeow-MangaTranslator-main"
-if not exist "%SRC%\setup.bat" (
-    echo [ERROR] Unexpected archive layout.  壓縮檔結構異常，請改用完整 release 重裝。
-    pause
-    exit /b 1
-)
+if not exist "%SRC%\setup.bat" goto :layout_error
 
-echo [3/5] Applying code update ...  套用程式更新（不動 模型/.venv/python/.env/字型）...
-rem robocopy /XD 比對「來源端」路徑，排除清單須用 %SRC%\... 而非目的端，否則排除不生效（那幾個資料夾本就被 .gitignore、不在 zip 裡，改來源端是把保護做實）。
-robocopy "%SRC%" "%CD%" /E /NFL /NDL /NJH /NJS /NP /R:1 /W:1 /XD "%SRC%\.venv" "%SRC%\app\.venv" "%SRC%\python" "%SRC%\app\models" "%SRC%\app\fonts\user" /XF ".env" "VERSION" >nul
-if errorlevel 8 (
-    echo [ERROR] Copy failed.  覆蓋失敗，可能有檔案被占用，請先關閉程式再試。
-    pause
-    exit /b 1
-)
+echo [4/5] 正在套用更新（保留模型、環境、設定與翻譯結果）...
+robocopy "%SRC%" "%ROOT%." /E /NFL /NDL /NJH /NJS /NP /R:1 /W:1 ^
+    /XD "%SRC%\.git" "%SRC%\.venv" "%SRC%\python" "%SRC%\app\.venv" "%SRC%\app\models" "%SRC%\app\result" "%SRC%\app\logs" "%SRC%\app\fonts\user" ^
+    /XF ".env" "VERSION" "user_settings.json" "update.bat" >nul
+set "COPY_RC=!errorlevel!"
+if !COPY_RC! geq 8 goto :copy_error
 
-echo [4/5] Checking bundled Python ...  檢查內建 Python ...
-if exist "python\python.exe" (
-    echo       OK: bundled Python present.  已有內建 Python。
-) else (
-    echo       Not found -- downloading portable Python ~23MB ...  未偵測到，下載內建 Python ...
-    curl -L --fail -o "%PYZIP%" "%PYURL%" || ( echo [ERROR] Python download failed. 內建 Python 下載失敗。& pause & exit /b 1 )
-    tar -xf "%PYZIP%" -C "." || ( echo [ERROR] Python extract failed. 解壓失敗。& pause & exit /b 1 )
-    del "%PYZIP%" 2>nul
-    if not exist "python\python.exe" ( echo [ERROR] python\python.exe still missing. 解壓後仍找不到。& pause & exit /b 1 )
-    echo       OK: python\python.exe ready.  內建 Python 就緒。
-)
+set "DMMT_LATEST=%LATEST%"
+powershell -NoProfile -ExecutionPolicy Bypass -Command "Set-Content -LiteralPath 'app\VERSION' -Value $env:DMMT_LATEST -NoNewline -Encoding ascii"
 
-rem 記錄更新到的版本（盡力而為，失敗不影響更新），讓程式內線上更新比對一致
-powershell -NoProfile -Command "try { $s=(Invoke-RestMethod ('https://api.github.com/repos/%REPO%/commits/main') -Headers @{'User-Agent'='dmmt-update'}).sha; Set-Content -Path 'app\VERSION' -Value $s -NoNewline -Encoding ascii; Write-Host ('VERSION = ' + $s) } catch { Write-Host '(version stamp skipped)' }"
-
-rem 清理暫存
-rmdir /s /q "%TMP%" 2>nul
-del "%ZIP%" 2>nul
-
-echo [5/5] Finalizing ...  收尾 ...
+echo [5/5] 正在更新相依套件...
 if exist "app\.venv\Scripts\python.exe" (
-    echo       Updating dependencies ...  更新相依套件 ...
-    app\.venv\Scripts\python.exe -m pip install -r app\requirements.txt
-    echo.
-    echo ============================================
-    echo  Update complete!  更新完成！  Run start.bat to launch.  執行 start.bat 啟動。
-    echo ============================================
-    pause
+    "app\.venv\Scripts\python.exe" -m pip install --disable-pip-version-check -r "app\requirements.txt"
+    if errorlevel 1 echo [WARN] 相依套件更新失敗；程式碼已更新，可稍後重新執行 setup.bat。
 ) else (
-    echo       No .venv yet -- running setup.bat to finish install ...
-    echo       尚無 .venv，接著自動執行 setup.bat 完成安裝 ...
-    echo.
-    call setup.bat
+    echo [WARN] 尚未安裝 Python 環境；請在更新後執行 setup.bat。
 )
+
+rem This process is running from a temporary copy, so replacing update.bat is safe.
+copy /y "%SRC%\update.bat" "%ROOT%update.bat" >nul
+if errorlevel 1 echo [WARN] update.bat 本身未能更新；其餘程式碼已完成更新。
+del "%ZIP%" >nul 2>&1
+rmdir /s /q "%TMP%" >nul 2>&1
+
+echo.
+echo ============================================================
+echo  更新完成：%LATEST:~0,7%
+echo ============================================================
+choice /C YN /N /M "是否立即啟動 server？[Y/N] "
+if errorlevel 2 (
+    echo 已完成更新，之後可執行 start.bat 開啟 server。
+    pause
+    exit /b 0
+)
+start "" "%ROOT%start.bat"
+echo 已啟動 server。
+timeout /t 2 /nobreak >nul
+exit /b 0
+
+:cancelled
+echo.
+echo 已取消更新，server 不會被關閉。
+timeout /t 2 /nobreak >nul
+exit /b 0
+
+:download_error
+echo [ERROR] 下載失敗，server 已關閉；請檢查網路後重新執行 update.bat。
+goto :failed
+
+:extract_error
+echo [ERROR] 解壓縮失敗。
+goto :failed
+
+:layout_error
+echo [ERROR] 下載內容格式不正確。
+goto :failed
+
+:copy_error
+echo [ERROR] 複製程式碼失敗，robocopy code=!COPY_RC!。
+goto :failed
+
+:failed
+del "%ZIP%" >nul 2>&1
+if exist "%TMP%" rmdir /s /q "%TMP%" >nul 2>&1
+echo 請修正問題後再次執行 update.bat。
+pause
+exit /b 1

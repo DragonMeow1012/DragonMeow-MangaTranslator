@@ -257,28 +257,73 @@
                 <span class="absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white transition-transform peer-checked:translate-x-4"></span>
               </span>
             </label>
-            <!-- [beta] 只翻泡泡內 -->
-            <label class="flex items-center justify-between cursor-pointer select-none" title="只翻譯對話框內的字；框外 SFX／旁白／誤偵測一律保留原圖。美術重的 webtoon 建議開。">
-              <span class="text-sm text-stone-300 flex items-center gap-1.5">
-                <i class="iconify accent-text" data-icon="carbon:chat"></i>只翻泡泡內
-              </span>
-              <span class="relative inline-block w-9 h-5">
-                <input type="checkbox" class="sr-only peer" v-model="onlyTranslateBubbles" @change="onSettingChange">
-                <span class="absolute inset-0 rounded-full bg-stone-600 acc-knob transition-colors"></span>
-                <span class="absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white transition-transform peer-checked:translate-x-4"></span>
-              </span>
-            </label>
-            <!-- [beta] 長圖/密集頁加速 -->
-            <label class="flex items-center justify-between cursor-pointer select-none" title="長圖或密集頁時，把一頁的文字分成數帶、平行翻譯以縮短等待。實驗功能。">
-              <span class="text-sm text-stone-300 flex items-center gap-1.5">
-                <i class="iconify accent-text" data-icon="carbon:flash"></i>長圖/密集頁加速 (beta)
-              </span>
-              <span class="relative inline-block w-9 h-5">
-                <input type="checkbox" class="sr-only peer" v-model="parallelBands" @change="onSettingChange">
-                <span class="absolute inset-0 rounded-full bg-stone-600 acc-knob transition-colors"></span>
-                <span class="absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white transition-transform peer-checked:translate-x-4"></span>
-              </span>
-            </label>
+            <details class="rounded-lg border border-stone-700 bg-stone-900/30">
+              <summary class="flex cursor-pointer select-none items-center justify-between px-3 py-2 text-sm text-stone-300">
+                <span class="flex items-center gap-1.5">
+                  <i class="iconify accent-text" data-icon="carbon:settings-adjust"></i>{{ t('advancedFeatures') }}
+                </span>
+                <span class="text-xs text-stone-500">{{ t('advancedFeaturesHint') }}</span>
+              </summary>
+              <div class="space-y-3 border-t border-stone-700 px-3 py-3">
+                <label class="flex items-center justify-between cursor-pointer select-none" :title="t('bubbleSafetyTooltip')">
+                  <span class="text-sm text-stone-300 flex items-center gap-1.5">
+                    <i class="iconify accent-text" data-icon="carbon:fit-to-screen"></i>{{ t('bubbleSafetyLabel') }}
+                  </span>
+                  <span class="relative inline-block w-9 h-5">
+                    <input type="checkbox" class="sr-only peer" v-model="bubbleLayoutSafety" @change="onSettingChange">
+                    <span class="absolute inset-0 rounded-full bg-stone-600 acc-knob transition-colors"></span>
+                    <span class="absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white transition-transform peer-checked:translate-x-4"></span>
+                  </span>
+                </label>
+                <label class="flex items-center justify-between cursor-pointer select-none" :title="t('punctuationTooltip')">
+                  <span class="text-sm text-stone-300 flex items-center gap-1.5">
+                    <i class="iconify accent-text" data-icon="carbon:text-grammar"></i>{{ t('punctuationLabel') }}
+                  </span>
+                  <span class="relative inline-block w-9 h-5">
+                    <input type="checkbox" class="sr-only peer" v-model="halfwidthPunctuation" @change="onSettingChange">
+                    <span class="absolute inset-0 rounded-full bg-stone-600 acc-knob transition-colors"></span>
+                    <span class="absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white transition-transform peer-checked:translate-x-4"></span>
+                  </span>
+                </label>
+                <label class="flex items-center justify-between cursor-pointer select-none" title="只翻譯對話框內的字；框外 SFX／旁白／誤偵測一律保留原圖。">
+                  <span class="text-sm text-stone-300 flex items-center gap-1.5">
+                    <i class="iconify accent-text" data-icon="carbon:chat"></i>只翻泡泡內
+                  </span>
+                  <span class="relative inline-block w-9 h-5">
+                    <input type="checkbox" class="sr-only peer" v-model="onlyTranslateBubbles" @change="onSettingChange">
+                    <span class="absolute inset-0 rounded-full bg-stone-600 acc-knob transition-colors"></span>
+                    <span class="absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white transition-transform peer-checked:translate-x-4"></span>
+                  </span>
+                </label>
+                <label class="flex items-center justify-between cursor-pointer select-none" title="長圖或密集頁時，把一頁的文字分成數帶、平行翻譯以縮短等待。實驗功能。">
+                  <span class="text-sm text-stone-300 flex items-center gap-1.5">
+                    <i class="iconify accent-text" data-icon="carbon:flash"></i>長圖/密集頁加速 (beta)
+                  </span>
+                  <span class="relative inline-block w-9 h-5">
+                    <input type="checkbox" class="sr-only peer" v-model="parallelBands" @change="onSettingChange">
+                    <span class="absolute inset-0 rounded-full bg-stone-600 acc-knob transition-colors"></span>
+                    <span class="absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white transition-transform peer-checked:translate-x-4"></span>
+                  </span>
+                </label>
+                <label class="flex items-center justify-between cursor-pointer select-none" :title="t('batchMergeTooltip')">
+                  <span class="text-sm text-stone-300 flex items-center gap-1.5">
+                    <i class="iconify accent-text" data-icon="carbon:group-objects-new"></i>{{ t('batchMergeLabel') }}
+                  </span>
+                  <span class="relative inline-block w-9 h-5">
+                    <input type="checkbox" class="sr-only peer" v-model="batchMergeEnabled" @change="onSettingChange">
+                    <span class="absolute inset-0 rounded-full bg-stone-600 acc-knob transition-colors"></span>
+                    <span class="absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white transition-transform peer-checked:translate-x-4"></span>
+                  </span>
+                </label>
+                <div v-if="batchMergeEnabled">
+                  <label class="side-label">{{ t('batchMergePages') }}</label>
+                  <input type="number" min="2" max="8" step="1" class="side-field"
+                         v-model.number="batchMergePages"
+                         @change="batchMergePages = Math.max(2, Math.min(8, parseInt(batchMergePages) || 3)); onSettingChange()">
+                  <p class="text-xs text-stone-500 mt-1">{{ t('batchMergeWait') }} {{ (batchMergePages - 1) * 20 + 10 }}s</p>
+                </div>
+              </div>
+            </details>
             <!-- 測試連接 -->
             <div class="flex items-center gap-2 flex-wrap">
               <button
@@ -910,40 +955,6 @@
         </div>
       </main>
 
-      <!-- 更新對話框 -->
-      <div v-if="updateModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4"
-           @click="updateModal = false">
-        <div class="bg-white rounded-lg shadow-2xl max-w-lg w-full p-5" @click.stop>
-          <h3 class="text-lg font-semibold text-gray-800 mb-2">
-            <i class="iconify inline-block mr-1" data-icon="carbon:update-now"></i>{{ t('updateTitle') }}
-          </h3>
-          <div v-if="updateInfo && updateInfo.update_available">
-            <p class="text-sm text-gray-600 mb-2">
-              {{ t('updateAvailable') }}（{{ updateInfo.current }} → {{ updateInfo.latest }}，{{ updateInfo.count }} {{ t('updateCommits') }}）
-            </p>
-            <div class="text-sm text-gray-700 bg-gray-50 rounded p-3 max-h-60 overflow-y-auto mb-3">
-              <div v-for="(line, i) in updateInfo.changelog" :key="i" class="flex gap-1 py-0.5">
-                <span class="text-gray-400">•</span><span class="break-words">{{ line }}</span>
-              </div>
-            </div>
-            <p class="text-xs text-amber-600 mb-3">{{ t('updateWarn') }}</p>
-            <div class="flex justify-end gap-2">
-              <button @click="updateModal = false" class="px-3 py-1 text-sm bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300">{{ t('updateLater') }}</button>
-              <button @click="applyUpdate" :disabled="updateApplying"
-                      class="px-3 py-1 text-sm bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50">
-                <i v-if="updateApplying" class="iconify inline-block mr-1 animate-spin" data-icon="carbon:circle-dash"></i>{{ updateApplying ? t('updateApplying') : t('updateNow') }}
-              </button>
-            </div>
-          </div>
-          <div v-else>
-            <p class="text-sm text-gray-600 mb-3">{{ t('updateUpToDate') }}（{{ updateInfo ? updateInfo.current : '' }}）</p>
-            <div class="flex justify-end">
-              <button @click="updateModal = false" class="px-3 py-1 text-sm bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300">{{ t('close') }}</button>
-            </div>
-          </div>
-        </div>
-      </div>
-
       <!-- Image Modal -->
       <div v-if="showImageModal"
            class="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4"
@@ -1337,6 +1348,10 @@
         { k: 'llmSendImage', t: 'bool' },
         { k: 'onlyTranslateBubbles', t: 'bool' },
         { k: 'parallelBands', t: 'bool' },
+        { k: 'bubbleLayoutSafety', t: 'bool' },
+        { k: 'halfwidthPunctuation', t: 'bool' },
+        { k: 'batchMergeEnabled', t: 'bool' },
+        { k: 'batchMergePages', t: 'int', migrate: v => Math.max(2, Math.min(8, v || 3)) },
         { k: 'darkMode', t: 'bool' },
         { k: 'accentColor', enum: ['blue', 'pink', 'amber'] },
         { k: 'targetLanguage' },
@@ -1472,6 +1487,7 @@
           updateApplying: '更新中…',
           updateConfirm: '確定要更新並重啟嗎？',
           updateDone: '更新完成，正在重新啟動，請稍候幾秒後重新整理頁面。',
+          updateLaunched: '已開啟 update.bat；請在更新視窗確認版本、取消倒數或選擇更新後是否啟動 server。',
           updateCheckFailed: '檢查更新失敗（可能是沒網路或 GitHub 暫時無法連線）',
           updateFailed: '更新失敗',
           providerTooltip: '翻譯服務供應商',
@@ -1582,6 +1598,16 @@
           openFolder: '開啟資料夾',
           advancedMode: '進階編輯',
           advancedTooltip: '開啟後翻譯完可逐框微調譯文、字級、顏色、位置並重新渲染',
+          advancedFeatures: '進階功能',
+          advancedFeaturesHint: '點擊展開',
+          bubbleSafetyLabel: '氣泡排版保護',
+          bubbleSafetyTooltip: '使用偵測到的氣泡範圍限制字級與置中，避免文字超出氣泡。',
+          punctuationLabel: '中文半形標點',
+          punctuationTooltip: '把模型產生的中文全形標點轉成緊湊半形；進階編輯手動輸入不受影響。',
+          batchMergeLabel: '同本跨頁合併',
+          batchMergeTooltip: '只合併同一 ZIP 或資料夾的頁面，減少 LLM 請求次數；不同漫畫不會混批。',
+          batchMergePages: '每次合併頁數（2～8）',
+          batchMergeWait: '尾批安全等待上限約',
           editorTitle: '進階編輯',
           previousEditImage: '上一張',
           nextEditImage: '下一張',
@@ -1664,6 +1690,7 @@
           updateApplying: '更新中…',
           updateConfirm: '确定要更新并重启吗？',
           updateDone: '更新完成，正在重新启动，请稍候几秒后刷新页面。',
+          updateLaunched: '已打开 update.bat；请在更新窗口确认版本、取消倒计时或选择更新后是否启动 server。',
           updateCheckFailed: '检查更新失败（可能是没网络或 GitHub 暂时无法连接）',
           updateFailed: '更新失败',
           providerTooltip: '翻译服务提供商',
@@ -1774,6 +1801,16 @@
           openFolder: '打开文件夹',
           advancedMode: '高级编辑',
           advancedTooltip: '开启后翻译完可逐框微调译文、字号、颜色、位置并重新渲染',
+          advancedFeatures: '高级功能',
+          advancedFeaturesHint: '点击展开',
+          bubbleSafetyLabel: '气泡排版保护',
+          bubbleSafetyTooltip: '使用检测到的气泡范围限制字号与居中，避免文字超出气泡。',
+          punctuationLabel: '中文半角标点',
+          punctuationTooltip: '把模型产生的中文全角标点转成紧凑半角；高级编辑手动输入不受影响。',
+          batchMergeLabel: '同册跨页合并',
+          batchMergeTooltip: '只合并同一 ZIP 或文件夹的页面，减少 LLM 请求次数；不同漫画不会混批。',
+          batchMergePages: '每次合并页数（2～8）',
+          batchMergeWait: '尾批安全等待上限约',
           editorTitle: '高级编辑',
           previousEditImage: '上一张',
           nextEditImage: '下一张',
@@ -1856,6 +1893,7 @@
           updateApplying: 'Updating…',
           updateConfirm: 'Update and restart now?',
           updateDone: 'Update done, restarting. Please refresh the page in a few seconds.',
+          updateLaunched: 'update.bat is open. Use its window to cancel the countdown and choose whether to start the server after updating.',
           updateCheckFailed: 'Update check failed (no internet or GitHub unreachable)',
           updateFailed: 'Update failed',
           providerTooltip: 'LLM provider',
@@ -1966,6 +2004,16 @@
           openFolder: 'Open Folder',
           advancedMode: 'Advanced Edit',
           advancedTooltip: 'When on, after translating you can tweak each text box (translation, size, color, position) and re-render',
+          advancedFeatures: 'Advanced features',
+          advancedFeaturesHint: 'Click to expand',
+          bubbleSafetyLabel: 'Bubble layout safety',
+          bubbleSafetyTooltip: 'Keep text size and centering inside detected bubble bounds.',
+          punctuationLabel: 'Halfwidth Chinese punctuation',
+          punctuationTooltip: 'Normalize model-produced Chinese punctuation; manual advanced-editor text is preserved.',
+          batchMergeLabel: 'Merge pages from one book',
+          batchMergeTooltip: 'Batch only pages from the same ZIP or folder to reduce LLM requests.',
+          batchMergePages: 'Pages per request (2–8)',
+          batchMergeWait: 'Tail-batch safety wait up to',
           editorTitle: 'Advanced Edit',
           previousEditImage: 'Previous',
           nextEditImage: 'Next',
@@ -2048,6 +2096,7 @@
           updateApplying: '更新中…',
           updateConfirm: '更新して再起動しますか？',
           updateDone: '更新完了、再起動中です。数秒後にページを更新してください。',
+          updateLaunched: 'update.bat を開きました。更新画面でカウントダウンのキャンセルと更新後の server 起動を選べます。',
           updateCheckFailed: '更新確認に失敗（ネット未接続または GitHub に接続できません）',
           updateFailed: '更新に失敗しました',
           providerTooltip: '翻訳プロバイダ',
@@ -2158,6 +2207,16 @@
           openFolder: 'フォルダを開く',
           advancedMode: '詳細編集',
           advancedTooltip: 'オンにすると翻訳後に各テキスト枠（訳文・サイズ・色・位置）を調整して再レンダリングできます',
+          advancedFeatures: '詳細機能',
+          advancedFeaturesHint: 'クリックして展開',
+          bubbleSafetyLabel: '吹き出し内レイアウト保護',
+          bubbleSafetyTooltip: '検出した吹き出しの範囲内に文字サイズと中央揃えを制限します。',
+          punctuationLabel: '中国語の半角句読点',
+          punctuationTooltip: 'モデルが生成した中国語の全角句読点を半角化します。詳細編集の手入力は保持されます。',
+          batchMergeLabel: '同じ本の複数ページを結合',
+          batchMergeTooltip: '同じ ZIP またはフォルダのページだけをまとめ、LLM リクエスト数を減らします。',
+          batchMergePages: '1回のページ数（2～8）',
+          batchMergeWait: '末尾バッチの最大待機時間',
           editorTitle: '詳細編集',
           previousEditImage: '前の画像',
           nextEditImage: '次の画像',
@@ -2332,6 +2391,10 @@
         llmSendImage: true,
         onlyTranslateBubbles: false,
         parallelBands: false,
+        bubbleLayoutSafety: true,
+        halfwidthPunctuation: false,
+        batchMergeEnabled: false,
+        batchMergePages: 3,
         // 主區分頁籤：queue（翻譯佇列）/ gallery（成果圖庫）
         mainTab: 'queue',
         // 深夜模式（root div 加 .dark class）
@@ -2354,10 +2417,7 @@
         // 第一次開啟提醒
         showWelcome: false,
         // 線上更新
-        updateModal: false,
-        updateInfo: null,
         updateChecking: false,
-        updateApplying: false,
         // 佇列自動重試失敗項
         autoRetryFailed: false,
         // 圖庫選取 + zip 打包
@@ -2365,7 +2425,7 @@
         zipping: false,
 
         // 進階編輯模式
-        advancedMode: false,
+        advancedMode: true,
         editorOpen: false,
         editorFolder: null,
         editorSwitching: false,
@@ -2867,6 +2927,20 @@
         // 把 zip/cbz 展開成裡面的圖片（依檔名自然排序＝頁序）；一般圖片原樣保留
         async _expandZips(rawFiles) {
           const out = [];
+          const newBatchGroup = () => `web-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+          // 散圖的一次選取視為一本；選資料夾時依圖片所在資料夾分書。
+          // 每個 ZIP/CBZ 永遠有自己的 group，三本同時加入也不會混批。
+          const looseGroups = new Map();
+          for (const file of rawFiles) {
+            if (this._isZip(file) || !acceptTypes.includes(file.type)) continue;
+            const relative = String(file.webkitRelativePath || '');
+            const key = relative.includes('/')
+              ? relative.split('/').slice(0, -1).join('/')
+              : '__selected_files__';
+            const current = looseGroups.get(key) || { id: newBatchGroup(), total: 0 };
+            current.total += 1;
+            looseGroups.set(key, current);
+          }
           for (const f of rawFiles) {
             if (this._isZip(f)) {
               try {
@@ -2881,18 +2955,29 @@
                   }
                 });
                 entries.sort((a, b) => a.path.localeCompare(b.path, undefined, { numeric: true }));
+                const batchGroup = newBatchGroup();
                 for (const { path, entry } of entries) {
                   const blob = await entry.async('blob');
                   const ext = path.split('.').pop().toLowerCase();
                   const mime = ext === 'png' ? 'image/png' : ext === 'webp' ? 'image/webp'
                     : ext === 'bmp' ? 'image/bmp' : ext === 'gif' ? 'image/gif' : 'image/jpeg';
-                  out.push(new File([blob], path.split('/').pop(), { type: mime }));
+                  const pageFile = new File([blob], path.split('/').pop(), { type: mime });
+                  pageFile._batchGroup = batchGroup;
+                  pageFile._batchTotalPages = entries.length;
+                  out.push(pageFile);
                 }
               } catch (err) {
                 console.warn('unzip failed:', err);
                 alert(this.t('zipReadFailed') + ': ' + (f.name || ''));
               }
             } else if (acceptTypes.includes(f.type)) {
+              const relative = String(f.webkitRelativePath || '');
+              const key = relative.includes('/')
+                ? relative.split('/').slice(0, -1).join('/')
+                : '__selected_files__';
+              const looseGroup = looseGroups.get(key);
+              f._batchGroup = looseGroup.id;
+              f._batchTotalPages = looseGroup.total;
               out.push(f);
             }
           }
@@ -3004,10 +3089,20 @@
           }
         },
 
-        // 中斷全部：停掉目前翻譯並清空整個佇列
-        abortAllQueue() {
-          this.queuedImages.forEach(it => it._controller?.abort());
+        // 中斷全部：先從畫面移除，阻止 finally 補下一張；再清瀏覽器請求與後端 job queue。
+        async abortAllQueue() {
+          const abortedItems = this.queuedImages;
           this.queuedImages = [];
+          abortedItems.forEach(it => it._controller?.abort());
+          try {
+            await fetch(`${BASE_URI}translate/jobs`, { method: 'DELETE' });
+            // Catch an upload that completed on the server at the same moment
+            // its browser request was aborted.
+            await new Promise(resolve => setTimeout(resolve, 150));
+            await fetch(`${BASE_URI}translate/jobs`, { method: 'DELETE' });
+          } catch (error) {
+            console.error('Failed to cancel server jobs:', error);
+          }
         },
 
         // Gallery management
@@ -3166,6 +3261,13 @@
               llm_base_url: this.llmProvider === 'custom' ? (this.customBaseUrl || null) : null,
               llm_send_image: this.llmSendImage,
               parallel_bands: this.parallelBands,
+              normalize_punctuation: this.halfwidthPunctuation,
+              batch_group: this.batchMergeEnabled ? (queuedImage.file._batchGroup || null) : null,
+              batch_total_pages: this.batchMergeEnabled ? (queuedImage.file._batchTotalPages || 1) : null,
+              batch_pages: this.batchMergeEnabled ? Math.max(2, Math.min(8, parseInt(this.batchMergePages) || 3)) : null,
+              batch_wait_ms: this.batchMergeEnabled
+                ? (Math.max(2, Math.min(8, parseInt(this.batchMergePages) || 3)) - 1) * 20000 + 10000
+                : null,
               post_check_max_retry_attempts: 0,
               enable_post_translation_check: false,
             },
@@ -3210,11 +3312,12 @@
               font_size: null,
               auto_rotate_symbols: true,
               rtl: true,
-              layout_mode: "balloon_fill",
+              layout_mode: this.bubbleLayoutSafety ? "balloon_fill" : "smart_scaling",
               max_font_size: 0,
               font_scale_ratio: 1.0,
               disable_auto_wrap: false,
-              center_text_in_bubble: true,
+              center_text_in_bubble: this.bubbleLayoutSafety,
+              bubble_layout_safety: this.bubbleLayoutSafety,
               optimize_line_breaks: false,
               check_br_and_retry: false,
               strict_smart_scaling: false,
@@ -3408,8 +3511,11 @@
               const data = await response.json();
               const jobId = data && data.jobId;
               if (!jobId) throw new Error("Missing job id");
+              queuedImage._jobId = jobId;
               while (true) {
-                await new Promise(resolve => setTimeout(resolve, 650));
+                // Progress frames are coarse-grained; sub-second polling only
+                // multiplies proxy/backend traffic when many pages are active.
+                await new Promise(resolve => setTimeout(resolve, 1200));
                 const poll = await fetch(`${BASE_URI}translate/jobs/${jobId}`, {
                   signal: queuedImage._controller.signal,
                 });
@@ -3423,6 +3529,15 @@
             } catch (error) {
               if (error.name === 'AbortError') {
                 console.log('Fetch aborted');
+                if (queuedImage._jobId) {
+                  try {
+                    await fetch(`${BASE_URI}translate/jobs/${queuedImage._jobId}`, {
+                      method: 'DELETE',
+                    });
+                  } catch (cancelError) {
+                    console.warn('Failed to cancel server job:', cancelError);
+                  }
+                }
                 return;
               }
               if (!retriedBase && baseUri !== BASE_URI) {
@@ -3941,42 +4056,18 @@
       if (this.updateChecking) return;
       this.updateChecking = true;
       try {
-        const resp = await fetch(`${BASE_URI}update/check`);
+        const resp = await fetch(`${BASE_URI}update/launch`, { method: 'POST' });
         if (!resp.ok) {
           const err = await resp.json().catch(() => ({}));
           alert(this.t('updateCheckFailed') + (err.detail ? `: ${err.detail}` : ''));
           return;
         }
-        this.updateInfo = await resp.json();
-        this.updateModal = true;
+        alert(this.t('updateLaunched'));
       } catch (e) {
         console.warn('check update failed:', e);
         alert(this.t('updateCheckFailed'));
       } finally {
         this.updateChecking = false;
-      }
-    },
-    async applyUpdate() {
-      if (this.updateApplying) return;
-      if (!confirm(this.t('updateConfirm'))) return;
-      this.updateApplying = true;
-      try {
-        const resp = await fetch(`${BASE_URI}update/apply`, { method: 'POST' });
-        if (!resp.ok) {
-          const err = await resp.json().catch(() => ({}));
-          alert(this.t('updateFailed') + (err.detail ? `: ${err.detail}` : ''));
-          this.updateApplying = false;
-          return;
-        }
-        // 成功：後端會殺掉自己並重啟，這裡提示使用者稍候
-        this.updateModal = false;
-        alert(this.t('updateDone'));
-      } catch (e) {
-        // 重啟過程中連線會中斷，屬正常
-        this.updateModal = false;
-        alert(this.t('updateDone'));
-      } finally {
-        this.updateApplying = false;
       }
     },
 

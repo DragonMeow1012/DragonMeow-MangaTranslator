@@ -37,6 +37,7 @@ from .mask_refinement import dispatch as dispatch_mask_refinement
 from .inpainting import dispatch as dispatch_inpainting, prepare as prepare_inpainting, unload as unload_inpainting
 from .translators import (
     dispatch as dispatch_translation,
+    notify_batch_page_skipped,
     prepare as prepare_translation,
     unload as unload_translation,
 )
@@ -739,10 +740,20 @@ class MangaTranslator:
         要等到所有 pre 跑完才有機會」的 FIFO pile-up。
         """
         gpu_lock = self._get_gpu_lock()
-        _t = time.perf_counter()
+        _pre_total_t = time.perf_counter()
+        _pre_gpu_t = time.perf_counter()
         async with gpu_lock.acquire('pre'):
-            ctx = await self._stage_pre_llm(config, ctx)
-        logger.info(f'[timing] pre(detect+ocr+merge) {(time.perf_counter()-_t)*1000:.0f}ms')
+            ctx = await self._stage_pre_llm(config, ctx, defer_textline_merge=True)
+        logger.info(f'[timing] pre_gpu(detect+ocr) {(time.perf_counter()-_pre_gpu_t)*1000:.0f}ms')
+        if getattr(ctx, '_pipeline_done', False):
+            return ctx
+        # Bubble-aware merge and dictionaries are CPU/file work. Keeping them
+        # inside the global GPU lock serialized unrelated pages long after OCR
+        # had released the GPU.
+        _merge_t = time.perf_counter()
+        ctx = await self._stage_pre_textline_merge(config, ctx)
+        logger.info(f'[timing] textline_merge {(time.perf_counter()-_merge_t)*1000:.0f}ms')
+        logger.info(f'[timing] pre(detect+ocr+merge) {(time.perf_counter()-_pre_total_t)*1000:.0f}ms')
         if getattr(ctx, '_pipeline_done', False):
             return ctx
         # LLM 階段不持 GPU 鎖：純網路 await，多個 coroutine 同時打不同 API key。
@@ -759,7 +770,7 @@ class MangaTranslator:
             # 抹字是「變動大尺寸」的 GPU 配置（尤其長條全寬版，每頁尺寸都不同）→ CUDA caching allocator
             # 會因尺寸不一而碎裂、保留的快取 watermark 一路爬高（使用者回報「VRAM 壅塞不釋放、總消耗太高」）。
             # 持鎖時把這頁的快取交回（此時無其他 GPU 階段並行，清得最乾淨），避免跨頁累積。
-            if torch.cuda.is_available():
+            if self._gpu_limited_memory and torch.cuda.is_available():
                 torch.cuda.empty_cache()
         logger.info(f'[timing] post_gpu(mask+inpaint) {(time.perf_counter()-_t)*1000:.0f}ms')
         if getattr(ctx, '_pipeline_done', False):
@@ -777,7 +788,13 @@ class MangaTranslator:
             self._gpu_lock = lk
         return lk
 
-    async def _stage_pre_llm(self, config: Config, ctx: Context) -> Context:
+    async def _stage_pre_llm(
+        self,
+        config: Config,
+        ctx: Context,
+        *,
+        defer_textline_merge: bool = False,
+    ) -> Context:
         """
         Pre-LLM: colorize/upscale/detect/OCR/textline_merge/pre_dict。
         若途中提早結束（沒文字、OCR 失敗等），ctx._pipeline_done=True 且 ctx.result 已 set，
@@ -839,6 +856,8 @@ class MangaTranslator:
 
         if not ctx.textlines:
             await self._report_progress('skip-no-regions', True)
+            # 確定整頁沒有 detection region：完成本書頁數，但不占「收集 N 頁」名額。
+            await notify_batch_page_skipped(config.translator)
             # If no text was found result is intermediate image product
             ctx.result = ctx.upscaled
             ctx = await self._revert_upscale(config, ctx)
@@ -863,12 +882,35 @@ class MangaTranslator:
 
         if not ctx.textlines:
             await self._report_progress('skip-no-text', True)
+            # OCR 正常完成但沒有任何文字，不能拿空頁湊 batch。
+            await notify_batch_page_skipped(config.translator)
             # If no text was found result is intermediate image product
             ctx.result = ctx.upscaled
             ctx = await self._revert_upscale(config, ctx)
             ctx._pipeline_done = True
             return ctx
 
+        # Bubble detection can use the GPU. Compute it while the pre-stage GPU
+        # lease is still held, then hand only its rectangles to the CPU merge
+        # worker outside the lock.
+        ctx._bubble_detection_done = True
+        ctx.bubbles = []
+        if os.environ.get('BUBBLE_AWARE_MERGE', '1') in ('1', 'true', 'True'):
+            try:
+                from .bubble_detection import detect_bubbles
+                ctx.bubbles = await asyncio.to_thread(detect_bubbles, ctx.img_rgb)
+            except Exception as e:
+                logger.warning(
+                    f'Bubble detection failed before textline merge: '
+                    f'{type(e).__name__}: {e}'
+                )
+
+        if defer_textline_merge:
+            return ctx
+        return await self._stage_pre_textline_merge(config, ctx)
+
+    async def _stage_pre_textline_merge(self, config: Config, ctx: Context) -> Context:
+        """Finish CPU-side merge/filter/dictionary work after GPU OCR."""
         # -- Textline merge
         await self._report_progress('textline_merge')
         try:
@@ -878,6 +920,14 @@ class MangaTranslator:
             if not self.ignore_errors:
                 raise
             ctx.text_regions = [] # Fallback to empty text_regions if textline merge fails
+
+        if not ctx.text_regions:
+            await self._report_progress('skip-no-text', True)
+            await notify_batch_page_skipped(config.translator)
+            ctx.result = ctx.upscaled
+            ctx = await self._revert_upscale(config, ctx)
+            ctx._pipeline_done = True
+            return ctx
 
         if self.verbose and ctx.text_regions:
             show_panels = not config.force_simple_sort  # 当不使用简单排序时显示panel
@@ -1098,8 +1148,15 @@ class MangaTranslator:
                 logger.error(f"Error saving final.png debug image: {e}")
                 logger.debug(f"Exception details: {traceback.format_exc()}")
 
-        # Web流式模式优化：保存final.png并使用占位符
-        if ctx.result and not self.result_sub_folder and hasattr(self, '_is_streaming_mode') and self._is_streaming_mode:
+        # Web 流式模式才保存 final.png 並回傳佔位圖。這必須讀取本次請求的
+        # config；MangaTranslator instance 會被所有並發請求共用，若讀取
+        # self._is_streaming_mode，網站請求會把 Discord ZIP 的真實成品競爭成
+        # 1x1 佔位圖。
+        if (
+            ctx.result
+            and not self.result_sub_folder
+            and bool(getattr(config, '_web_frontend_optimized', False))
+        ):
             # 保存final.png文件
             final_img = np.array(ctx.result)
             if len(final_img.shape) == 3:  # 彩色图片，转换BGR顺序
@@ -1376,11 +1433,6 @@ class MangaTranslator:
     async def _run_textline_merge(self, config: Config, ctx: Context):
         current_time = time.time()
         self._model_usage_timestamps[("textline_merge", "textline_merge")] = current_time
-        text_regions = await dispatch_textline_merge(ctx.textlines, ctx.img_rgb.shape[1], ctx.img_rgb.shape[0],
-                                                     img_rgb=ctx.img_rgb, verbose=self.verbose)
-        for region in text_regions:
-            if not hasattr(region, "text_raw"):
-                region.text_raw = region.text      # <- Save the initial OCR results to expand the render detection box. Also, prevent affecting the forbidden translation function.       
         # Filter out languages to skip  
         if config.translator.skip_lang is not None:  
             skip_langs = [lang.strip().upper() for lang in config.translator.skip_lang.split(',')]  
@@ -1404,8 +1456,24 @@ class MangaTranslator:
                 filtered_textlines.append(txtln)  
             ctx.textlines = filtered_textlines  
     
-        text_regions = await dispatch_textline_merge(ctx.textlines, ctx.img_rgb.shape[1], ctx.img_rgb.shape[0],
-                                                     img_rgb=ctx.img_rgb, verbose=self.verbose)
+        bubbles_override = (
+            getattr(ctx, 'bubbles', [])
+            if getattr(ctx, '_bubble_detection_done', False)
+            else None
+        )
+        text_regions = await dispatch_textline_merge(
+            ctx.textlines,
+            ctx.img_rgb.shape[1],
+            ctx.img_rgb.shape[0],
+            img_rgb=ctx.img_rgb,
+            verbose=self.verbose,
+            bubbles_override=bubbles_override,
+        )
+        for region in text_regions:
+            if not hasattr(region, "text_raw"):
+                # Save the initial OCR result for later render-box expansion
+                # without running the expensive bubble-aware merge twice.
+                region.text_raw = region.text
 
         new_text_regions = []
         for region in text_regions:

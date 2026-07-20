@@ -1,3 +1,4 @@
+import asyncio
 import itertools
 import os
 import numpy as np
@@ -308,22 +309,28 @@ def merge_bboxes_text_region(bboxes: List[Quadrilateral], width, height, owner_b
         # yield textlines, colors, bubble owner
         yield txtlns, (fg_r, fg_g, fg_b), (bg_r, bg_g, bg_b), bubble_idx
 
-async def dispatch(textlines: List[Quadrilateral], width: int, height: int,
-                   img_rgb: 'np.ndarray | None' = None, verbose: bool = False) -> List[TextBlock]:
+def _dispatch_sync(textlines: List[Quadrilateral], width: int, height: int,
+                   img_rgb: 'np.ndarray | None' = None, verbose: bool = False,
+                   bubbles_override=None) -> List[TextBlock]:
     # bubble-aware：用 YOLO bubble detector 找氣泡邊界，把跨氣泡的 textline 切開
     # （DBNet 對相鄰氣泡的字常會被啟發式 merge 黏到同一 region）
     owner_by_idx = None
-    bubbles = None
-    if img_rgb is not None and os.environ.get('BUBBLE_AWARE_MERGE', '1') in ('1', 'true', 'True'):
+    bubbles = bubbles_override
+    bubble_aware = os.environ.get('BUBBLE_AWARE_MERGE', '1') in ('1', 'true', 'True')
+    if bubbles is None and img_rgb is not None and bubble_aware:
         try:
-            from ..bubble_detection import detect_bubbles, assign_textlines_to_bubbles
+            from ..bubble_detection import detect_bubbles
             bubbles = detect_bubbles(img_rgb)
-            if bubbles:
-                owner_by_idx = assign_textlines_to_bubbles(textlines, bubbles)
-                grouped = sum(1 for o in owner_by_idx if o >= 0)
-                logger.info(f'[bubble-aware] {len(bubbles)} bubbles | {grouped}/{len(textlines)} textlines 歸入氣泡')
         except Exception as e:
             logger.warning(f'[bubble-aware] failed (fallback to plain merge): {type(e).__name__}: {e}')
+    if bubbles:
+        try:
+            from ..bubble_detection import assign_textlines_to_bubbles
+            owner_by_idx = assign_textlines_to_bubbles(textlines, bubbles)
+            grouped = sum(1 for o in owner_by_idx if o >= 0)
+            logger.info(f'[bubble-aware] {len(bubbles)} bubbles | {grouped}/{len(textlines)} textlines 歸入氣泡')
+        except Exception as e:
+            logger.warning(f'[bubble-aware] assignment failed (fallback to plain merge): {type(e).__name__}: {e}')
 
     text_regions: List[TextBlock] = []
     for (txtlns, fg_color, bg_color, bubble_idx) in merge_bboxes_text_region(
@@ -403,3 +410,18 @@ async def dispatch(textlines: List[Quadrilateral], width: int, height: int,
     # Keep OCR/translation regions granular. Coalescing happens after translation,
     # otherwise noisy OCR from tiny in-bubble marks can poison the LLM sentence.
     return text_regions
+
+
+async def dispatch(textlines: List[Quadrilateral], width: int, height: int,
+                   img_rgb: 'np.ndarray | None' = None, verbose: bool = False,
+                   bubbles_override=None) -> List[TextBlock]:
+    """Run CPU merge off the event loop; bubble inference may be precomputed."""
+    return await asyncio.to_thread(
+        _dispatch_sync,
+        textlines,
+        width,
+        height,
+        img_rgb,
+        verbose,
+        bubbles_override,
+    )

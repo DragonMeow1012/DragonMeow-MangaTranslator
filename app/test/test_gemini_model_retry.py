@@ -12,7 +12,10 @@ from manga_translator.translators.gemini_2stage import (
     UnifiedResponse,
     _AllKeys429Error,
     _UnifiedBatchBuffer,
+    _get_key_limiter,
     _is_failed_translation_output,
+    _is_quota_error,
+    _openai_token_param,
 )
 
 
@@ -189,6 +192,67 @@ class GeminiModelRetryTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertIsInstance(future.exception(), _AllKeys429Error)
         self.assertFalse(single_called)
+
+    async def test_cancelled_last_batch_waiter_stops_flush_retries(self):
+        started = asyncio.Event()
+        cancelled = asyncio.Event()
+
+        class SlowTranslator:
+            _batch_size = 1
+            _batch_wait_s = 0
+
+            async def _call_llm_batched(self, batch):
+                started.set()
+                try:
+                    await asyncio.Event().wait()
+                finally:
+                    cancelled.set()
+
+        buffer = _UnifiedBatchBuffer(SlowTranslator())
+        waiter = asyncio.create_task(buffer.submit({'n': 1}))
+        await asyncio.wait_for(started.wait(), timeout=1)
+        waiter.cancel()
+        await asyncio.gather(waiter, return_exceptions=True)
+        await asyncio.wait_for(cancelled.wait(), timeout=1)
+        await asyncio.sleep(0)
+
+        self.assertFalse(buffer._flush_tasks)
+
+    async def test_key_limiter_is_shared_and_caps_same_key(self):
+        active = 0
+        peak = 0
+
+        async def one_call():
+            nonlocal active, peak
+            async with _get_key_limiter('gemini', 'same-secret'):
+                active += 1
+                peak = max(peak, active)
+                await asyncio.sleep(0.01)
+                active -= 1
+
+        with patch.dict(os.environ, {'GEMINI_KEY_CONCURRENCY': '1'}):
+            await asyncio.gather(one_call(), one_call(), one_call())
+
+        self.assertEqual(peak, 1)
+
+    def test_quota_detection_walks_wrapped_exception_chain(self):
+        try:
+            try:
+                raise RuntimeError('429 RESOURCE_EXHAUSTED')
+            except RuntimeError as inner:
+                raise TimeoutError('batch deadline') from inner
+        except TimeoutError as outer:
+            self.assertTrue(_is_quota_error(outer))
+
+    def test_openai_modern_models_use_supported_token_parameter_first(self):
+        self.assertEqual(
+            _openai_token_param('openai', 'https://api.openai.com/v1', 'gpt-5.1'),
+            'max_completion_tokens',
+        )
+        self.assertEqual(
+            _openai_token_param('openrouter', 'https://openrouter.ai/api/v1', 'gpt-5.1'),
+            'max_completion_tokens',
+        )
 
     async def test_model_errors_switch_until_third_distinct_model_succeeds(self):
         translator = self._translator('model-alt-a', 'model-alt-b')

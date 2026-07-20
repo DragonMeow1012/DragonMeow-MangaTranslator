@@ -3,6 +3,7 @@ import unittest
 import numpy as np
 
 from manga_translator.rendering import (
+    _build_bubble_mask_from_regions,
     _has_manual_foreground_color,
     _resolve_region_stroke_width,
     resolve_region_render_colors,
@@ -125,6 +126,29 @@ class RenderColorOverrideTests(unittest.TestCase):
         self.assertFalse(region.adjust_bg_color)
         self.assertFalse(region.disable_font_border)
         self.assertAlmostEqual(_resolve_region_stroke_width(region, fg, bg), 0.2)
+
+    def test_editor_preserves_direct_fullwidth_text_and_literal_brackets(self):
+        region = _region()
+        _apply_edit(
+            region,
+            RegionEdit(id=0, translation='真的嗎？［BR］不是換行'),
+        )
+
+        self.assertEqual(region.translation, '真的嗎？［BR］不是換行')
+
+    def test_balloon_fill_reuses_merge_stage_bubble_boxes(self):
+        region = _region()
+        region._bubble_rects = [(10, 20, 90, 180)]
+
+        mask = _build_bubble_mask_from_regions([region], (200, 100))
+
+        self.assertGreater(np.count_nonzero(mask), 0)
+        self.assertEqual(mask[0, 0], 0)
+        self.assertEqual(mask[100, 50], 255)
+        self.assertEqual(mask[29, 50], 0)
+        self.assertEqual(mask[30, 50], 255)
+        self.assertEqual(mask[100, 19], 0)
+        self.assertEqual(mask[100, 20], 255)
 
 
 if __name__ == '__main__':

@@ -25,6 +25,7 @@ class QueueElement:
             self.image = image
         self.config = config
         self._retries = 0  # idle watchdog 逾時重翻次數（上限 MT_PAGE_RETRIES）
+        self._ocr_retries = 0  # OCR 暫態錯誤獨立計數，優先插隊但不占 LLM batch
 
     def get_image(self)-> Image:
         if isinstance(self.image, str):
@@ -57,6 +58,7 @@ class BatchQueueElement:
         self.config = config
         self.batch_size = batch_size
         self._retries = 0  # idle watchdog 逾時重翻次數（上限 MT_PAGE_RETRIES）
+        self._ocr_retries = 0  # 與單頁任務使用相同的 OCR 暫態錯誤重試策略
 
     async def is_client_disconnected(self) -> bool:
         if await self.req.is_disconnected():
@@ -152,8 +154,6 @@ async def wait_in_queue(task: QueueElement | BatchQueueElement, notify: NotifyTy
                     else:
                         result = await instance.sent(task.image, task.config)
 
-                await executor_instances.free_executor(instance)
-
                 if notify:
                     return
                 else:
@@ -163,7 +163,6 @@ async def wait_in_queue(task: QueueElement | BatchQueueElement, notify: NotifyTy
                 # Idle watchdog 觸發：worker 超過 MT_IDLE_TIMEOUT 秒連心跳都沒吐 → 視為卡死。
                 # 先釋放 slot（否則 busy 永久 leak、整個佇列停擺），再把這頁「插隊到最前面」重翻
                 # （使用者要求：單張逾時直接重新插隊優先翻譯）。有重試上限避免真壞頁無限迴圈。
-                await executor_instances.free_executor(instance)
                 _idle = os.getenv('MT_IDLE_TIMEOUT', '30')
                 _max = int(os.getenv('MT_PAGE_RETRIES', '3'))
                 if task._retries < _max:
@@ -181,8 +180,25 @@ async def wait_in_queue(task: QueueElement | BatchQueueElement, notify: NotifyTy
                     raise HTTPException(504, detail=error_msg)
 
             except Exception as e:
-                # 确保实例被释放
-                await executor_instances.free_executor(instance)
+                # OCR timeout / 模型暫態錯誤：這頁尚未進 LLM buffer，不會卡住已完成的頁。
+                # 插到 queue 最前面有限次重試；用獨立計數避免吃掉 idle watchdog 配額。
+                error_lower = f'{type(e).__name__}: {e}'.lower()
+                ocr_retry_max = max(0, int(os.getenv('MT_OCR_RETRIES', '2')))
+                if 'ocr' in error_lower:
+                    if task._ocr_retries < ocr_retry_max:
+                        task._ocr_retries += 1
+                        task_queue.add_task(task, priority=True)
+                        if notify:
+                            notify(
+                                1,
+                                f'OCR 失敗，優先重試（第 {task._ocr_retries}/{ocr_retry_max} 次）'.encode('utf-8'),
+                            )
+                        continue
+
+                    # 有限次 OCR 重試仍失敗：這頁交回 Bot 的 retry round，但先把它
+                    # 標成此 group 已完成，讓同一本其餘成功頁的尾批立刻放行。
+                    from manga_translator.translators import notify_batch_page_skipped
+                    await notify_batch_page_skipped(task.config.translator)
 
                 # 如果是连接错误，发送友好的错误消息
                 if "Cannot connect to host" in str(e) or "Connection refused" in str(e):
@@ -195,5 +211,10 @@ async def wait_in_queue(task: QueueElement | BatchQueueElement, notify: NotifyTy
                     return
                 else:
                     raise HTTPException(500, detail=error_msg)
+            finally:
+                # Cancellation (including the job wall-clock watchdog) is a
+                # BaseException, so the old except blocks skipped every slot
+                # release and could permanently shrink the worker pool.
+                await executor_instances.free_executor(instance)
         else:
             await task_queue.wait_for_event()
