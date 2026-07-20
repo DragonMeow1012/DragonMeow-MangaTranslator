@@ -315,18 +315,6 @@ class BatchedTextResponse(BaseModel):
     pages: list[BatchedTextPageResult] = Field(description="Per-page text translations")
 
 
-class _AllKeys429Error(RuntimeError):
-    """One model exhausted every configured key; attachment flow should change model."""
-
-    def __init__(self, model: str, n_keys: int, cause: Exception):
-        super().__init__(
-            f'429 RESOURCE_EXHAUSTED: all {n_keys} API keys exhausted '
-            f'for model={model}: {cause}'
-        )
-        self.model = model
-        self.n_keys = n_keys
-
-
 def _is_quota_error(exc: BaseException) -> bool:
     """Recognize quota errors even when an outer timeout/wrapper kept the cause."""
     seen: set[int] = set()
@@ -508,29 +496,16 @@ class _UnifiedBatchBuffer:
                 if not fut.done():
                     fut.set_result(bboxes)
             return
-        except _AllKeys429Error as e:
-            if text_batch:
-                # 純文字頁由 translate() 後段依頁切換 fallback model；不要把同一個
-                # 已耗盡模型再拆成 N 頁重掃一次所有 key。
-                self._t.logger.warning(
-                    f'Text Batch LLM 全 key 429（{len(batch)} 頁），改由各頁切下一模型'
-                )
-                for fut, payload in batch:
-                    if not fut.done():
-                        fut.set_result([''] * len(payload.get('src_texts') or []))
-                return
-            # 所有 key 都是 quota error 時，拆單頁只會把同一模型的 key 再掃一次。
-            # 直接交給各頁 _unified_call，讓附件模型鏈切下一個模型。
-            self._t.logger.warning(
-                f'Batch LLM 全 key 429（{len(batch)} 頁），'
-                '跳過同模型單頁 retry，改切下一模型'
-            )
-            for fut, _ in batch:
-                if not fut.done():
-                    fut.set_exception(e)
-            return
         except Exception as e:
             label = 'Text Batch LLM' if text_batch else 'Batch LLM'
+            if _is_quota_error(e):
+                self._t.logger.warning(
+                    f'{label} 配額用盡（{len(batch)} 頁）；維持使用者設定模型並將頁面標記失敗'
+                )
+                for fut, _ in batch:
+                    if not fut.done():
+                        fut.set_exception(e)
+                return
             self._t.logger.warning(
                 f'{label} 失敗（{len(batch)} 頁）: {type(e).__name__}: {str(e)[:120]}; 拆單頁 retry'
             )
@@ -605,9 +580,6 @@ class Gemini2StageTranslator(CommonTranslator):
         # unified vision call 用 refine_model（必須 vision-capable）；
         # Stage 3 校對複查用 translate_model（純文字）。同一 model 也行。
         self.refine_model, self.translate_model = GEMINI_VISION_MODEL, GEMINI_MODEL
-        # Request-local fallback；只有 DCbot 的附件 payload 會帶入。主模型加這裡
-        # 最多兩個不同模型，避免私人 web 或並發請求互相污染設定。
-        self._retry_models: List[str] = []
         self.max_tokens = max_tokens
         # 可用 env GEMINI_2STAGE_TEMP 覆寫（避免 0.0 模板化、太高 JSON 不穩）
         env_temp = os.getenv('GEMINI_2STAGE_TEMP')
@@ -702,35 +674,6 @@ class Gemini2StageTranslator(CommonTranslator):
         model = (getattr(args, 'llm_model', None) or '').strip()
         if model:
             self.refine_model = self.translate_model = model
-            # 對齊穩定版 bot：unified call 「有送圖」時是 vision call，模型必須 vision-capable。
-            # gemini provider 卻選了非 vision 的模型（如 gemma-*）+ 送圖開關開著 → 送圖給非 vision 的
-            # Gemma 會讓 Google 回 500 INTERNAL → 整頁漏翻。此情況把「看圖階段」改回 GEMINI_VISION_MODEL。
-            # 注意：若使用者關掉「傳圖給 AI」開關（self._send_image=False），unified call 本來就 text-only
-            # （line 607 把 image 設 None），Gemma 純文字沒問題 → 不需強制換 vision 模型，尊重該開關。
-            if self._send_image and self._provider == 'gemini' and not model.lower().startswith('gemini'):
-                self.refine_model = GEMINI_VISION_MODEL
-                self.logger.warning(
-                    f'vision 階段不可用非 vision 模型 {model!r} → 看圖改用 {GEMINI_VISION_MODEL!r}，'
-                    f'{model!r} 只用於文字翻譯階段（否則 vision call 會 500 INTERNAL → 漏翻）'
-                )
-
-        raw_retry_models = getattr(args, 'llm_retry_models', None) or []
-        if isinstance(raw_retry_models, str):
-            raw_retry_models = raw_retry_models.split(',')
-        self._retry_models = []
-        if self._provider == 'gemini':
-            seen_models = {
-                self.refine_model.casefold(), self.translate_model.casefold(),
-            }
-            for retry_model in raw_retry_models:
-                retry_model = str(retry_model or '').strip()
-                retry_model_key = retry_model.casefold()
-                if not retry_model or retry_model_key in seen_models:
-                    continue
-                seen_models.add(retry_model_key)
-                self._retry_models.append(retry_model)
-                if len(self._retry_models) >= 2:
-                    break
 
     @staticmethod
     def _collect_api_keys() -> List[str]:
@@ -1101,7 +1044,6 @@ class Gemini2StageTranslator(CommonTranslator):
         self, model, system_instruction: str, user_text: str,
         image_data=None, temperature: float = 0.0, schema=None,
         image_data_list=None, max_tokens_override: 'int | None' = None,
-        fail_fast_on_all_429: bool = False,
     ):
         """
         Async LLM call。每次呼叫 round-robin 起始 key、retry 503 / 換下個 key for 429。
@@ -1113,7 +1055,6 @@ class Gemini2StageTranslator(CommonTranslator):
         - image_data_list: list of (bytes, mime)；給 batch vision call 帶多張圖（C1 提速）
         - max_tokens_override: 覆寫 self.max_tokens（batch 時動態拉高）
         - schema: pydantic BaseModel class，用於 JSON 結構化輸出
-        - fail_fast_on_all_429: 所有 key 都回 429 時不做整輪退避，立即交給外層換模型
 
         一律走雲端 Gemini native（google-genai SDK，可關 safety、R-18 不被擋）。
         """
@@ -1144,7 +1085,6 @@ class Gemini2StageTranslator(CommonTranslator):
         while True:
             all_503_this_round = True
             any_429_this_round = False
-            keys_429_this_round = 0
             any_500_this_round = False
             max_429_delay = 0.0
             for offset in range(n_keys):
@@ -1195,7 +1135,6 @@ class Gemini2StageTranslator(CommonTranslator):
                     if is_429:
                         all_503_this_round = False  # 不是 503 storm，是 quota
                         any_429_this_round = True
-                        keys_429_this_round += 1
                         # 解析伺服器要求的等待秒數（"Please retry in 25.3s" / "retryDelay': '25s'"）
                         m = (re.search(r'retry in ([\d.]+)\s*s', msg, re.I)
                              or re.search(r"retryDelay['\"]?\s*[:=]\s*['\"]?(\d+)", msg))
@@ -1226,15 +1165,6 @@ class Gemini2StageTranslator(CommonTranslator):
                 )
                 await asyncio.sleep(5.0)
                 continue
-            # /translate-img 附件有不同模型鏈：本輪所有 key 都已確認 429 時，繼續等同一
-            # 模型只會把單頁拖數分鐘。直接 raise，讓 _unified_call 立刻切下一個模型。
-            # 未帶模型鏈（私人 web / 舊路線）仍保留原本的配額退避。
-            if fail_fast_on_all_429 and keys_429_this_round == n_keys:
-                self.logger.warning(
-                    f'Gemini 全部 {n_keys} 個 key 皆 429 (model={model})，立即切換下一模型'
-                )
-                assert last_err is not None
-                raise _AllKeys429Error(model, n_keys, last_err) from last_err
             # 全 key 配額 429 → 等伺服器要求的秒數（或退避）再重試，而非直接漏翻。
             # 配 並發=1 一張一張處理時，這個等待讓「每分鐘配額」回復後該頁仍翻得出來。
             if any_429_this_round and _429_rounds < _MAX_429_ROUNDS:
@@ -1653,20 +1583,19 @@ class Gemini2StageTranslator(CommonTranslator):
             )
         return '\n'.join(lines)
 
-    async def _call_llm_single(self, payload: dict, *, model: str | None = None) -> list:
+    async def _call_llm_single(self, payload: dict) -> list:
         """單頁 unified vision call → bboxes 列表。失敗 raise（caller 處理 GT fallback）。
         timeout = self._vision_timeout_s（env GEMINI_2STAGE_VISION_TIMEOUT，預設 90s）。
         包 retry/換 key/503 storm 兜底（在 _gemini_json_call 裡）。
         """
         response = await asyncio.wait_for(
             self._gemini_json_call(
-                model=model or self.refine_model,
+                model=self.refine_model,
                 system_instruction=payload['system_instruction'],
                 user_text=payload['directive'],
                 image_data=payload['img_data'],
                 temperature=self.translate_temperature,
                 schema=UnifiedResponse,
-                fail_fast_on_all_429=bool(self._retry_models),
             ),
             timeout=self._vision_timeout_s,
         )
@@ -1731,7 +1660,6 @@ class Gemini2StageTranslator(CommonTranslator):
                 temperature=self.translate_temperature,
                 schema=BatchedUnifiedResponse,
                 max_tokens_override=self._batch_max_tokens_per_page * n_pages,
-                fail_fast_on_all_429=bool(self._retry_models),
             ),
             timeout=90.0 + 15.0 * n_pages,
         )
@@ -1789,7 +1717,6 @@ class Gemini2StageTranslator(CommonTranslator):
                 temperature=self.translate_temperature,
                 schema=BatchedTextResponse,
                 max_tokens_override=self._batch_max_tokens_per_page * n_pages,
-                fail_fast_on_all_429=bool(self._retry_models),
             ),
             timeout=self._text_timeout_s + 10.0 * n_pages,
         )
@@ -1897,9 +1824,7 @@ class Gemini2StageTranslator(CommonTranslator):
             'n': n,
             'batch_total_pages': self._batch_total_pages,
         }
-        attempted_models = {self.refine_model}
         call_error: Exception | None = None
-        primary_call_error: Exception | None = None
         try:
             if self._batch_size > 1:
                 # Batch 模式：滿 N 或 wait_ms 到 → 一個多頁 vision call；失敗 buffer 拆單頁 retry
@@ -1916,35 +1841,10 @@ class Gemini2StageTranslator(CommonTranslator):
                 bboxes = await self._call_llm_single(payload)
         except Exception as e:
             call_error = e
-            primary_call_error = e
-
-        # DCbot 附件 opt-in：主模型整頁呼叫失敗時，先換最多兩個不同模型；
-        # 三個模型都失敗後，才原封不動接回下方既有 quota / GT fallback。
-        if call_error is not None:
-            for retry_no, retry_model in enumerate(self._retry_models, 2):
-                attempted_models.add(retry_model)
-                self.logger.warning(
-                    f'Unified call 模型失敗，換 {retry_model} 重試 '
-                    f'({retry_no}/{1 + len(self._retry_models)})'
-                )
-                try:
-                    # Batch buffer 綁定主模型；fallback 改走單頁，確保真的使用指定模型。
-                    bboxes = await self._call_llm_single(payload, model=retry_model)
-                except Exception as retry_error:
-                    call_error = retry_error
-                    self.logger.warning(
-                        f'Unified retry model={retry_model} 失敗: '
-                        f'{type(retry_error).__name__}: {retry_error}'
-                    )
-                    continue
-                call_error = None
-                break
 
         if call_error is not None:
-            # Gemini 整批失敗（PROHIBITED_CONTENT silent block / quota 用完 / 空 content 等）。
-            # fallback 分類必須維持修改前的主模型語意；不能因最後一個替代模型剛好
-            # 回 429 或 DNS error，就偶然改變原本該走的整頁重試／GT 路徑。
-            e = primary_call_error or call_error
+            # 僅依使用者設定的模型處理；不自動切換其他模型。
+            e = call_error
             self.logger.warning(
                 f'Unified call 失敗: {type(e).__name__}: {e}'
             )
@@ -1963,7 +1863,6 @@ class Gemini2StageTranslator(CommonTranslator):
         ocr_texts: dict[int, str] = {}
         translations: list[str] = [''] * n
         explicit_skip: set[int] = set()
-        invalid_idx: set[int] = set()
         self.logger.info(f'[Unified raw] LLM 回了 {len(bboxes)} 筆')
         for r in bboxes:
             if not (0 <= r.bbox_id < n):
@@ -2001,11 +1900,6 @@ class Gemini2StageTranslator(CommonTranslator):
                 # 純符號格子（…、…？、!?）本來就不用翻，合法保留原文。
                 t = src_text
             elif _is_failed_translation_output(t):
-                if self._retry_models:
-                    # 結構欄位／模板洩漏是模型失敗，不可回填原文偽裝成功。
-                    invalid_idx.add(r.bbox_id)
-                    continue
-                # 未 opt-in（私人 web）維持既有行為。
                 t = src_text
             if t:
                 translations[r.bbox_id] = t
@@ -2015,61 +1909,6 @@ class Gemini2StageTranslator(CommonTranslator):
             src_text = (ocr_texts.get(i) or query_regions[i].text or '').strip()
             if not translations[i].strip() and _is_symbol_only(src_text):
                 translations[i] = src_text
-
-        # 對高信心結構／編碼亂碼或漏格，拿同一張附件改跑下一個 vision model。
-        # translation == source 不算失敗，避免誤傷 SFX、專名或本來就相同的字串。
-        # 每個 request 最多使用三個不同模型。
-        pending_invalid = {
-            i for i in invalid_idx if not translations[i].strip()
-        }
-        pending_invalid.update(
-            i for i in range(n)
-            if not translations[i].strip()
-            and i not in explicit_skip
-            and not _should_passthrough_sfx_region(query_regions[i])
-            and (ocr_texts.get(i) or query_regions[i].text or '').strip()
-        )
-        for retry_model in self._retry_models:
-            if not pending_invalid or retry_model in attempted_models:
-                continue
-            attempted_models.add(retry_model)
-            self.logger.warning(
-                f'偵測到 {len(pending_invalid)} 格翻譯失敗／結構亂碼，'
-                f'改用 {retry_model} 重跑附件 '
-                f'({len(attempted_models)}/{1 + len(self._retry_models)})'
-            )
-            try:
-                retry_bboxes = await self._call_llm_single(payload, model=retry_model)
-            except Exception as retry_error:
-                self.logger.warning(
-                    f'附件 retry model={retry_model} 失敗: '
-                    f'{type(retry_error).__name__}: {retry_error}'
-                )
-                continue
-
-            for r in retry_bboxes:
-                region_idx = r.bbox_id
-                if region_idx not in pending_invalid or not (0 <= region_idx < n):
-                    continue
-                src_text = (query_regions[region_idx].text or '').strip()
-                corrected = (r.corrected_text or '').replace('\n', ' ').strip()
-                candidate = (r.translated_text or '').replace('\n', ' ').strip()
-                corrected, candidate = _strip_bbox_bleed(
-                    src_text, corrected, candidate, query_regions[region_idx],
-                )
-                corrected = _PROMPT_TAG_RE.sub('', corrected).strip()
-                candidate = _PROMPT_TAG_RE.sub('', candidate).strip()
-                if corrected and not _is_failed_translation_output(corrected):
-                    ocr_texts[region_idx] = corrected
-                if (
-                    not candidate
-                    or candidate.upper().strip('[]') == 'SKIP'
-                    or _is_failed_translation_output(candidate)
-                ):
-                    continue
-                # 相同字串是合法結果；這裡刻意不比較 candidate 與 src_text。
-                translations[region_idx] = candidate
-                pending_invalid.discard(region_idx)
 
         # ---- LLM 漏翻補救：unified 成功但漏掉某些 bbox_id（PROHIBITED_CONTENT 導致 LLM
         #      回 valid JSON 但少 bbox 是常見情況，response.bboxes=[] 也會走到這） ----
@@ -2261,7 +2100,6 @@ JSON: bboxes array, each {{bbox_id, corrected_text, translated_text}}. Every bbo
 
     async def _gemini_text_fill(
         self, src_texts: List[str], from_lang: str, to_lang: str,
-        *, model: str | None = None,
     ) -> List[str]:
         """純文字 Gemini 翻譯，補 vision call 漏掉的 bbox。失敗回等長空字串 list。
 
@@ -2296,13 +2134,12 @@ JSON: bboxes array, each {{bbox_id, corrected_text, translated_text}}. Every bbo
         try:
             resp = await asyncio.wait_for(
                 self._gemini_json_call(
-                    model=model or self.translate_model,
+                    model=self.translate_model,
                     # 純文字專用精簡 system prompt（不再灌整套 vision「看圖」指令 → 省 token、少 429、不亂讀）
                     system_instruction=self._get_text_only_system_instruction(from_lang, to_lang),
                     user_text=directive + payload,
                     temperature=self.translate_temperature,
                     schema=self.translate_response_schema,
-                    fail_fast_on_all_429=bool(self._retry_models),
                 ),
                 timeout=self._text_timeout_s,
             )
@@ -2318,10 +2155,7 @@ JSON: bboxes array, each {{bbox_id, corrected_text, translated_text}}. Every bbo
                 if _is_symbol_only(src_t):
                     t = src_t  # 純符號格子合法 passthrough
                 elif _is_failed_translation_output(t):
-                    if self._retry_models:
-                        # 保持空值，讓 caller 換不同模型；不能偽裝成合法原文。
-                        continue
-                    t = src_t  # 未 opt-in（私人 web）維持舊行為
+                    t = src_t
                 if t and t.upper().strip('[]') != 'SKIP':
                     out[r.text_id] = t
         return out
@@ -2390,15 +2224,9 @@ JSON: bboxes array, each {{bbox_id, corrected_text, translated_text}}. Every bbo
         refine_sentences = [ocr_texts.get(i, '') for i in range(n)]
         refine_sentences = self.process_refine_output(refine_sentences)
 
-        # ---- 翻譯失敗重試：舊路線同模型最多三次；附件 opt-in 則改用不同模型。----
-        # vision 附件在 _unified_call 已把主模型 + 最多兩個 fallback 都試完，這裡直接走
-        # 既有 GT／原文保底，不能再拿主模型重打三次。
-        retry_models: list[str | None]
-        if self._retry_models:
-            retry_models = list(self._retry_models) if not self._send_image else []
-        else:
-            retry_models = [None, None, None]
-        for attempt, retry_model in enumerate(retry_models, 1):
+        # ---- 翻譯失敗重試：只重試使用者設定的同一模型。----
+        retry_count = 3
+        for attempt in range(1, retry_count + 1):
             missing = [
                 i for i in range(n)
                 if not translations[i].strip() and i not in explicit_skip
@@ -2406,17 +2234,13 @@ JSON: bboxes array, each {{bbox_id, corrected_text, translated_text}}. Every bbo
             ]
             if not missing:
                 break
-            retry_total = len(retry_models)
-            model_note = f'，model={retry_model}' if retry_model else ''
             self.logger.info(
-                f'[retry {attempt}/{retry_total}] {len(missing)} 個 region 譯文為空，'
-                f'重試補譯{model_note}'
+                f'[retry {attempt}/{retry_count}] {len(missing)} 個 region 譯文為空，'
+                f'使用設定模型 {self.translate_model} 重試補譯'
             )
             src = [(refine_sentences[i] or query_regions[i].text or '').strip() for i in missing]
             try:
-                fill = await self._gemini_text_fill(
-                    src, from_lang, to_lang, model=retry_model,
-                )
+                fill = await self._gemini_text_fill(src, from_lang, to_lang)
             except Exception as e:
                 self.logger.warning(f'[retry] 補譯失敗: {type(e).__name__}: {e}')
                 # Quota exhaustion is temporary. Mark the page failed instead

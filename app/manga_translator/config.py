@@ -265,8 +265,6 @@ class TranslatorConfig(BaseModel):
     """LLM API key override (web UI input). Comma-separate multiple keys for rotation."""
     llm_model: Optional[str] = None
     """LLM model override (web UI input)."""
-    llm_retry_models: Optional[List[str]] = None
-    """Ordered per-request fallback models used after an LLM failure or malformed output."""
     batch_group: Optional[str] = Field(default=None, max_length=160)
     """Book-scoped ID. Only pages carrying the exact same ID may share one LLM request."""
     batch_total_pages: Optional[int] = Field(default=None, ge=1, le=1000)
