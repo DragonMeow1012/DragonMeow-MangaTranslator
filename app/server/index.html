@@ -1039,6 +1039,24 @@
             <h3 class="text-lg font-semibold text-gray-800">
               <i class="iconify inline-block mr-1" data-icon="carbon:edit"></i>{{ t('editorTitle') }}
             </h3>
+            <div class="flex items-center gap-1 ml-1">
+              <button @click="switchEditorImage(-1)"
+                      :disabled="!canSwitchEditorPrevious || editorSwitching || editorRendering"
+                      :title="t('previousEditImage')"
+                      class="flex items-center gap-1 px-2 py-1 text-sm bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200 border border-gray-300 disabled:opacity-30 disabled:hover:bg-gray-100">
+                <i class="iconify" data-icon="carbon:chevron-left"></i>
+                <span class="hidden xl:inline">{{ t('previousEditImage') }}</span>
+              </button>
+              <span class="min-w-[3.5rem] text-center text-xs text-gray-500"
+                    :title="editorImageName">{{ editorImagePosition }}</span>
+              <button @click="switchEditorImage(1)"
+                      :disabled="!canSwitchEditorNext || editorSwitching || editorRendering"
+                      :title="t('nextEditImage')"
+                      class="flex items-center gap-1 px-2 py-1 text-sm bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200 border border-gray-300 disabled:opacity-30 disabled:hover:bg-gray-100">
+                <span class="hidden xl:inline">{{ t('nextEditImage') }}</span>
+                <i class="iconify" data-icon="carbon:chevron-right"></i>
+              </button>
+            </div>
             <div class="flex items-center gap-1 ml-2">
               <button @click="undoEdit" :disabled="!canUndo" :title="t('undo')"
                       class="p-1.5 text-gray-700 rounded-md hover:bg-gray-200 disabled:opacity-30 disabled:hover:bg-transparent">
@@ -1565,6 +1583,8 @@
           advancedMode: '進階編輯',
           advancedTooltip: '開啟後翻譯完可逐框微調譯文、字級、顏色、位置並重新渲染',
           editorTitle: '進階編輯',
+          previousEditImage: '上一張',
+          nextEditImage: '下一張',
           holdOriginal: '按住看原圖',
           holdOriginalTooltip: '按住不放顯示原圖，放開回到譯文，方便比對',
           viewingOriginal: '原圖（放開回譯文）',
@@ -1755,6 +1775,8 @@
           advancedMode: '高级编辑',
           advancedTooltip: '开启后翻译完可逐框微调译文、字号、颜色、位置并重新渲染',
           editorTitle: '高级编辑',
+          previousEditImage: '上一张',
+          nextEditImage: '下一张',
           holdOriginal: '按住看原图',
           holdOriginalTooltip: '按住不放显示原图，松开回到译文，方便比对',
           viewingOriginal: '原图（松开回译文）',
@@ -1945,6 +1967,8 @@
           advancedMode: 'Advanced Edit',
           advancedTooltip: 'When on, after translating you can tweak each text box (translation, size, color, position) and re-render',
           editorTitle: 'Advanced Edit',
+          previousEditImage: 'Previous',
+          nextEditImage: 'Next',
           holdOriginal: 'Hold to see original',
           holdOriginalTooltip: 'Press and hold to show the original image, release to go back to the translation',
           viewingOriginal: 'Original (release to go back)',
@@ -2135,6 +2159,8 @@
           advancedMode: '詳細編集',
           advancedTooltip: 'オンにすると翻訳後に各テキスト枠（訳文・サイズ・色・位置）を調整して再レンダリングできます',
           editorTitle: '詳細編集',
+          previousEditImage: '前の画像',
+          nextEditImage: '次の画像',
           holdOriginal: '長押しで原画',
           holdOriginalTooltip: '長押しで原画を表示、離すと訳文に戻る（比較用）',
           viewingOriginal: '原画（離すと訳文）',
@@ -2342,6 +2368,8 @@
         advancedMode: false,
         editorOpen: false,
         editorFolder: null,
+        editorSwitching: false,
+        editorDrafts: {},
         editorRegions: [],
         editorPreviewUrl: '',
         showOriginal: false,
@@ -2383,6 +2411,23 @@
               String(b.originalName || ''), undefined, { numeric: true, sensitivity: 'base' });
           });
           return arr;
+        },
+        get editorImageIndex() {
+          return this.sortedFinishedImages.findIndex(
+            image => this.folderFromUrl(image.result) === this.editorFolder);
+        },
+        get canSwitchEditorPrevious() { return this.editorImageIndex > 0; },
+        get canSwitchEditorNext() {
+          const index = this.editorImageIndex;
+          return index >= 0 && index < this.sortedFinishedImages.length - 1;
+        },
+        get editorImagePosition() {
+          const index = this.editorImageIndex;
+          return index >= 0 ? `${index + 1} / ${this.sortedFinishedImages.length}` : '';
+        },
+        get editorImageName() {
+          const image = this.sortedFinishedImages[this.editorImageIndex];
+          return image ? (image.originalName || '') : '';
         },
         get workerVramEstimate() {
           // 粗估：每 worker ~3.5GB（detector+OCR+inpainter）；開放大/上色再 +~2GB/worker。
@@ -4077,34 +4122,60 @@
     _editsKey(folder) { return `manga-edits-${folder}`; },
     saveEditsLocal() {
       if (!this.editorFolder) return;
+      const draft = JSON.parse(JSON.stringify({
+        edits: this._collectEdits(), patches: this.editorPatches,
+        customs: this.editorRegions.filter(r => r.custom),
+      }));
+      // 記憶體保留可避免 localStorage 配額已滿時，切圖仍遺失本次編輯。
+      this.editorDrafts[this.editorFolder] = draft;
       try {
-        localStorage.setItem(this._editsKey(this.editorFolder),
-          JSON.stringify({
-            edits: this._collectEdits(), patches: this.editorPatches,
-            customs: this.editorRegions.filter(r => r.custom),
-          }));
+        localStorage.setItem(this._editsKey(this.editorFolder), JSON.stringify(draft));
       } catch (e) { /* 配額滿等忽略 */ }
     },
     loadEditsLocal(folder) {
+      if (Object.prototype.hasOwnProperty.call(this.editorDrafts, folder)) {
+        return JSON.parse(JSON.stringify(this.editorDrafts[folder]));
+      }
       try {
         const s = localStorage.getItem(this._editsKey(folder));
         return s ? JSON.parse(s) : null;
       } catch (e) { return null; }
     },
     clearEditsLocal(folder) {
+      delete this.editorDrafts[folder];
       try { localStorage.removeItem(this._editsKey(folder)); } catch (e) {}
     },
 
+    // 依成果圖庫目前的排序切換；切換前先同步保存這一張的完整草稿。
+    async switchEditorImage(step) {
+      if ((step !== -1 && step !== 1) || this.editorSwitching || this.editorRendering) return;
+      const images = this.sortedFinishedImages;
+      const index = this.editorImageIndex;
+      if (index < 0) return;
+      const target = images[index + step];
+      const folder = target && this.folderFromUrl(target.result);
+      if (!folder || folder === this.editorFolder) return;
+
+      this.saveEditsLocal();
+      this.editorSwitching = true;
+      try {
+        await this.openEditor(folder);
+      } finally {
+        this.editorSwitching = false;
+      }
+    },
+
     async openEditor(folder) {
-      if (!folder) return;
+      if (!folder) return false;
       try {
         const resp = await fetch(`${BASE_URI}edit/state/${folder}`);
         if (!resp.ok) {
           const err = await resp.json().catch(() => ({}));
           alert(this.t('editorLoadFailed') + (err.detail ? `: ${err.detail}` : ''));
-          return;
+          return false;
         }
         const data = await resp.json();
+        if (this.editorBlob && this.editorPreviewUrl) URL.revokeObjectURL(this.editorPreviewUrl);
         this.editorFolder = folder;
         this.editorDefaultBackgroundEnabled = !!data.default_background_enabled;
         this.editorDefaultBackgroundColor = '#ffffff';
@@ -4144,9 +4215,11 @@
         } else {
           this.resetHistory();
         }
+        return true;
       } catch (e) {
         console.warn('open editor failed:', e);
         alert(this.t('editorLoadFailed'));
+        return false;
       }
     },
 
