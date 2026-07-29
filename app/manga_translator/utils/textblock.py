@@ -236,6 +236,14 @@ class TextBlock(object):
         y2 = np.clip(y2, 0, im_h)
         img_croped = img[y1: y2, x1: x2]
 
+        # 退化的文字框（clip 后零宽/零高，或整框落在图外）会让 warpPerspective 触发
+        # (-215) _src.total() > 0 断言，返回安全空白区域。
+        if img_croped.size == 0:
+            side = max(int(textheight) if textheight else 2, 2)
+            ch = img.shape[2] if img.ndim == 3 else 1
+            shape = (side, side, ch) if img.ndim == 3 else (side, side)
+            return np.zeros(shape, dtype=img.dtype)
+
         direction = 'v' if self.src_is_vertical else 'h'
 
         src_pts = line.copy()

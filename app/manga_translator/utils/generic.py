@@ -459,16 +459,30 @@ class Quadrilateral(object):
         # cv2.warpPerspective could overflow if image size is too large, better crop it here
         img_croped = img[y1: y2, x1: x2]
 
-        
+
         src_pts[:, 0] -= x1
         src_pts[:, 1] -= y1
 
         self.assigned_direction = direction
+
+        # 退化的文字框：clip 后零宽/零高，或整框落在图外，img_croped 会是空数组，
+        # 直接丢给 warpPerspective 会触发 (-215) _src.total() > 0 断言。返回安全空白区域。
+        def _fallback_region() -> np.ndarray:
+            side = max(int(textheight), 2)
+            ch = img.shape[2] if img.ndim == 3 else 1
+            shape = (side, side, ch) if img.ndim == 3 else (side, side)
+            return np.zeros(shape, dtype=img.dtype)
+
+        if img_croped.size == 0:
+            return _fallback_region()
+
         if direction == 'h':
             h = max(int(textheight), 2)
             w = max(int(round(textheight / ratio)), 2)
             dst_pts = np.array([[0, 0], [w - 1, 0], [w - 1, h - 1], [0, h - 1]]).astype(np.float32)
             M, _ = cv2.findHomography(src_pts, dst_pts, cv2.RANSAC, 5.0)
+            if M is None:
+                return _fallback_region()
             region = cv2.warpPerspective(img_croped, M, (w, h))
             return region
         elif direction == 'v':
@@ -476,6 +490,8 @@ class Quadrilateral(object):
             h = max(int(round(textheight * ratio)), 2)
             dst_pts = np.array([[0, 0], [w - 1, 0], [w - 1, h - 1], [0, h - 1]]).astype(np.float32)
             M, _ = cv2.findHomography(src_pts, dst_pts, cv2.RANSAC, 5.0)
+            if M is None:
+                return _fallback_region()
             region = cv2.warpPerspective(img_croped, M, (w, h))
             region = cv2.rotate(region, cv2.ROTATE_90_COUNTERCLOCKWISE)
             return region
